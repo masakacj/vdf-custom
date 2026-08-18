@@ -96,7 +96,10 @@ namespace VDF.GUI.Data {
 			set => this.RaiseAndSetIfChanged(ref _PikPakFolderMergeTargetSelection, value);
 		}
 
-		int _PikPakFolderMergeKeepSelection;
+		// Default to VDF's quality-ranked keeper: the merge planner should replace the
+		// lower-quality copy with the better resource unless the user explicitly picks
+		// a different rule. Index 2 maps to PikPakFolderMergeKeepRule.BestQuality.
+		int _PikPakFolderMergeKeepSelection = 2;
 		/// <summary>Maps to PikPakFolderMergeKeepRule.</summary>
 		public int PikPakFolderMergeKeepSelection {
 			get => _PikPakFolderMergeKeepSelection;
