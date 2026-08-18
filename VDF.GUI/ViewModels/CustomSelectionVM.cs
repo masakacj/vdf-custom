@@ -115,14 +115,15 @@ namespace VDF.GUI.ViewModels {
 			foreach (var option in options)
 				FolderCoverageOptions.Add(option);
 			SelectedFolderCoverage = FolderCoverageOptions.FirstOrDefault();
+			int review = options.Sum(option => option.ReviewOnlyGroupCount);
 			FolderCoverageStatus = options.Count == 0
 				? "当前可见结果中没有跨文件夹的相似资源组。"
-				: $"已整理出 {options.Count:N0} 组目录关系。覆盖率按逻辑资源估算，重复副本不会重复计数；文件数和大小仍完整显示。";
+				: $"已整理出 {options.Count:N0} 组目录关系；其中 {review:N0} 个关系内资源组因 AI/片段/版本差异被设为只复核。确认覆盖率不计这些组；文件数和大小仍完整显示。";
 		});
 
 		/// <summary>
-		/// Editable preview only. The resource-consolidation workflow always uses VDF's
-		/// BEST-quality ranking; users can still change individual checkboxes afterwards.
+		/// Editable preview only. Only confirmed complete-resource groups enter BEST-quality
+		/// selection. AI-only, clip and material edition differences remain untouched.
 		/// </summary>
 		[JsonIgnore]
 		public ReactiveCommand<Unit, Unit> ApplyFolderMergeCommand => ReactiveCommand.Create(() => {
@@ -134,21 +135,24 @@ namespace VDF.GUI.ViewModels {
 			bool swapDirection = Data.PikPakFolderMergeTargetSelection == 1;
 			var (target, source) = SelectedFolderCoverage.ResolveDirection(swapDirection);
 			var (_, sourceCoverage) = SelectedFolderCoverage.ResolveCoverage(swapDirection);
-			int selected = ApplicationHelpers.MainWindowDataContext.RunPikPakFolderMergeSelection(
-				SelectedFolderCoverage, swapDirection, PikPakFolderMergeKeepRule.BestQuality);
+			var result = ApplicationHelpers.MainWindowDataContext.RunPikPakFolderBestSelection(
+				SelectedFolderCoverage, swapDirection);
 
-			string scope = sourceCoverage >= MainWindowVM.WholeSourceCoverageThreshold
-				? $"来源资源覆盖率 {sourceCoverage:0.#}% ≥ 90%，可进一步执行“安全整合”补齐来源独有资源。"
-				: $"来源资源覆盖率仅 {sourceCoverage:0.#}%：只处理已匹配资源，不会移动来源目录中的其他文件。";
-			FolderCoverageStatus = selected > 0
-				? $"BEST 预选：{target} ← {source}；已勾选 {selected:N0} 个低质量/多余版本。{scope}"
-				: $"该目录关系没有产生待淘汰项。{scope}";
+			bool wholeAllowed = MainWindowVM.MayMergeWholeSource(sourceCoverage, result.ReviewOnlyGroups);
+			string scope = wholeAllowed
+				? $"确认来源资源覆盖率 {sourceCoverage:0.#}% ≥ 90%，且没有待复核组，可进一步执行“安全整合”补齐来源独有资源。"
+				: result.ReviewOnlyGroups > 0
+					? $"有 {result.ReviewOnlyGroups:N0} 个资源组必须人工复核；因此禁止整目录补齐，仅允许处理其他已确认匹配资源。"
+					: $"确认来源资源覆盖率仅 {sourceCoverage:0.#}%：只处理已匹配资源，不会移动来源目录中的其他文件。";
+			FolderCoverageStatus = result.Selected > 0
+				? $"BEST 预选：{target} ← {source}；已勾选 {result.Selected:N0} 个低质量/多余版本；待复核 {result.ReviewOnlyGroups:N0} 组未改动。{scope}"
+				: $"没有安全的自动淘汰项；待复核 {result.ReviewOnlyGroups:N0} 组保持原样。{scope}";
 		});
 
 		/// <summary>
-		/// Explicit, confirmed consolidation. It moves BEST keepers into the target and,
-		/// only for a >=90% covered source collection, moves source-only files as well.
-		/// It never deletes losers; they are merely checked for later review/deletion.
+		/// Explicit, confirmed consolidation. It moves BEST keepers only for confirmed
+		/// complete-resource groups. Whole-source union requires >=90% confirmed coverage
+		/// AND zero review-only groups. It never deletes losers.
 		/// </summary>
 		[JsonIgnore]
 		public ReactiveCommand<Unit, Unit> ExecuteFolderConsolidationCommand => ReactiveCommand.CreateFromTask(async () => {
@@ -160,18 +164,31 @@ namespace VDF.GUI.ViewModels {
 			var main = ApplicationHelpers.MainWindowDataContext;
 			bool swapDirection = Data.PikPakFolderMergeTargetSelection == 1;
 			var plan = main.BuildPikPakFolderConsolidationPlan(SelectedFolderCoverage, swapDirection);
+			if (plan.TotalRelatedGroups == 0) {
+				FolderCoverageStatus = "没有可整合或复核的匹配资源。";
+				return;
+			}
 			if (plan.MatchedGroups == 0) {
-				FolderCoverageStatus = "没有可整合的匹配资源。";
+				FolderCoverageStatus = $"这组目录关系的 {plan.ManualReviewGroups:N0} 个相关资源全部属于待复核版本（AI 同源、片段或明显版本差异），不会自动移动或勾选。";
 				return;
 			}
 
-			string wholeSourceLine = plan.WholeSourceEligible
-				? $"来源覆盖率 {plan.SourceCoverage:0.#}% ≥ 90%：另外将补入 {plan.UniqueSourceFiles.Count:N0} 个来源独有文件（{plan.UniqueSourceBytes.BytesToString()}）。"
-				: $"来源覆盖率 {plan.SourceCoverage:0.#}% < 90%：来源未匹配文件全部保持原位。";
+			string wholeSourceLine;
+			if (plan.WholeSourceEligible) {
+				wholeSourceLine = $"确认来源覆盖率 {plan.SourceCoverage:0.#}% ≥ 90%，且无待复核组：另外将补入 {plan.UniqueSourceFiles.Count:N0} 个来源独有文件（{plan.UniqueSourceBytes.BytesToString()}）。";
+			}
+			else if (plan.ManualReviewGroups > 0) {
+				wholeSourceLine = $"待复核 {plan.ManualReviewGroups:N0} 组：即使表面覆盖率较高，也禁止整目录补齐；来源未匹配文件全部保持原位。";
+			}
+			else {
+				wholeSourceLine = $"确认来源覆盖率 {plan.SourceCoverage:0.#}% < 90%：来源未匹配文件全部保持原位。";
+			}
+
 			string message =
 				$"目标合集：{plan.TargetFolder}\n" +
 				$"来源目录：{plan.SourceFolder}\n\n" +
-				$"匹配资源：{plan.MatchedGroups:N0} 组\n" +
+				$"可自动整合：{plan.MatchedGroups:N0} 组\n" +
+				$"只复核、不自动处理：{plan.ManualReviewGroups:N0} 组\n" +
 				$"需要把 BEST 移入目标：{plan.KeeperMoveCount:N0} 个\n" +
 				$"成功后仅勾选、不会自动删除：最多 {plan.LoserCount:N0} 个低质量/多余版本\n" +
 				wholeSourceLine + "\n\n" +
@@ -193,9 +210,9 @@ namespace VDF.GUI.ViewModels {
 			}
 
 			FolderCoverageStatus =
-				$"整合完成：准备 {result.GroupsPrepared:N0}/{plan.MatchedGroups:N0} 个资源组；" +
-				$"BEST 移入 {result.KeeperMovesSucceeded:N0} 个；来源独有文件移入 {result.UniqueMovesSucceeded:N0} 个；" +
-				$"已勾选 {result.SafeLosersMarked:N0} 个待复核低质量版本。" +
+				$"整合完成：准备 {result.GroupsPrepared:N0}/{plan.MatchedGroups:N0} 个确认资源组；" +
+				$"待复核 {plan.ManualReviewGroups:N0} 组未动；BEST 移入 {result.KeeperMovesSucceeded:N0} 个；" +
+				$"来源独有文件移入 {result.UniqueMovesSucceeded:N0} 个；已勾选 {result.SafeLosersMarked:N0} 个待删除复核版本。" +
 				(result.GroupMoveFailures + result.UniqueMoveFailures > 0
 					? $" 有 {result.GroupMoveFailures + result.UniqueMoveFailures:N0} 个移动失败，原文件保持不删，请查看日志。"
 					: " 没有自动删除任何文件。");
