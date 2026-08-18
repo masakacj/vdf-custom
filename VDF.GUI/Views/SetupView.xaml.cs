@@ -14,10 +14,9 @@
 // */
 //
 
-using System.Linq;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Data;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
@@ -29,9 +28,13 @@ using VDF.GUI.ViewModels;
 
 namespace VDF.GUI.Views {
 	public partial class SetupView : UserControl {
+		CheckBox? qualityDiagnosticsCheck;
+		bool syncingQualityDiagnosticsCheck;
+
 		public SetupView() {
 			AvaloniaXamlLoader.Load(this);
 			AttachLightweightQualityOption();
+			DataContextChanged += (_, _) => SyncLightweightQualityOption();
 			// Dropping folders anywhere on the setup screen includes them;
 			// holding Alt while dropping excludes them instead.
 			DragDrop.SetAllowDrop(this, true);
@@ -53,14 +56,17 @@ namespace VDF.GUI.Views {
 			if (startButton?.Parent is not StackPanel scanRow || scanRow.Parent is not StackPanel host)
 				return;
 
-			var check = new CheckBox {
+			var check = qualityDiagnosticsCheck = new CheckBox {
 				Content = "轻量画质诊断（疑似二次转码 / 水印）",
 				FontSize = 12.5,
 				FontWeight = FontWeight.SemiBold,
+				IsThreeState = false,
 			};
-			check.Bind(CheckBox.IsCheckedProperty, new Binding(nameof(MainWindowVM.EnableLightweightQualityDiagnostics)) {
-				Mode = BindingMode.TwoWay,
-			});
+			check.PropertyChanged += (_, args) => {
+				if (args.Property != ToggleButton.IsCheckedProperty || syncingQualityDiagnosticsCheck || ViewModel == null)
+					return;
+				ViewModel.EnableLightweightQualityDiagnostics = check.IsChecked == true;
+			};
 			ToolTip.SetTip(check,
 				"仅在相似文件已经匹配完成后分析，不额外打开、Seek 或解码视频；复用 ScannedFiles.db 中已有的灰度采样和元数据。可随时关闭。");
 
@@ -81,6 +87,19 @@ namespace VDF.GUI.Views {
 			int index = host.Children.IndexOf(scanRow);
 			if (index < 0) host.Children.Add(panel);
 			else host.Children.Insert(index, panel);
+			SyncLightweightQualityOption();
+		}
+
+		void SyncLightweightQualityOption() {
+			if (qualityDiagnosticsCheck == null || ViewModel == null)
+				return;
+			syncingQualityDiagnosticsCheck = true;
+			try {
+				qualityDiagnosticsCheck.IsChecked = ViewModel.EnableLightweightQualityDiagnostics;
+			}
+			finally {
+				syncingQualityDiagnosticsCheck = false;
+			}
 		}
 
 		void OnDrop(object? sender, DragEventArgs e) {
