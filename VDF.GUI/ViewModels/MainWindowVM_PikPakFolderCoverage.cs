@@ -20,8 +20,8 @@ namespace VDF.GUI.ViewModels {
 	/// <summary>
 	/// One folder-pair bucket built FROM ordinary VDF file-duplicate groups. File matching
 	/// remains the source of truth; the folder relationship is only an organization layer.
-	/// Coverage is expressed in estimated logical resources, not raw duplicate-file count:
-	/// multiple copies of the same matched group inside one folder count as one resource.
+	/// Confirmed coverage excludes groups that must be manually reviewed (AI-only, clips,
+	/// materially different durations/HDR/audio layouts, ambiguous image encodes).
 	/// </summary>
 	public sealed class PikPakFolderCoverageOption {
 		internal PikPakFolderCoverageOption(
@@ -44,10 +44,22 @@ namespace VDF.GUI.ViewModels {
 			TotalBytesB = Math.Max(0, totalBytesB);
 			MatchedFilesA = matchedFilesA;
 			MatchedFilesB = matchedFilesB;
-			EstimatedResourcesA = EstimateResourceTotal(TotalFilesA, matchedFilesA, MatchedGroupCount);
-			EstimatedResourcesB = EstimateResourceTotal(TotalFilesB, matchedFilesB, MatchedGroupCount);
-			CoverageA = Percent(MatchedGroupCount, EstimatedResourcesA);
-			CoverageB = Percent(MatchedGroupCount, EstimatedResourcesB);
+			ConfirmedMatchedGroupCount = Matches.Count(m => !m.ReviewOnly);
+			ReviewOnlyGroupCount = Matches.Count - ConfirmedMatchedGroupCount;
+			ConfirmedMatchedFilesA = Matches
+				.Where(m => !m.ReviewOnly)
+				.SelectMany(m => m.FolderAItems)
+				.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
+				.Count();
+			ConfirmedMatchedFilesB = Matches
+				.Where(m => !m.ReviewOnly)
+				.SelectMany(m => m.FolderBItems)
+				.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
+				.Count();
+			EstimatedResourcesA = EstimateResourceTotal(TotalFilesA, ConfirmedMatchedFilesA, ConfirmedMatchedGroupCount);
+			EstimatedResourcesB = EstimateResourceTotal(TotalFilesB, ConfirmedMatchedFilesB, ConfirmedMatchedGroupCount);
+			CoverageA = Percent(ConfirmedMatchedGroupCount, EstimatedResourcesA);
+			CoverageB = Percent(ConfirmedMatchedGroupCount, EstimatedResourcesB);
 			SuggestedTargetIsA = suggestAAsTarget;
 		}
 
@@ -60,6 +72,10 @@ namespace VDF.GUI.ViewModels {
 		public int MatchedFilesA { get; }
 		public int MatchedFilesB { get; }
 		public int MatchedGroupCount => Matches.Count;
+		public int ConfirmedMatchedGroupCount { get; }
+		public int ReviewOnlyGroupCount { get; }
+		public int ConfirmedMatchedFilesA { get; }
+		public int ConfirmedMatchedFilesB { get; }
 		public int EstimatedResourcesA { get; }
 		public int EstimatedResourcesB { get; }
 		public double CoverageA { get; }
@@ -75,7 +91,7 @@ namespace VDF.GUI.ViewModels {
 		/// <summary>Always show full path, file count and size: merge direction must be auditable.</summary>
 		public string DisplayText => string.Format(
 			CultureInfo.CurrentCulture,
-			"目标 {0}（{1:N0} 文件 / {2} / 约 {3:N0} 资源）  ←  {4}（{5:N0} 文件 / {6} / 约 {7:N0} 资源）  ·  命中 {8:N0} 资源  ·  覆盖 {9:0.#}% / {10:0.#}%",
+			"目标 {0}（{1:N0} 文件 / {2} / 约 {3:N0} 资源）  ←  {4}（{5:N0} 文件 / {6} / 约 {7:N0} 资源）  ·  确认命中 {8:N0} / 待复核 {9:N0} 资源  ·  确认覆盖 {10:0.#}% / {11:0.#}%",
 			SuggestedTargetFolder,
 			SuggestedTargetIsA ? TotalFilesA : TotalFilesB,
 			(SuggestedTargetIsA ? TotalBytesA : TotalBytesB).BytesToString(),
@@ -84,7 +100,8 @@ namespace VDF.GUI.ViewModels {
 			SuggestedTargetIsA ? TotalFilesB : TotalFilesA,
 			(SuggestedTargetIsA ? TotalBytesB : TotalBytesA).BytesToString(),
 			SuggestedTargetIsA ? EstimatedResourcesB : EstimatedResourcesA,
-			MatchedGroupCount,
+			ConfirmedMatchedGroupCount,
+			ReviewOnlyGroupCount,
 			SuggestedTargetCoverage,
 			SuggestedSourceCoverage);
 
@@ -121,6 +138,7 @@ namespace VDF.GUI.ViewModels {
 		public required string FolderB { get; init; }
 		public required IReadOnlyList<DuplicateItemVM> FolderAItems { get; init; }
 		public required IReadOnlyList<DuplicateItemVM> FolderBItems { get; init; }
+		public required bool ReviewOnly { get; init; }
 	}
 
 	internal enum PikPakFolderMergeKeepRule {
@@ -133,6 +151,8 @@ namespace VDF.GUI.ViewModels {
 		Oldest = 6,
 		Manual = 7,
 	}
+
+	internal readonly record struct FolderBestSelectionResult(int Selected, int ReviewOnlyGroups);
 
 	internal sealed class FolderConsolidationGroupPlan {
 		public required Guid GroupId { get; init; }
@@ -148,8 +168,11 @@ namespace VDF.GUI.ViewModels {
 		public required double SourceCoverage { get; init; }
 		public required bool WholeSourceEligible { get; init; }
 		public required IReadOnlyList<FolderConsolidationGroupPlan> Groups { get; init; }
+		public required IReadOnlyList<Guid> ManualReviewGroupIds { get; init; }
 		public required IReadOnlyList<FolderMediaFile> UniqueSourceFiles { get; init; }
 		public int MatchedGroups => Groups.Count;
+		public int ManualReviewGroups => ManualReviewGroupIds.Count;
+		public int TotalRelatedGroups => MatchedGroups + ManualReviewGroups;
 		public int KeeperMoveCount => Groups.Count(g => g.KeeperNeedsMove);
 		public int LoserCount => Groups.Sum(g => g.Losers.Count);
 		public long UniqueSourceBytes => UniqueSourceFiles.Sum(f => f.SizeBytes);
@@ -166,6 +189,76 @@ namespace VDF.GUI.ViewModels {
 
 	public partial class MainWindowVM : ReactiveObject {
 		internal const double WholeSourceCoverageThreshold = 90d;
+
+		internal static bool MayMergeWholeSource(double confirmedSourceCoverage, int reviewOnlyGroups) =>
+			confirmedSourceCoverage >= WholeSourceCoverageThreshold && reviewOnlyGroups == 0;
+
+		/// <summary>
+		/// A matching engine can say two files are related without proving that one may safely
+		/// replace the other. This gate keeps those ambiguous groups out of all automatic BEST
+		/// selection/moving. They remain visible for manual review.
+		/// </summary>
+		internal static bool IsReviewOnlyResourceGroup(IReadOnlyList<DuplicateItemVM> candidates) {
+			if (candidates == null || candidates.Count < 2)
+				return true;
+
+			if (candidates.Any(item =>
+				item.ItemInfo.Flags.HasFlag(DuplicateFlags.PartialClip) ||
+				item.ItemInfo.Flags.HasFlag(DuplicateFlags.AiMatched)))
+				return true;
+
+			bool anyImage = candidates.Any(item => item.ItemInfo.IsImage);
+			bool anyVideo = candidates.Any(item => !item.ItemInfo.IsImage);
+			if (anyImage && anyVideo)
+				return true;
+
+			if (anyImage) {
+				// Unknown resolution is not enough evidence for destructive quality ranking.
+				if (candidates.Any(item => item.ItemInfo.FrameSizeInt <= 0))
+					return true;
+
+				// Equal-resolution images in different encodings (PNG/JPEG/HEIC...) may contain
+				// materially different detail/alpha/loss, and file size is not a safe proxy.
+				if (candidates.Select(item => item.ItemInfo.FrameSizeInt).Distinct().Count() == 1) {
+					var formats = candidates
+						.Select(item => (item.ItemInfo.Format ?? string.Empty).Trim())
+						.Distinct(StringComparer.OrdinalIgnoreCase)
+						.ToList();
+					if (formats.Count > 1)
+						return true;
+				}
+				return false;
+			}
+
+			var durations = candidates.Select(item => item.ItemInfo.Duration.TotalSeconds).ToList();
+			if (durations.Any(seconds => seconds <= 0))
+				return true;
+			double longest = durations.Max();
+			double shortest = durations.Min();
+			double durationTolerance = Math.Max(1d, longest * 0.01d);
+			if (longest - shortest > durationTolerance)
+				return true;
+
+			// HDR/SDR or HDR-format changes can be a different mastering, not a simple quality
+			// downgrade. Keep both until the user decides which master belongs in the collection.
+			var hdrKinds = candidates
+				.Select(item => string.IsNullOrWhiteSpace(item.ItemInfo.HdrFormat) ? "SDR" : item.ItemInfo.HdrFormat.Trim())
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+			if (hdrKinds.Count > 1)
+				return true;
+
+			// Stereo vs 5.1, no-audio vs audio, etc. are edition differences. Bitrate alone
+			// must never automatically erase the alternate audio layout.
+			var channelLayouts = candidates
+				.Select(item => string.IsNullOrWhiteSpace(item.ItemInfo.AudioChannel) ? "<none>" : item.ItemInfo.AudioChannel.Trim())
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+			if (channelLayouts.Count > 1)
+				return true;
+
+			return false;
+		}
 
 		internal List<PikPakFolderCoverageOption> BuildPikPakFolderCoverageOptions() {
 			var groups = GetPikPakVisibleGroupsInDisplayOrder();
@@ -235,10 +328,17 @@ namespace VDF.GUI.ViewModels {
 				FolderMediaStats statsB = normalizedStats.TryGetValue(acc.FolderB, out var sb) ? sb : default;
 				int totalA = Math.Max(statsA.FileCount, participantsA);
 				int totalB = Math.Max(statsB.FileCount, participantsB);
-				int resourcesA = PikPakFolderCoverageOption.EstimateResourceTotal(totalA, acc.MatchedFilesA.Count, acc.Matches.Count);
-				int resourcesB = PikPakFolderCoverageOption.EstimateResourceTotal(totalB, acc.MatchedFilesB.Count, acc.Matches.Count);
-				double coverageA = PercentForSuggestion(acc.Matches.Count, resourcesA);
-				double coverageB = PercentForSuggestion(acc.Matches.Count, resourcesB);
+
+				var confirmedMatches = acc.Matches.Where(match => !match.ReviewOnly).ToList();
+				int confirmedGroups = confirmedMatches.Count;
+				int confirmedFilesA = confirmedMatches.SelectMany(m => m.FolderAItems)
+					.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance).Count();
+				int confirmedFilesB = confirmedMatches.SelectMany(m => m.FolderBItems)
+					.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance).Count();
+				int resourcesA = PikPakFolderCoverageOption.EstimateResourceTotal(totalA, confirmedFilesA, confirmedGroups);
+				int resourcesB = PikPakFolderCoverageOption.EstimateResourceTotal(totalB, confirmedFilesB, confirmedGroups);
+				double coverageA = PercentForSuggestion(confirmedGroups, resourcesA);
+				double coverageB = PercentForSuggestion(confirmedGroups, resourcesB);
 
 				bool suggestA = Math.Abs(coverageA - coverageB) > 0.0001
 					? coverageA < coverageB
@@ -263,7 +363,8 @@ namespace VDF.GUI.ViewModels {
 
 			return result
 				.OrderByDescending(option => Math.Max(option.CoverageA, option.CoverageB))
-				.ThenByDescending(option => option.MatchedGroupCount)
+				.ThenByDescending(option => option.ConfirmedMatchedGroupCount)
+				.ThenBy(option => option.ReviewOnlyGroupCount)
 				.ThenByDescending(option => Math.Min(option.CoverageA, option.CoverageB))
 				.ThenByDescending(option => Math.Max(option.EstimatedResourcesA, option.EstimatedResourcesB))
 				.ThenBy(option => option.FolderA, comparer)
@@ -285,10 +386,27 @@ namespace VDF.GUI.ViewModels {
 			}
 
 			var plan = ComputePikPakFolderMergeSelection(option, swapSuggestedDirection, keepRule, BestQuality);
+			return ApplyPikPakFolderSelectionPlan(option, plan);
+		}
+
+		internal FolderBestSelectionResult RunPikPakFolderBestSelection(
+			PikPakFolderCoverageOption option,
+			bool swapSuggestedDirection) {
+			DuplicateItemVM BestQuality(IReadOnlyList<DuplicateItemVM> members) =>
+				QualityRanker.PickKeeper(
+					members.ToList(), ResolveCriteria(QualityCriteriaOrder), d => d.ItemInfo.IsImage);
+			var plan = ComputePikPakFolderMergeSelection(
+				option, swapSuggestedDirection, PikPakFolderMergeKeepRule.BestQuality, BestQuality);
+			int selected = ApplyPikPakFolderSelectionPlan(option, plan);
+			return new FolderBestSelectionResult(selected, plan.ReviewOnlyGroups);
+		}
+
+		int ApplyPikPakFolderSelectionPlan(PikPakFolderCoverageOption option, PikPakSelectionPlan plan) {
 			if (plan.MatchedGroups == 0 || plan.ToCheck.Count == 0)
 				return 0;
 
 			var pairMembers = option.Matches
+				.Where(match => !match.ReviewOnly)
 				.SelectMany(match => match.FolderAItems.Concat(match.FolderBItems))
 				.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
 				.ToList();
@@ -308,6 +426,7 @@ namespace VDF.GUI.ViewModels {
 			var (targetFolder, sourceFolder) = option.ResolveDirection(swapSuggestedDirection);
 			var (_, sourceCoverage) = option.ResolveCoverage(swapSuggestedDirection);
 			var groups = new List<FolderConsolidationGroupPlan>();
+			var manualReviewGroupIds = new List<Guid>();
 			var matchedSourcePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
 			DuplicateItemVM BestQuality(IReadOnlyList<DuplicateItemVM> members) =>
@@ -324,6 +443,11 @@ namespace VDF.GUI.ViewModels {
 
 				foreach (var item in source)
 					matchedSourcePaths.Add(item.ItemInfo.Path);
+
+				if (match.ReviewOnly) {
+					manualReviewGroupIds.Add(match.GroupId);
+					continue;
+				}
 
 				var candidates = target.Concat(source)
 					.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
@@ -345,7 +469,7 @@ namespace VDF.GUI.ViewModels {
 				});
 			}
 
-			bool wholeSourceEligible = sourceCoverage >= WholeSourceCoverageThreshold;
+			bool wholeSourceEligible = MayMergeWholeSource(sourceCoverage, manualReviewGroupIds.Count);
 			IReadOnlyList<FolderMediaFile> uniqueSourceFiles = Array.Empty<FolderMediaFile>();
 			if (wholeSourceEligible) {
 				uniqueSourceFiles = Scanner.GetDirectFolderMediaFiles(sourceFolder)
@@ -359,6 +483,7 @@ namespace VDF.GUI.ViewModels {
 				SourceCoverage = sourceCoverage,
 				WholeSourceEligible = wholeSourceEligible,
 				Groups = groups,
+				ManualReviewGroupIds = manualReviewGroupIds,
 				UniqueSourceFiles = uniqueSourceFiles,
 			};
 		}
@@ -366,8 +491,8 @@ namespace VDF.GUI.ViewModels {
 		/// <summary>
 		/// Executes only reversible/non-destructive parts of consolidation: move the BEST
 		/// keeper into the target when it currently lives in the source, optionally move
-		/// source-only files when source coverage is >= 90%, and mark lower-quality copies.
-		/// No loser is deleted here. If a BEST move fails, that group's losers are NOT marked.
+		/// source-only files when confirmed source coverage is >= 90% AND no review-only
+		/// groups remain, and mark lower-quality copies. No loser is deleted here.
 		/// </summary>
 		internal async Task<FolderConsolidationResult> ExecutePikPakFolderConsolidationAsync(FolderConsolidationPlan plan) {
 			var successfulGroupLosers = new List<DuplicateItemVM>();
@@ -459,6 +584,11 @@ namespace VDF.GUI.ViewModels {
 				if (target.Count == 0 || source.Count == 0)
 					continue;
 
+				if (match.ReviewOnly) {
+					plan.ReviewOnlyGroups++;
+					continue;
+				}
+
 				plan.MatchedGroups++;
 				if (keepRule == PikPakFolderMergeKeepRule.Manual)
 					continue;
@@ -509,12 +639,16 @@ namespace VDF.GUI.ViewModels {
 					return;
 				foreach (var item in a) MatchedFilesA.Add(item);
 				foreach (var item in b) MatchedFilesB.Add(item);
+				var candidates = a.Concat(b)
+					.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
+					.ToList();
 				Matches.Add(new PikPakFolderCoverageMatch {
 					GroupId = groupId,
 					FolderA = FolderA,
 					FolderB = FolderB,
 					FolderAItems = a.ToList(),
 					FolderBItems = b.ToList(),
+					ReviewOnly = IsReviewOnlyResourceGroup(candidates),
 				});
 			}
 		}
