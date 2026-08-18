@@ -52,7 +52,7 @@ namespace VDF.GUI.ViewModels {
 		public string Label => "显示方式";
 		public string Hint => Selected.Mode == ResultsDisplayMode.SimilarityGroups
 			? "传统 VDF：每个相似文件组独立显示。"
-			: "资源整合：按建议的“目标合集 ← 来源目录”关系组织，同一个相似组只显示一次。";
+			: "资源整合：按“目标合集 ← 来源目录”关系组织，同一个相似组只显示一次。";
 	}
 
 	/// <summary>Top-level header of one resource-oriented folder relationship.</summary>
@@ -60,15 +60,22 @@ namespace VDF.GUI.ViewModels {
 		internal ResourceRelationHeader(PikPakFolderCoverageOption option, int displayedResourceGroups) {
 			Option = option;
 			DisplayedResourceGroups = displayedResourceGroups;
-			TargetFolder = option.SuggestedTargetFolder;
-			SourceFolder = option.SuggestedSourceFolder;
-			TargetFiles = option.SuggestedTargetIsA ? option.TotalFilesA : option.TotalFilesB;
-			SourceFiles = option.SuggestedTargetIsA ? option.TotalFilesB : option.TotalFilesA;
-			TargetBytes = option.SuggestedTargetIsA ? option.TotalBytesA : option.TotalBytesB;
-			SourceBytes = option.SuggestedTargetIsA ? option.TotalBytesB : option.TotalBytesA;
-			TargetResources = option.SuggestedTargetIsA ? option.EstimatedResourcesA : option.EstimatedResourcesB;
-			SourceResources = option.SuggestedTargetIsA ? option.EstimatedResourcesB : option.EstimatedResourcesA;
-			SourceCoverage = option.SuggestedSourceCoverage;
+
+			// A nearly-complete side (>=90%) is a subset/source and flows INTO the other side.
+			// When neither side is a subset, the side with higher relationship density is the
+			// safer collection target. This prevents a huge Misc folder (1/5000 matched) from
+			// becoming the target of Series A (1/100 matched) merely because its own coverage
+			// is numerically lower. Ties prefer the resource-richer side.
+			bool targetIsA = ChooseTargetIsA(option);
+			TargetFolder = targetIsA ? option.FolderA : option.FolderB;
+			SourceFolder = targetIsA ? option.FolderB : option.FolderA;
+			TargetFiles = targetIsA ? option.TotalFilesA : option.TotalFilesB;
+			SourceFiles = targetIsA ? option.TotalFilesB : option.TotalFilesA;
+			TargetBytes = targetIsA ? option.TotalBytesA : option.TotalBytesB;
+			SourceBytes = targetIsA ? option.TotalBytesB : option.TotalBytesA;
+			TargetResources = targetIsA ? option.EstimatedResourcesA : option.EstimatedResourcesB;
+			SourceResources = targetIsA ? option.EstimatedResourcesB : option.EstimatedResourcesA;
+			SourceCoverage = targetIsA ? option.CoverageB : option.CoverageA;
 			WholeSourceEligible = MainWindowVM.MayMergeWholeSource(SourceCoverage, option.ReviewOnlyGroupCount);
 		}
 
@@ -96,6 +103,22 @@ namespace VDF.GUI.ViewModels {
 		public string ActionHint => WholeSourceEligible
 			? "来源确认覆盖率 ≥ 90% 且没有待复核资源，可在“安全整合”中补入来源独有资源。"
 			: "不会因为这个关系移动来源目录中的其他未匹配文件。";
+
+		internal static bool ChooseTargetIsA(PikPakFolderCoverageOption option) {
+			bool aSubset = option.CoverageA >= MainWindowVM.WholeSourceCoverageThreshold;
+			bool bSubset = option.CoverageB >= MainWindowVM.WholeSourceCoverageThreshold;
+			if (aSubset != bSubset)
+				return !aSubset; // the >=90% side is source, the other side is target
+
+			if (!aSubset && !bSubset && Math.Abs(option.CoverageA - option.CoverageB) > 0.0001)
+				return option.CoverageA > option.CoverageB; // stronger relationship density = collection
+
+			if (option.EstimatedResourcesA != option.EstimatedResourcesB)
+				return option.EstimatedResourcesA > option.EstimatedResourcesB;
+			if (option.TotalFilesA != option.TotalFilesB)
+				return option.TotalFilesA > option.TotalFilesB;
+			return option.SuggestedTargetIsA;
+		}
 	}
 
 	/// <summary>
