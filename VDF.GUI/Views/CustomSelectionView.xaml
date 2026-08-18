@@ -89,6 +89,77 @@
             VerticalScrollBarVisibility="Auto">
             <StackPanel Spacing="12">
 
+                <!--  Unified file-first folder coverage merge planner  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="9">
+                        <TextBlock Classes="cardtitle" Text="统一文件查重 · 文件夹覆盖分组" />
+                        <TextBlock
+                            Classes="note"
+                            Text="不再单独做一套文件夹查重：所有关系都以现有的文件相似组为原子，再按文件实际父目录之间的覆盖率重新聚合。目录统计直接读取 VDF 已缓存数据库，不重新扫描媒体文件。即使“系列 A”有 100 个文件、杂项目录只有 1 个相似文件，也会形成一个可单独处理的目录关系。" />
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <ComboBox
+                                MinWidth="430"
+                                HorizontalAlignment="Stretch"
+                                MaxDropDownHeight="380"
+                                ItemsSource="{Binding FolderCoverageOptions}"
+                                SelectedItem="{Binding SelectedFolderCoverage}">
+                                <ComboBox.DisplayMemberBinding>
+                                    <Binding Path="DisplayText" />
+                                </ComboBox.DisplayMemberBinding>
+                            </ComboBox>
+                            <Button
+                                Grid.Column="1"
+                                Command="{Binding RefreshFolderCoverageCommand}"
+                                Content="分析覆盖关系" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <TextBlock Classes="fieldlabel" Text="合并方向" />
+                            <ComboBox
+                                Grid.Column="1"
+                                HorizontalAlignment="Stretch"
+                                SelectedIndex="{Binding Data.PikPakFolderMergeTargetSelection}">
+                                <ComboBoxItem Content="使用建议方向：资源侧作为目标" />
+                                <ComboBoxItem Content="交换方向：另一侧作为目标" />
+                            </ComboBox>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <TextBlock Classes="fieldlabel" Text="相似文件保留" />
+                            <ComboBox
+                                Grid.Column="1"
+                                HorizontalAlignment="Stretch"
+                                SelectedIndex="{Binding Data.PikPakFolderMergeKeepSelection}">
+                                <ComboBoxItem Content="保留目标目录中的当前第 1 个，勾选其余" />
+                                <ComboBoxItem Content="保留来源目录中的当前第 1 个，勾选其余" />
+                                <ComboBoxItem Content="保留 VDF 质量排序最佳项，勾选其余" />
+                                <ComboBoxItem Content="保留最大文件，勾选其余" />
+                                <ComboBoxItem Content="保留最小文件，勾选其余" />
+                                <ComboBoxItem Content="保留最新文件，勾选其余" />
+                                <ComboBoxItem Content="保留最旧文件，勾选其余" />
+                                <ComboBoxItem Content="手动决定：不自动修改勾选" />
+                            </ComboBox>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <TextBlock
+                                Classes="note"
+                                VerticalAlignment="Center"
+                                Text="“合并预选”只处理所选两个目录在同一文件相似组中的成员；第三个目录里的副本不会被连带勾选。生成后仍可回到结果列表逐项改保留项。" />
+                            <Button
+                                Grid.Column="1"
+                                Classes="accent"
+                                Command="{Binding ApplyFolderMergeCommand}"
+                                Content="生成合并预选" />
+                        </Grid>
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Text="{Binding FolderCoverageStatus}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
                 <!--  PikPak-style quick dedupe rules  -->
                 <Border Classes="card">
                     <StackPanel Spacing="9">
