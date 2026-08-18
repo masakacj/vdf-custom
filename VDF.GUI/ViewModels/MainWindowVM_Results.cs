@@ -128,10 +128,13 @@ namespace VDF.GUI.ViewModels {
 		/// looked arbitrary without it (#839) — and points to where the order is configured.
 		/// Null criterion = the group stayed effectively tied through every criterion.
 		/// </summary>
-		internal static string BestBadgeTooltip(VDF.Core.Utils.QualityRanker.Criterion<DuplicateItemVM>? decidedBy) =>
-			decidedBy == null
-				? App.Lang["Results.Row.BestTipTied"]
-				: string.Format(App.Lang["Results.Row.BestTip"], App.Lang[$"QualityCriteria.{decidedBy.Name}"]);
+		internal static string BestBadgeTooltip(VDF.Core.Utils.QualityRanker.Criterion<DuplicateItemVM>? decidedBy) {
+			if (decidedBy == null)
+				return App.Lang["Results.Row.BestTipTied"];
+			if (decidedBy.Name == LightweightQualityDiagnostics.QualityCriterionName)
+				return "BEST：轻量画质诊断优先避开了疑似二次转码/放大或固定水印版本。该判断仅用于保留建议，不会自动删除文件。";
+			return string.Format(App.Lang["Results.Row.BestTip"], App.Lang[$"QualityCriteria.{decidedBy.Name}"]);
+		}
 
 		GroupSummaryFormats BuildGroupSummaryFormats() => new() {
 			GroupTitle = App.Lang["Results.GroupTitle"],
@@ -166,6 +169,14 @@ namespace VDF.GUI.ViewModels {
 			});
 			resultsGroups = result.Groups;
 			resultsHavePartialClips = result.HasPartialClips;
+
+			// The lightweight diagnostic is deliberately visible at group level even before
+			// expanding a row. Per-file reasons are appended to the expanded video detail line.
+			foreach (var group in resultsGroups) {
+				string warning = BuildLightweightQualityGroupSummary(group);
+				if (warning.Length > 0)
+					group.Summary += " · " + warning;
+			}
 
 			var displayRows = new List<object> {
 				new ResultsViewSwitcherRow(ResultsDisplayModeOptions, ActiveResultsDisplayMode, SetResultsDisplayMode)
@@ -216,6 +227,9 @@ namespace VDF.GUI.ViewModels {
 
 		/// <summary>Builds the results list from scratch (scan done, import).</summary>
 		void BuildActiveResultsView(bool resetSessionStats = true) {
+			// Post-match only: this reads cached 32×32 samples from the in-memory VDF DB.
+			// It does not add a media-analysis phase and causes zero additional HDD seeks.
+			RunLightweightQualityDiagnostics();
 			RebuildResultsList();
 			if (resetSessionStats)
 				TotalSizeRemovedInternal = 0;
@@ -238,8 +252,12 @@ namespace VDF.GUI.ViewModels {
 
 		public ReactiveCommand<DuplicateItemVM, Unit> CopyItemDetailsCommand => ReactiveCommand.CreateFromTask<DuplicateItemVM>(async item => {
 			if (item == null) return;
-			if (ApplicationHelpers.MainWindow.Clipboard is { } clipboard)
-				await clipboard.SetTextAsync(ResultsBadgeRules.BuildDetailsText(item.ItemInfo));
+			if (ApplicationHelpers.MainWindow.Clipboard is { } clipboard) {
+				string text = ResultsBadgeRules.BuildDetailsText(item.ItemInfo);
+				string warning = LightweightQualityDiagnostics.WarningText(item);
+				if (warning.Length > 0) text += Environment.NewLine + "Quality: " + warning;
+				await clipboard.SetTextAsync(text);
+			}
 		});
 
 		public ReactiveCommand<Unit, Unit> DismissResultsHintCommand => ReactiveCommand.Create(() => {
