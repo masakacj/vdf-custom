@@ -1,3 +1,4 @@
+# Bootstrap trigger v1
 name: Sync VDF upstream
 
 on:
