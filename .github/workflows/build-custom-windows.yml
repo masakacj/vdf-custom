@@ -1,4 +1,3 @@
-# Initial custom build trigger
 name: Build VDF Custom Windows
 
 on:
@@ -85,23 +84,23 @@ jobs:
         run: |
           $sha = git rev-parse --short HEAD
           $built = [DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss UTC')
-          $notes = @"
-          Automated Windows x64 build of VDF Custom.
-
-          Commit: $sha
-          Built: $built
-
-          Assets:
-          - VDF-Custom-GUI-win-x64.zip
-          - VDF-Custom-CLI-win-x64.zip
-          - BUILD_INFO.txt
-          "@
+          $notes = @(
+            'Automated Windows x64 build of VDF Custom.'
+            ''
+            "Commit: $sha"
+            "Built: $built"
+            ''
+            'Assets:'
+            '- VDF-Custom-GUI-win-x64.zip'
+            '- VDF-Custom-CLI-win-x64.zip'
+            '- BUILD_INFO.txt'
+          ) -join "`n"
 
           gh release view custom-latest *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create custom-latest --title "VDF Custom Latest" --notes $notes --latest
+            gh release create custom-latest --title "VDF Custom Latest" --notes $notes
           } else {
-            gh release edit custom-latest --title "VDF Custom Latest" --notes $notes --latest
+            gh release edit custom-latest --title "VDF Custom Latest" --notes $notes
           }
 
           gh release upload custom-latest `
