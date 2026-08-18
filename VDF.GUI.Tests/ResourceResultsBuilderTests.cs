@@ -81,6 +81,28 @@ public class ResourceResultsBuilderTests {
     }
 
     [Fact]
+    public void SparseSeriesVersusHugeMisc_UsesSeriesAsTarget() {
+        var g = Guid.NewGuid();
+        var canonical = Canonical(new List<DuplicateItemVM> {
+            Item(g, @"D:\Series A\001.mkv"),
+            Item(g, @"E:\Misc\copy-001.mkv"),
+        });
+        var groups = canonical.Groups.Select(h => h.Rows.Select(r => r.Item).ToList()).ToList();
+        var stats = new Dictionary<string, FolderMediaStats>(StringComparer.OrdinalIgnoreCase) {
+            [@"D:\Series A"] = new FolderMediaStats(100, 100_000),
+            [@"E:\Misc"] = new FolderMediaStats(5_000, 5_000_000),
+        };
+        var options = MainWindowVM.ComputePikPakFolderCoverageOptions(groups, stats);
+
+        var resource = ResourceResultsBuilder.Build(canonical.Groups, options);
+        var header = Assert.Single(resource.Rows.OfType<ResourceRelationHeader>());
+
+        Assert.Contains("Series A", header.TargetFolder);
+        Assert.Contains("Misc", header.SourceFolder);
+        Assert.Equal("仅处理匹配资源", header.ActionLabel);
+    }
+
+    [Fact]
     public void SameFolderOnlyGroup_RemainsVisibleUnderOtherGroups() {
         var g = Guid.NewGuid();
         var canonical = Canonical(new List<DuplicateItemVM> {
