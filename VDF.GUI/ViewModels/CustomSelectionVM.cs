@@ -40,7 +40,17 @@ namespace VDF.GUI.ViewModels {
 		CustomSelectionData _Data = new();
 		public CustomSelectionData Data {
 			get => _Data;
-			set => this.RaiseAndSetIfChanged(ref _Data, value);
+			set {
+				this.RaiseAndSetIfChanged(ref _Data, value);
+				PikPakStatus = string.Empty;
+			}
+		}
+
+		string _PikPakStatus = string.Empty;
+		[JsonIgnore]
+		public string PikPakStatus {
+			get => _PikPakStatus;
+			set => this.RaiseAndSetIfChanged(ref _PikPakStatus, value);
 		}
 
 		[JsonIgnore]
@@ -80,6 +90,32 @@ namespace VDF.GUI.ViewModels {
 
 		[JsonIgnore]
 		public ReactiveCommand<Unit, Unit> SelectCommand => ReactiveCommand.Create(() => {
+			var action = (PikPakQuickAction)Data.PikPakActionSelection;
+			if (action != PikPakQuickAction.Disabled) {
+				bool needsKeyword = action is PikPakQuickAction.KeepPathContainingKeyword
+					or PikPakQuickAction.KeepFileNameContainingKeyword
+					or PikPakQuickAction.SelectPathContainingKeyword
+					or PikPakQuickAction.SelectFileNameContainingKeyword;
+				if (needsKeyword && string.IsNullOrWhiteSpace(Data.PikPakKeyword)) {
+					PikPakStatus = "请输入关键词后再执行。";
+					return;
+				}
+
+				bool needsTargetPaths = action is PikPakQuickAction.SelectInsideTargetPaths
+					or PikPakQuickAction.SelectOutsideTargetPaths;
+				if (needsTargetPaths && string.IsNullOrWhiteSpace(Data.PikPakTargetPaths)) {
+					PikPakStatus = "请输入至少一个目标目录（每行一个）后再执行。";
+					return;
+				}
+
+				int selected = ApplicationHelpers.MainWindowDataContext.RunPikPakSelection(Data);
+				PikPakStatus = selected > 0
+					? $"已按当前结果范围勾选 {selected:N0} 个文件；筛选隐藏项不会被修改。"
+					: "当前结果范围内没有符合该规则的重复项，原勾选状态未修改。";
+				return;
+			}
+
+			PikPakStatus = string.Empty;
 			ApplicationHelpers.MainWindowDataContext.RunCustomSelection(Data);
 		});
 		[JsonIgnore]
