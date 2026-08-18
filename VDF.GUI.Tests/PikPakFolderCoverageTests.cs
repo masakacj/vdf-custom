@@ -28,8 +28,14 @@ namespace VDF.GUI.Tests {
 		[Fact]
 		public void FreshPlanner_DefaultsToBestQuality() {
 			var data = new CustomSelectionData();
-
 			Assert.Equal((int)PikPakFolderMergeKeepRule.BestQuality, data.PikPakFolderMergeKeepSelection);
+		}
+
+		[Fact]
+		public void ResourceEstimate_CollapsesExtraCopiesInsideMatchedGroups() {
+			// Ten files, but three are copies of the same matched resource: logical total is 8.
+			Assert.Equal(8, PikPakFolderCoverageOption.EstimateResourceTotal(totalFiles: 10, matchedFiles: 3, matchedGroups: 1));
+			Assert.Equal(10, PikPakFolderCoverageOption.EstimateResourceTotal(totalFiles: 10, matchedFiles: 1, matchedGroups: 1));
 		}
 
 		[Fact]
@@ -51,6 +57,33 @@ namespace VDF.GUI.Tests {
 			Assert.Equal(100d, option.CoverageB, 6);
 			Assert.Equal("D:/Series A", option.SuggestedTargetFolder);
 			Assert.Equal("E:/Misc", option.SuggestedSourceFolder);
+			Assert.Contains("100", option.DisplayText);
+			Assert.Contains("文件", option.DisplayText);
+			Assert.Contains("资源", option.DisplayText);
+		}
+
+		[Fact]
+		public void MultipleCopiesOfOneResource_DoNotPretendToBeMultipleResources() {
+			var g = Guid.NewGuid();
+			var groups = new List<List<DuplicateItemVM>> {
+				new() {
+					Item(g, @"D:\Series A\001-a.mkv"),
+					Item(g, @"D:\Series A\001-b.mkv"),
+					Item(g, @"D:\Series A\001-c.mkv"),
+					Item(g, @"E:\Copy\001.mkv"),
+				}
+			};
+			var stats = new Dictionary<string, FolderMediaStats>(StringComparer.OrdinalIgnoreCase) {
+				[@"D:\Series A"] = new FolderMediaStats(10, 10_000),
+				[@"E:\Copy"] = new FolderMediaStats(1, 1_000),
+			};
+
+			var option = Assert.Single(MainWindowVM.ComputePikPakFolderCoverageOptions(groups, stats));
+
+			Assert.Equal(8, option.EstimatedResourcesA);
+			Assert.Equal(1, option.EstimatedResourcesB);
+			Assert.Equal(12.5d, option.CoverageA, 6);
+			Assert.Equal(100d, option.CoverageB, 6);
 		}
 
 		[Fact]
