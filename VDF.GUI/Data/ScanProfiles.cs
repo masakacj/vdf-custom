@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -17,19 +17,21 @@
 using System.Text.Json.Serialization;
 
 namespace VDF.GUI.Data {
-	/// <summary>Named after what the user wants to FIND, not after algorithms (locked decision 8).</summary>
+	/// <summary>
+	/// Scan profiles are intentionally named after the user's resource-cleanup goal.
+	/// Only the first three are exposed on the Setup screen. DeepClean and Custom are
+	/// retained as legacy/internal states so old settings keep loading safely.
+	/// </summary>
 	public enum ScanProfile {
-		/// <summary>Copies, renames and re-encodes of the same video or photo. Fastest.</summary>
+		/// <summary>Very high-confidence copies/re-encodes. Fastest and safest for bulk cleanup.</summary>
 		ExactAndNear,
-		/// <summary>Also finds crops, watermarks, flips and quality changes. The default.</summary>
+		/// <summary>Normal resource consolidation: re-encodes, watermarks, borders and quality changes.</summary>
 		EditedAndAltered,
-		/// <summary>Everything above plus AI matching for re-edited copies and clips cut out
-		/// of longer videos — visual only, no audio decoding (maintainer decision 2026-07-12).</summary>
+		/// <summary>Deep same-source detection using visual AI, but never partial/clip containment.</summary>
 		AiScan,
-		/// <summary>Everything above plus audio-fingerprint clip matching — the most
-		/// thorough combination, and the slowest first scan.</summary>
+		/// <summary>Legacy profile: AI + audio/visual partial detection. Hidden from the main UI.</summary>
 		DeepClean,
-		/// <summary>The user's own knob values, untouched.</summary>
+		/// <summary>Internal sentinel for expert settings that do not match one of the three fixed profiles.</summary>
 		Custom,
 	}
 
@@ -45,15 +47,14 @@ namespace VDF.GUI.Data {
 	}
 
 	/// <summary>
-	/// Maps scan profiles onto the managed settings knobs. The active profile is always
-	/// DERIVED from the current knob values — editing any managed setting therefore
-	/// switches the selection to Custom automatically, and nothing is ever lost: leaving
-	/// a custom state snapshots the knobs so selecting Custom later restores them.
-	/// Deliberately NOT managed: UsePHash (changing the algorithm invalidates the
-	/// fingerprint database) and every filter/performance/database setting.
+	/// Maps scan profiles onto the managed settings knobs. The three user-facing profiles
+	/// deliberately keep BOTH partial-clip engines disabled: a two-minute excerpt may be
+	/// related to a two-hour source, but it is not a lower-quality duplicate and must never
+	/// enter BEST-quality deletion/merge logic.
 	/// </summary>
 	internal static class ScanProfileMapper {
 
+		// 1) Precise dedupe: conservative, high-confidence complete-resource matching.
 		internal static readonly ScanKnobs ExactAndNear = new() {
 			Percent = 98f,
 			CompareHorizontallyFlipped = false,
@@ -63,6 +64,9 @@ namespace VDF.GUI.Data {
 			UseAiMatching = false,
 			EnableAiPartialDetection = false,
 		};
+
+		// 2) Quality consolidation (default): catches ordinary alternate releases while
+		// staying on the classic visual matcher so false positives remain manageable.
 		internal static readonly ScanKnobs EditedAndAltered = new() {
 			Percent = 92f,
 			CompareHorizontallyFlipped = true,
@@ -72,17 +76,21 @@ namespace VDF.GUI.Data {
 			UseAiMatching = false,
 			EnableAiPartialDetection = false,
 		};
+
+		// 3) Deep same-source: add DINO visual embeddings for crops/zoom/heavy edits,
+		// but DO NOT enable AI partial detection. Complete-resource review only.
 		internal static readonly ScanKnobs AiScan = new() {
 			Percent = 92f,
 			CompareHorizontallyFlipped = true,
 			IgnoreBlackPixels = true,
 			IgnoreWhitePixels = true,
-			// Deliberately NO audio pass: the AI partial pass covers clips visually
-			// without decoding every file's full audio track.
 			EnablePartialClipDetection = false,
 			UseAiMatching = true,
-			EnableAiPartialDetection = true,
+			EnableAiPartialDetection = false,
 		};
+
+		// Kept only to preserve old saved settings / advanced experiments. This profile
+		// is never shown on the Setup screen and is never selected by the three-mode UI.
 		internal static readonly ScanKnobs DeepClean = new() {
 			Percent = 92f,
 			CompareHorizontallyFlipped = true,
@@ -100,6 +108,9 @@ namespace VDF.GUI.Data {
 			ScanProfile.DeepClean => DeepClean,
 			_ => null,
 		};
+
+		internal static bool IsUserFacing(ScanProfile profile) =>
+			profile is ScanProfile.ExactAndNear or ScanProfile.EditedAndAltered or ScanProfile.AiScan;
 
 		internal static ScanKnobs Capture(SettingsFile settings) => new() {
 			Percent = settings.Percent,
@@ -123,14 +134,14 @@ namespace VDF.GUI.Data {
 		/// <summary>The profile the current knob values correspond to; Custom when none match.</summary>
 		internal static ScanProfile Detect(SettingsFile settings) =>
 			Matches(settings, ExactAndNear) ? ScanProfile.ExactAndNear :
-			Matches(settings, DeepClean) ? ScanProfile.DeepClean :
 			Matches(settings, AiScan) ? ScanProfile.AiScan :
 			Matches(settings, EditedAndAltered) ? ScanProfile.EditedAndAltered :
+			Matches(settings, DeepClean) ? ScanProfile.DeepClean :
 			ScanProfile.Custom;
 
 		/// <summary>
-		/// Applies a profile's bundle. Selecting Custom restores the snapshot taken when
-		/// the user last left a custom state (no-op when there is none).
+		/// Applies a profile's bundle. Custom remains an internal restore mechanism for
+		/// legacy/expert settings, but is not exposed as a main scan mode.
 		/// </summary>
 		internal static void Apply(ScanProfile profile, SettingsFile settings) {
 			if (profile == ScanProfile.Custom) {
@@ -138,7 +149,6 @@ namespace VDF.GUI.Data {
 					ApplyKnobs(backup, settings);
 				return;
 			}
-			// Leaving a custom state: remember the expert's values so nothing is lost.
 			if (Detect(settings) == ScanProfile.Custom)
 				settings.CustomScanKnobs = Capture(settings);
 			ApplyKnobs(BundleFor(profile)!, settings);

@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -41,7 +41,7 @@ namespace VDF.GUI.ViewModels {
 		public string Path { get; }
 		public bool IsExcluded { get; }
 		public bool IsNetwork { get; }
-		/// <summary>Drive chip: "D:", "＼＼" for UNC, "＊" for patterns.</summary>
+		/// <summary>Drive chip: "D:\", "＼＼" for UNC, "＊" for patterns.</summary>
 		public string DriveLabel { get; }
 
 		string _MetaText = string.Empty;
@@ -94,16 +94,9 @@ namespace VDF.GUI.ViewModels {
 			this.RaisePropertyChanged(nameof(IsSetupState));
 			this.RaisePropertyChanged(nameof(IsScanningState));
 			this.RaisePropertyChanged(nameof(IsReviewState));
-			RaiseShellNavChanged(); // "New scan" nav link follows the Review state
+			RaiseShellNavChanged();
 		}
 
-		/// <summary>
-		/// Titlebar "New scan": discards the current results and returns to the Setup
-		/// screen so folders/profile can be changed first — it does NOT start the scan
-		/// (the Setup screen's own Scan button does). Quick re-runs with unchanged
-		/// settings live in the ⋯ menu (Rescan). The saved-results backup file on disk
-		/// is left untouched.
-		/// </summary>
 		public ReactiveCommand<Unit, Unit> NewScanCommand => ReactiveCommand.CreateFromTask(async () => {
 			if (Duplicates.Count > 0 &&
 				await MessageBoxService.Show(App.Lang["Message.NewScanDiscardPrompt"],
@@ -113,26 +106,18 @@ namespace VDF.GUI.ViewModels {
 		});
 
 		internal void DiscardResultsToSetup() {
-			Duplicates.Clear(); // Reset event → checked counters/undo stack clear + state raise
+			Duplicates.Clear();
 			ShowNoDuplicatesNotice = false;
 			BuildActiveResultsView();
 			RefreshGroupStats();
-			// The fingerprint database may have grown since these results were produced.
 			RebuildSetupFolders();
 		}
 
-		// ---------- welcome strip ----------
 		public ReactiveCommand<Unit, Unit> DismissWelcomeStripCommand => ReactiveCommand.Create(() => {
 			SettingsFile.Instance.WelcomeStripDismissed = true;
 		});
 
-		// ---------- "no duplicates found" notice ----------
 		bool _ShowNoDuplicatesNotice;
-		/// <summary>
-		/// Raised after a completed scan that found nothing, so the Setup screen a returning
-		/// user lands on can be told apart from the never-scanned state. Persists until the
-		/// next scan starts (see <see cref="StartScanCommand"/>) or the user dismisses it.
-		/// </summary>
 		public bool ShowNoDuplicatesNotice {
 			get => _ShowNoDuplicatesNotice;
 			set => this.RaiseAndSetIfChanged(ref _ShowNoDuplicatesNotice, value);
@@ -142,10 +127,8 @@ namespace VDF.GUI.ViewModels {
 			ShowNoDuplicatesNotice = false;
 		});
 
-		// ---------- folder list ----------
 		public ObservableCollection<SetupFolderVM> SetupFolders { get; } = new();
 		readonly FolderCountingService folderCounting = new();
-		// Completed walks per folder; survives list rebuilds within the session.
 		readonly Dictionary<string, FolderCountProgress> folderCountCache = new(StringComparer.OrdinalIgnoreCase);
 
 		string _SetupFootnote = string.Empty;
@@ -190,12 +173,10 @@ namespace VDF.GUI.ViewModels {
 				return;
 			}
 
-			// DB-known count is instant and never blocks anything.
 			Task.Run(() => ScanEngine.CountDatabaseEntriesUnder(folder.Path)).ContinueWith(t =>
 				Dispatcher.UIThread.Post(() => {
 					if (!t.IsCompletedSuccessfully) return;
 					folder.DbKnownCount = t.Result;
-					// Only fill the meta line while nothing better is known yet.
 					if (!folder.IsCounting && string.IsNullOrEmpty(folder.MetaText) && t.Result > 0)
 						folder.MetaText = string.Format(App.Lang["Setup.MetaKnown"], t.Result.ToString("N0"));
 				}));
@@ -219,7 +200,6 @@ namespace VDF.GUI.ViewModels {
 						return;
 					}
 					folderCountCache[folder.Path] = progress;
-					// The rebuilt list may hold a NEW VM for this path by now.
 					var target = SetupFolders.FirstOrDefault(f =>
 						string.Equals(f.Path, folder.Path, StringComparison.OrdinalIgnoreCase)) ?? folder;
 					target.IsCounting = false;
@@ -257,25 +237,24 @@ namespace VDF.GUI.ViewModels {
 		});
 
 		// ---------- scan profiles ----------
+		// Exactly three main modes for collection cleanup. Partial-clip detection stays an
+		// advanced, separate analysis feature and is never enabled by these cards.
 		public ScanProfileOptionVM[] ScanProfileOptions { get; } = {
 			new(ScanProfile.ExactAndNear, App.Lang["Profile.Exact.Name"], App.Lang["Profile.Exact.Desc"], App.Lang["Profile.Exact.Time"]),
 			new(ScanProfile.EditedAndAltered, App.Lang["Profile.Edited.Name"], App.Lang["Profile.Edited.Desc"], App.Lang["Profile.Edited.Time"]),
 			new(ScanProfile.AiScan, App.Lang["Profile.Ai.Name"], App.Lang["Profile.Ai.Desc"], App.Lang["Profile.Ai.Time"]),
-			new(ScanProfile.DeepClean, App.Lang["Profile.Deep.Name"], App.Lang["Profile.Deep.Desc"], App.Lang["Profile.Deep.Time"]),
-			new(ScanProfile.Custom, App.Lang["Profile.Custom.Name"], App.Lang["Profile.Custom.Desc"], string.Empty),
 		};
 
 		internal void RefreshScanProfileSelection() {
 			var active = ScanProfileMapper.Detect(SettingsFile.Instance);
+			var visibleActive = ScanProfileOptions.FirstOrDefault(o => o.Value == active);
 			foreach (var option in ScanProfileOptions)
-				option.IsActive = option.Value == active;
-			ActiveScanProfileIsManaged = active != ScanProfile.Custom;
-			ActiveScanProfileName = ScanProfileOptions.First(o => o.Value == active).Name;
+				option.IsActive = ReferenceEquals(option, visibleActive);
+			ActiveScanProfileIsManaged = visibleActive != null;
+			ActiveScanProfileName = visibleActive?.Name ?? string.Empty;
 		}
 
 		bool _ActiveScanProfileIsManaged;
-		/// <summary>True while the managed knobs match a profile bundle — drives the
-		/// settings page banner (managed notice vs. the Custom auto-switch notice).</summary>
 		public bool ActiveScanProfileIsManaged {
 			get => _ActiveScanProfileIsManaged;
 			set => this.RaiseAndSetIfChanged(ref _ActiveScanProfileIsManaged, value);
@@ -292,9 +271,7 @@ namespace VDF.GUI.ViewModels {
 			RefreshScanProfileSelection();
 		});
 
-		// ---------- scanning state ----------
 		string _ScanStageText = string.Empty;
-		/// <summary>Localizable-free stage chip text, e.g. "Scanning files 27/819".</summary>
 		public string ScanStageText {
 			get => _ScanStageText;
 			set => this.RaiseAndSetIfChanged(ref _ScanStageText, value);
@@ -305,7 +282,6 @@ namespace VDF.GUI.ViewModels {
 			set => this.RaiseAndSetIfChanged(ref _ScanCurrentFile, value);
 		}
 
-		/// <summary>Last few log lines, shown under the scan card.</summary>
 		public ObservableCollection<LogTailRow> LogTail { get; } = new();
 		internal const int LogTailLength = 4;
 		internal void AppendLogTail(LogTailRow row) {

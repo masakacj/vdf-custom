@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -27,19 +27,14 @@ using VDF.GUI.Utils;
 
 namespace VDF.GUI {
 	class Program {
-		// Initialization code. Don't use any Avalonia, third-party APIs or any
-		// SynchronizationContext-reliant code before AppMain is called: things aren't initialized
-		// yet and stuff might break.
 		[STAThread]
 		public static int Main(string[] args) {
-
 			Option<FileInfo> settingsOption = new("--settings", new[] { "-s" }) {
 				Description = "Path to a settings file to load and save."
 			};
 			RootCommand rootCommand = new("VideoDuplicateFinder settings options");
 			rootCommand.Options.Add(settingsOption);
 
-			// This runs ONLY when parsing succeeded and no built-in action (like --help) took over
 			rootCommand.SetAction(parseResult => {
 				if (parseResult.GetValue(settingsOption) is FileInfo parsedFile) {
 					if (parsedFile.Exists) {
@@ -52,35 +47,51 @@ namespace VDF.GUI {
 					}
 				}
 
-				BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+				try {
+					BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+				}
+				catch (Exception ex) {
+					// WinExe has no visible console on normal launch. Always leave an early-startup
+					// breadcrumb beside the settings/state location instead of silently vanishing.
+					try {
+						string folder = VDF.Core.Utils.CoreUtils.SettingsFolder;
+						Directory.CreateDirectory(folder);
+						File.WriteAllText(Path.Combine(folder, "startup-crash.txt"), ex.ToString());
+					}
+					catch { }
+					throw;
+				}
 			});
 			var parseResult = rootCommand.Parse(args);
-			// If help requested OR parse errors -> we want console output
 			if (parseResult.Errors.Count > 0 || args.Contains("-h") || args.Contains("--help") || args.Contains("-?")) {
 				ConsoleAttach.EnsureConsole();
 			}
 			return rootCommand.Parse(args).Invoke();
 		}
 
-		// Avalonia configuration, don't remove; also used by visual designer.
-		public static AppBuilder BuildAvaloniaApp()
-			=> AppBuilder.Configure<App>()
+		public static AppBuilder BuildAvaloniaApp() {
+			var builder = AppBuilder.Configure<App>()
 				.UsePlatformDetect()
-				.With(new X11PlatformOptions { UseDBusFilePicker = false })
-				.With(new FontManagerOptions {
-					// Without explicit fallbacks, Avalonia's default font on macOS does not
-					// resolve CJK glyphs through CoreText, producing U+FFFD replacement chars.
+				.With(new X11PlatformOptions { UseDBusFilePicker = false });
+
+			// The explicit list was added for macOS CoreText CJK fallback. Applying that
+			// cross-platform forced Windows through unavailable/non-native font families and
+			// is a plausible trigger for machine-specific silent exits when zh-Hans is active.
+			// Windows already has DirectWrite font fallback; let it use the installed system
+			// Chinese fonts. Only macOS keeps the explicit fallback chain it actually needs.
+			if (OperatingSystem.IsMacOS()) {
+				builder = builder.With(new FontManagerOptions {
 					FontFallbacks = new[] {
 						new FontFallback { FontFamily = new FontFamily("PingFang SC") },
 						new FontFallback { FontFamily = new FontFamily("Hiragino Sans") },
-						new FontFallback { FontFamily = new FontFamily("Apple SD Gothic Neo") },
-						new FontFallback { FontFamily = new FontFamily("Microsoft YaHei") },
-						new FontFallback { FontFamily = new FontFamily("Yu Gothic") },
-						new FontFallback { FontFamily = new FontFamily("Malgun Gothic") },
 						new FontFallback { FontFamily = new FontFamily("Noto Sans CJK SC") },
 					},
-				})
+				});
+			}
+
+			return builder
 				.UseReactiveUI(_ => { })
 				.RegisterReactiveUIViewsFromEntryAssembly();
+		}
 	}
 }

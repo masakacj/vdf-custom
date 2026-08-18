@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -20,13 +20,19 @@ namespace VDF.GUI.Tests {
 	public class ScanProfileMapperTests {
 
 		[Fact]
-		public void FreshDefaults_AreTheRecommendedEditedProfile() {
+		public void FreshDefaults_AreTheRecommendedQualityConsolidationProfile() {
 			var settings = new SettingsFile();
 			Assert.Equal(ScanProfile.EditedAndAltered, ScanProfileMapper.Detect(settings));
 		}
 
 		[Fact]
-		public void Apply_SetsEveryManagedKnob() {
+		public void ExactlyThreeProfiles_AreUserFacing() {
+			var visible = Enum.GetValues<ScanProfile>().Where(ScanProfileMapper.IsUserFacing).ToArray();
+			Assert.Equal(new[] { ScanProfile.ExactAndNear, ScanProfile.EditedAndAltered, ScanProfile.AiScan }, visible);
+		}
+
+		[Fact]
+		public void ApplyPreciseDedupe_SetsEveryManagedKnob() {
 			var settings = new SettingsFile();
 			ScanProfileMapper.Apply(ScanProfile.ExactAndNear, settings);
 
@@ -35,27 +41,41 @@ namespace VDF.GUI.Tests {
 			Assert.False(settings.IgnoreBlackPixels);
 			Assert.False(settings.IgnoreWhitePixels);
 			Assert.False(settings.EnablePartialClipDetection);
+			Assert.False(settings.UseAiMatching);
+			Assert.False(settings.EnableAiPartialDetection);
 			Assert.Equal(ScanProfile.ExactAndNear, ScanProfileMapper.Detect(settings));
 		}
 
 		[Fact]
-		public void AiScan_IsEditedPlusAiPasses_WithoutAudio() {
+		public void QualityConsolidation_HasNoPartialDetection() {
+			var settings = new SettingsFile();
+			ScanProfileMapper.Apply(ScanProfile.EditedAndAltered, settings);
+
+			Assert.Equal(92f, settings.Percent);
+			Assert.True(settings.CompareHorizontallyFlipped);
+			Assert.True(settings.IgnoreBlackPixels);
+			Assert.True(settings.IgnoreWhitePixels);
+			Assert.False(settings.EnablePartialClipDetection);
+			Assert.False(settings.UseAiMatching);
+			Assert.False(settings.EnableAiPartialDetection);
+		}
+
+		[Fact]
+		public void DeepSameSource_UsesAiButNeverPartialDetection() {
 			var settings = new SettingsFile();
 			ScanProfileMapper.Apply(ScanProfile.AiScan, settings);
 
 			Assert.True(settings.UseAiMatching);
-			Assert.True(settings.EnableAiPartialDetection);
-			// The card's whole point: clips are found visually, no full audio decode.
+			Assert.False(settings.EnableAiPartialDetection);
 			Assert.False(settings.EnablePartialClipDetection);
 			Assert.Equal(ScanProfile.AiScan, ScanProfileMapper.Detect(settings));
 
 			settings.UseAiMatching = false;
-			settings.EnableAiPartialDetection = false;
 			Assert.Equal(ScanProfile.EditedAndAltered, ScanProfileMapper.Detect(settings));
 		}
 
 		[Fact]
-		public void DeepClean_IsAiScanPlusAudioPartialClips() {
+		public void LegacyDeepClean_RemainsDetectableButIsNotUserFacing() {
 			var settings = new SettingsFile();
 			ScanProfileMapper.Apply(ScanProfile.DeepClean, settings);
 
@@ -63,23 +83,21 @@ namespace VDF.GUI.Tests {
 			Assert.True(settings.UseAiMatching);
 			Assert.True(settings.EnableAiPartialDetection);
 			Assert.Equal(ScanProfile.DeepClean, ScanProfileMapper.Detect(settings));
-			settings.EnablePartialClipDetection = false;
-			Assert.Equal(ScanProfile.AiScan, ScanProfileMapper.Detect(settings));
+			Assert.False(ScanProfileMapper.IsUserFacing(ScanProfile.DeepClean));
 		}
 
 		[Fact]
-		public void ToggleAiKnob_SwitchesDetectionToCustom() {
+		public void ToggleManagedKnob_SwitchesDetectionToCustomSentinel() {
 			var settings = new SettingsFile();
 			ScanProfileMapper.Apply(ScanProfile.EditedAndAltered, settings);
 
 			settings.UseAiMatching = true;
+			settings.EnableAiPartialDetection = true;
 			Assert.Equal(ScanProfile.Custom, ScanProfileMapper.Detect(settings));
 		}
 
 		[Fact]
-		public void LegacyDeepCleanValues_AudioWithoutAi_DetectAsCustom() {
-			// Users who selected the pre-AI Deep clean bundle (audio partial on, AI off)
-			// keep their behavior but the card shows Custom — the profile is derived.
+		public void LegacyAudioWithoutAi_DetectsAsCustom() {
 			var settings = new SettingsFile();
 			settings.Percent = 92f;
 			settings.CompareHorizontallyFlipped = true;
@@ -101,7 +119,6 @@ namespace VDF.GUI.Tests {
 		[Fact]
 		public void LeavingCustom_SnapshotsKnobs_AndCustomRestoresThem() {
 			var settings = new SettingsFile();
-			// the expert's setup
 			settings.Percent = 85f;
 			settings.CompareHorizontallyFlipped = false;
 			settings.IgnoreBlackPixels = false;
@@ -125,9 +142,9 @@ namespace VDF.GUI.Tests {
 		[Fact]
 		public void SwitchingBetweenBundles_DoesNotOverwriteTheCustomSnapshot() {
 			var settings = new SettingsFile();
-			settings.Percent = 85f; // custom state
+			settings.Percent = 85f;
 			ScanProfileMapper.Apply(ScanProfile.ExactAndNear, settings);
-			ScanProfileMapper.Apply(ScanProfile.DeepClean, settings);
+			ScanProfileMapper.Apply(ScanProfile.AiScan, settings);
 
 			ScanProfileMapper.Apply(ScanProfile.Custom, settings);
 			Assert.Equal(85f, settings.Percent);

@@ -18,6 +18,9 @@ namespace VDF.Core {
 	/// </summary>
 	public readonly record struct FolderMediaStats(int FileCount, long TotalBytes);
 
+	/// <summary>Non-owning snapshot used by the GUI merge planner; no media bytes are read.</summary>
+	public readonly record struct FolderMediaFile(string Path, long SizeBytes);
+
 	public sealed partial class ScanEngine {
 		/// <summary>
 		/// Returns direct-parent folder counts from the already loaded VDF database.
@@ -42,8 +45,6 @@ namespace VDF.Core {
 			if (mutable.Count == 0)
 				return new Dictionary<string, FolderMediaStats>(comparer);
 
-			// Snapshotting the set avoids holding any database lock and, unlike a filesystem
-			// walk, does not wake sleeping disks. FileEntry.FileSize is the cached scan value.
 			foreach (FileEntry entry in DatabaseUtils.Database.ToArray()) {
 				string folder = NormalizeCoverageFolder(entry.Folder);
 				if (!mutable.TryGetValue(folder, out var value))
@@ -57,6 +58,23 @@ namespace VDF.Core {
 			foreach (var pair in mutable)
 				result[pair.Key] = new FolderMediaStats(pair.Value.Count, pair.Value.Bytes);
 			return result;
+		}
+
+		/// <summary>
+		/// Returns cached direct-folder file paths/sizes for an explicit consolidation plan.
+		/// It still does no directory walk and no media read; callers may later touch only
+		/// the files the user explicitly chooses to move/verify.
+		/// </summary>
+		public IReadOnlyList<FolderMediaFile> GetDirectFolderMediaFiles(string folder) {
+			string requested = NormalizeCoverageFolder(folder);
+			if (requested.Length == 0)
+				return Array.Empty<FolderMediaFile>();
+			var comparison = CoreUtils.IsWindows ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+			return DatabaseUtils.Database
+				.ToArray()
+				.Where(entry => string.Equals(NormalizeCoverageFolder(entry.Folder), requested, comparison))
+				.Select(entry => new FolderMediaFile(entry.Path, Math.Max(0, entry.FileSize)))
+				.ToList();
 		}
 
 		static string NormalizeCoverageFolder(string? folder) {

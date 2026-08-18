@@ -46,4 +46,19 @@ public class ChineseLanguageDefaultsTests : IDisposable {
         using var doc = JsonDocument.Parse(File.ReadAllText(path));
         Assert.Equal("zh-Hans", doc.RootElement.GetProperty("LanguageCode").GetString());
     }
+
+    [Fact]
+    public void CompositeFormatCompatibility_AllowsTranslatedReordering() {
+        Assert.True(LanguageService.CompositeFormatCompatible(
+            "Moved {0} of {1} files",
+            "共 {1} 个文件，已移动 {0} 个"));
+    }
+
+    [Theory]
+    [InlineData("Moved {0} of {1}", "已移动 {0}")]
+    [InlineData("Moved {0}", "已移动 {0")]
+    [InlineData("Plain text", "错误 } 文本")]
+    public void CompositeFormatCompatibility_RejectsUnsafeTranslation(string fallback, string translated) {
+        Assert.False(LanguageService.CompositeFormatCompatible(fallback, translated));
+    }
 }

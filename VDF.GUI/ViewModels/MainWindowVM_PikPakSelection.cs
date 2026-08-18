@@ -50,9 +50,6 @@ namespace VDF.GUI.ViewModels {
 				_ => new PikPakSelectionPlan(),
 			};
 
-			// Match the PikPak script's explicit-selection semantics: once a rule actually
-			// matched, replace check state inside the CURRENT visible/scoped result set.
-			// Filter-hidden rows and rows outside a multi-row highlight scope are untouched.
 			if (plan.MatchedGroups == 0 || plan.ToCheck.Count == 0)
 				return 0;
 
@@ -115,7 +112,6 @@ namespace VDF.GUI.ViewModels {
 				foreach (var item in group) {
 					string haystack = pathMode ? item.ItemInfo.Path : GetPikPakFileName(item.ItemInfo.Path);
 					if (haystack.Contains(keyword, StringComparison.OrdinalIgnoreCase)) {
-						// Multiple hits: exactly like the PikPak script, current group order wins.
 						keeper = item;
 						break;
 					}
@@ -201,8 +197,6 @@ namespace VDF.GUI.ViewModels {
 					else
 						outside.Add(item);
 				}
-				// Only crossing groups qualify: target-side files must have a counterpart
-				// outside the target paths (and vice versa).
 				if (inside.Count == 0 || outside.Count == 0)
 					continue;
 				plan.MatchedGroups++;
@@ -309,5 +303,7 @@ namespace VDF.GUI.ViewModels {
 		public List<DuplicateItemVM> Keepers { get; } = new();
 		public List<DuplicateItemVM> ToCheck { get; } = new();
 		public int MatchedGroups { get; set; }
+		/// <summary>Related groups intentionally excluded from destructive/automatic keeper actions.</summary>
+		public int ReviewOnlyGroups { get; set; }
 	}
 }
