@@ -14,12 +14,7 @@
 // */
 //
 
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using ReactiveUI;
 
 namespace VDF.GUI.Data {
@@ -67,6 +62,28 @@ namespace VDF.GUI.Data {
 		public int SimilarityTo {
 			get => _SimilarityTo;
 			set => this.RaiseAndSetIfChanged(ref _SimilarityTo, value);
+		}
+
+		// ---- PikPak-style quick duplicate selection ----
+		// 0 = disabled; 1..15 map to PikPakQuickAction. Kept as an int so saved
+		// .vdfselection files remain simple JSON and older builds ignore these fields.
+		int _PikPakActionSelection;
+		public int PikPakActionSelection {
+			get => _PikPakActionSelection;
+			set => this.RaiseAndSetIfChanged(ref _PikPakActionSelection, value);
+		}
+
+		string _PikPakKeyword = string.Empty;
+		public string PikPakKeyword {
+			get => _PikPakKeyword;
+			set => this.RaiseAndSetIfChanged(ref _PikPakKeyword, value ?? string.Empty);
+		}
+
+		string _PikPakTargetPaths = string.Empty;
+		/// <summary>One target directory per line (semicolon is also accepted).</summary>
+		public string PikPakTargetPaths {
+			get => _PikPakTargetPaths;
+			set => this.RaiseAndSetIfChanged(ref _PikPakTargetPaths, value ?? string.Empty);
 		}
 	}
 }
