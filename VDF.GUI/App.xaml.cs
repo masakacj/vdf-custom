@@ -29,7 +29,7 @@ namespace VDF.GUI {
 		public static LanguageService Lang { get; } = new();
 
 		public override void Initialize() {
-			Lang.LoadLanguage("en");
+			Lang.LoadLanguage("zh-Hans");
 			AvaloniaXamlLoader.Load(this);
 		}
 

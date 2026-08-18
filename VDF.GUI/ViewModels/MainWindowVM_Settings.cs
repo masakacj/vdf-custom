@@ -55,8 +55,12 @@ namespace VDF.GUI.ViewModels {
 				string.Equals(option.Code, SettingsFile.Instance.LanguageCode, StringComparison.OrdinalIgnoreCase));
 			set {
 				if (value == null) return;
-				if (!string.Equals(SettingsFile.Instance.LanguageCode, value.Code, StringComparison.OrdinalIgnoreCase))
+				if (!string.Equals(SettingsFile.Instance.LanguageCode, value.Code, StringComparison.OrdinalIgnoreCase)) {
+					// Load first so the UI switches immediately; the debounced settings save
+					// then persists the normalized code without requiring a restart.
+					App.Lang.CurrentLanguage = value.Code;
 					SettingsFile.Instance.LanguageCode = value.Code;
+				}
 				this.RaisePropertyChanged();
 			}
 		}

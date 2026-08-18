@@ -464,7 +464,22 @@ namespace VDF.GUI.Data {
 
 		public static void SaveSettings(string? path = null) {
 			path = ResolveSettingsPath(path);
-			File.WriteAllText(path, JsonSerializer.Serialize(instance, GuiJsonContext.Default.SettingsFile));
+			string? directory = Path.GetDirectoryName(path);
+			if (!string.IsNullOrWhiteSpace(directory))
+				Directory.CreateDirectory(directory);
+
+			// A language change is persisted by the settings-page debounce. Writing
+			// directly to Settings.json meant closing/crashing during that write could
+			// leave a truncated file and make the next launch appear completely dead.
+			// Write a sibling temp file and atomically replace the real file instead.
+			string tempPath = path + ".tmp";
+			try {
+				File.WriteAllText(tempPath, JsonSerializer.Serialize(instance, GuiJsonContext.Default.SettingsFile));
+				File.Move(tempPath, path, overwrite: true);
+			}
+			finally {
+				try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+			}
 		}
 
 		bool _UseMica = false;
@@ -842,17 +857,21 @@ namespace VDF.GUI.Data {
 			return true;
 		}
 
-		static string ResolveDefaultLanguageCode() => ResolveLanguageCode(null);
+		static string ResolveDefaultLanguageCode() => "zh-Hans";
 
 		static string ResolveLanguageCode(string? languageCode) {
-			if (!string.IsNullOrWhiteSpace(languageCode))
-				return languageCode;
+			if (string.IsNullOrWhiteSpace(languageCode))
+				return "zh-Hans";
 
-			var culture = CultureInfo.CurrentUICulture;
-			if (!string.IsNullOrWhiteSpace(culture.TwoLetterISOLanguageName))
-				return culture.TwoLetterISOLanguageName;
+			string normalized = languageCode.Trim();
+			// VDF ships one Chinese translation today: Simplified Chinese. Normalize
+			// Windows/.NET aliases such as zh, zh-CN and zh-SG to the actual asset name
+			// so a fresh Chinese installation never tries to load a non-existent zh.json.
+			if (normalized.Equals("zh", StringComparison.OrdinalIgnoreCase) ||
+				normalized.StartsWith("zh-", StringComparison.OrdinalIgnoreCase))
+				return "zh-Hans";
 
-			return "en";
+			return normalized;
 		}
 	}
 }
