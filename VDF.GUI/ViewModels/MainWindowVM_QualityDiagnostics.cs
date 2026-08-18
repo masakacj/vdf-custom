@@ -68,19 +68,19 @@ namespace VDF.GUI.ViewModels {
 						continue;
 					if (!TryParseFrameSize(item.ItemInfo.FrameSize, out int width, out int height))
 						continue;
-				samples.Add(new CachedVideoQualitySample(
-					item.ItemInfo.Path,
-					width,
-					height,
-					item.ItemInfo.BitRateKbs > 0 ? (long)(item.ItemInfo.BitRateKbs * 1000m) : 0,
-					Math.Max(0, item.ItemInfo.SizeLong),
-					frames));
+					samples.Add(new CachedVideoQualitySample(
+						item.ItemInfo.Path,
+						width,
+						height,
+						item.ItemInfo.BitRateKbs > 0 ? (long)(item.ItemInfo.BitRateKbs * 1000m) : 0,
+						Math.Max(0, item.ItemInfo.SizeLong),
+						frames));
 				}
 
-				var findings = LightweightQualityDiagnostics.AnalyzeGroup(samples);
-				if (findings.Count == 0) continue;
+				var groupFindings = LightweightQualityDiagnostics.AnalyzeGroup(samples);
+				if (groupFindings.Count == 0) continue;
 				warningGroups++;
-				var byPath = findings.ToDictionary(
+				var byPath = groupFindings.ToDictionary(
 					finding => finding.Key,
 					CoreUtils.IsWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 				foreach (var item in group) {
@@ -100,8 +100,8 @@ namespace VDF.GUI.ViewModels {
 			if (group.Count < 2) return false;
 			// Flipped/AI-only/partial matches are intentionally excluded: cached frame positions
 			// are not guaranteed to be spatially aligned enough for the conservative overlay test.
-			if (group.Any(item => item.ItemInfo.Flags.Any(
-				DuplicateFlags.Flipped | DuplicateFlags.AiMatched | DuplicateFlags.PartialClip)))
+			const DuplicateFlags unsupported = DuplicateFlags.Flipped | DuplicateFlags.AiMatched | DuplicateFlags.PartialClip;
+			if (group.Any(item => (item.ItemInfo.Flags & unsupported) != 0))
 				return false;
 
 			var durations = group.Select(item => item.ItemInfo.Duration.TotalSeconds).ToList();
