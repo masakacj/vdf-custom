@@ -91,6 +91,9 @@ namespace VDF.GUI.ViewModels {
 			Row = row;
 			var culture = CultureInfo.CurrentCulture;
 			VideoText = Data.ResultsBadgeRules.BuildVideoLine(row.Item.ItemInfo, culture);
+			string warning = Data.LightweightQualityDiagnostics.WarningText(row.Item);
+			if (warning.Length > 0)
+				VideoText = VideoText.Length == 0 ? warning : VideoText + " · " + warning;
 			AudioText = Data.ResultsBadgeRules.BuildAudioLine(row.Item.ItemInfo, culture);
 			FileText = Data.ResultsBadgeRules.BuildFileLine(row.Item.ItemInfo, culture);
 		}
