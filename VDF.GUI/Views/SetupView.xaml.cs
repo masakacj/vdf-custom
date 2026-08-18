@@ -14,18 +14,27 @@
 // */
 //
 
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
+using Avalonia.VisualTree;
 using VDF.GUI.Data;
 using VDF.GUI.ViewModels;
 
 namespace VDF.GUI.Views {
 	public partial class SetupView : UserControl {
+		CheckBox? qualityDiagnosticsCheck;
+		bool syncingQualityDiagnosticsCheck;
+
 		public SetupView() {
 			AvaloniaXamlLoader.Load(this);
+			AttachLightweightQualityOption();
+			DataContextChanged += (_, _) => SyncLightweightQualityOption();
 			// Dropping folders anywhere on the setup screen includes them;
 			// holding Alt while dropping excludes them instead.
 			DragDrop.SetAllowDrop(this, true);
@@ -34,6 +43,64 @@ namespace VDF.GUI.Views {
 		}
 
 		MainWindowVM? ViewModel => DataContext as MainWindowVM;
+
+		/// <summary>
+		/// Adds the custom cache-only quality switch next to the three fixed scan modes without
+		/// changing the upstream profile XAML. The analysis runs after matching and only consumes
+		/// cached 32x32 VDF samples, so enabling it never adds media reads/seeks on HDDs.
+		/// </summary>
+		void AttachLightweightQualityOption() {
+			var startButton = this.GetVisualDescendants()
+				.OfType<Button>()
+				.FirstOrDefault(button => Equals(button.CommandParameter, "FullScan"));
+			if (startButton?.Parent is not StackPanel scanRow || scanRow.Parent is not StackPanel host)
+				return;
+
+			var check = qualityDiagnosticsCheck = new CheckBox {
+				Content = "轻量画质诊断（疑似二次转码 / 水印）",
+				FontSize = 12.5,
+				FontWeight = FontWeight.SemiBold,
+				IsThreeState = false,
+			};
+			check.PropertyChanged += (_, args) => {
+				if (args.Property != ToggleButton.IsCheckedProperty || syncingQualityDiagnosticsCheck || ViewModel == null)
+					return;
+				ViewModel.EnableLightweightQualityDiagnostics = check.IsChecked == true;
+			};
+			ToolTip.SetTip(check,
+				"仅在相似文件已经匹配完成后分析，不额外打开、Seek 或解码视频；复用 ScannedFiles.db 中已有的灰度采样和元数据。可随时关闭。");
+
+			var hint = new TextBlock {
+				Text = "仅分析已匹配重复组，复用缓存采样；对媒体 HDD 无额外读取。疑似结果只影响 BEST 建议，不会自动删除。",
+				FontSize = 11.5,
+				Opacity = 0.62,
+				TextWrapping = TextWrapping.Wrap,
+				Margin = new Thickness(24, 1, 0, 0),
+			};
+			var panel = new StackPanel {
+				Spacing = 1,
+				Margin = new Thickness(0, 14, 0, 0),
+			};
+			panel.Children.Add(check);
+			panel.Children.Add(hint);
+
+			int index = host.Children.IndexOf(scanRow);
+			if (index < 0) host.Children.Add(panel);
+			else host.Children.Insert(index, panel);
+			SyncLightweightQualityOption();
+		}
+
+		void SyncLightweightQualityOption() {
+			if (qualityDiagnosticsCheck == null || ViewModel == null)
+				return;
+			syncingQualityDiagnosticsCheck = true;
+			try {
+				qualityDiagnosticsCheck.IsChecked = ViewModel.EnableLightweightQualityDiagnostics;
+			}
+			finally {
+				syncingQualityDiagnosticsCheck = false;
+			}
+		}
 
 		void OnDrop(object? sender, DragEventArgs e) {
 			if (!e.DataTransfer.Contains(DataFormat.File)) return;

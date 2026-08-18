@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU General Public License for more details.
 //     You should have received a copy of the GNU General Public License
@@ -18,6 +18,7 @@ using System.Linq;
 using ReactiveUI;
 using VDF.Core.Utils;
 using VDF.Core.ViewModels;
+using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
 	public partial class MainWindowVM : ReactiveObject {
@@ -71,11 +72,23 @@ namespace VDF.GUI.ViewModels {
 			["Size"] = new("Size", d => d.ItemInfo.SizeLong, videoOnly: false, ascending: true),
 		};
 
+		// Cache-only diagnostics are not user-orderable quality metadata. When enabled they
+		// deliberately run before Resolution/Bitrate so a suspicious 4K re-encode cannot win
+		// merely because its container advertises larger numbers. A zero penalty ties cleanly
+		// and leaves the user's existing quality order untouched.
+		static readonly QualityRanker.Criterion<DuplicateItemVM> CachedQualityCriterion = new(
+			LightweightQualityDiagnostics.QualityCriterionName,
+			d => LightweightQualityDiagnostics.Penalty(d),
+			videoOnly: true,
+			ascending: true);
+
 		// Yields criteria in the user's chosen order, then appends any map entries the
 		// user's saved list doesn't include. This lets newly added criteria (e.g. Size)
 		// take effect as a final tiebreaker for users with pre-existing settings,
 		// without overwriting their explicit ordering.
 		static IEnumerable<QualityRanker.Criterion<DuplicateItemVM>> ResolveCriteria(IEnumerable<string> names) {
+			if (LightweightQualityDiagnosticsPreference.Enabled)
+				yield return CachedQualityCriterion;
 			var seen = new HashSet<string>();
 			foreach (var name in names)
 				if (QualityCriteriaMap.TryGetValue(name, out var c) && seen.Add(name))
