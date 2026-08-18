@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -84,6 +84,23 @@ namespace VDF.GUI.Data {
 		public string PikPakTargetPaths {
 			get => _PikPakTargetPaths;
 			set => this.RaiseAndSetIfChanged(ref _PikPakTargetPaths, value ?? string.Empty);
+		}
+
+		// ---- Unified file-first / folder-coverage merge planner ----
+		// The planner always uses ordinary VDF file duplicate groups as its atomic matches.
+		// These values only remember how the user wants a selected folder-pair bucket applied.
+		int _PikPakFolderMergeTargetSelection;
+		/// <summary>0 = suggested target side; 1 = swap and use the other side.</summary>
+		public int PikPakFolderMergeTargetSelection {
+			get => _PikPakFolderMergeTargetSelection;
+			set => this.RaiseAndSetIfChanged(ref _PikPakFolderMergeTargetSelection, value);
+		}
+
+		int _PikPakFolderMergeKeepSelection;
+		/// <summary>Maps to PikPakFolderMergeKeepRule.</summary>
+		public int PikPakFolderMergeKeepSelection {
+			get => _PikPakFolderMergeKeepSelection;
+			set => this.RaiseAndSetIfChanged(ref _PikPakFolderMergeKeepSelection, value);
 		}
 	}
 }
