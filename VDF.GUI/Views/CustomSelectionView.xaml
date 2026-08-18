@@ -89,6 +89,67 @@
             VerticalScrollBarVisibility="Auto">
             <StackPanel Spacing="12">
 
+                <!--  PikPak-style quick dedupe rules  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="9">
+                        <TextBlock Classes="cardtitle" Text="PikPak 快捷去重筛选" />
+                        <TextBlock
+                            Classes="note"
+                            Text="选择非“关闭”规则后，下方原自定义筛选条件不会参与本次执行。规则只作用于当前结果筛选后仍可见的重复组；如果高亮了多行，则继续遵循 VDF 的高亮范围。勾选代表待处理/待删除。" />
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <TextBlock Classes="fieldlabel" Text="快捷规则" />
+                            <ComboBox
+                                Grid.Column="1"
+                                MinWidth="360"
+                                HorizontalAlignment="Stretch"
+                                MaxDropDownHeight="430"
+                                SelectedIndex="{Binding Data.PikPakActionSelection}">
+                                <ComboBoxItem Content="关闭（使用原自定义筛选）" />
+                                <ComboBoxItem Content="保留最新，勾选其余" />
+                                <ComboBoxItem Content="保留最旧，勾选其余" />
+                                <ComboBoxItem Content="保留最大文件，勾选其余" />
+                                <ComboBoxItem Content="保留最小文件，勾选其余" />
+                                <ComboBoxItem Content="保留文件名最短，勾选其余" />
+                                <ComboBoxItem Content="保留文件名最长，勾选其余" />
+                                <ComboBoxItem Content="保留完整路径最短，勾选其余" />
+                                <ComboBoxItem Content="保留完整路径最长，勾选其余" />
+                                <ComboBoxItem Content="同夹多余：同组同目录保留当前排序第 1 个" />
+                                <ComboBoxItem Content="保留路径包含关键词，勾选其余" />
+                                <ComboBoxItem Content="保留文件名包含关键词，勾选其余" />
+                                <ComboBoxItem Content="直接勾选路径包含关键词" />
+                                <ComboBoxItem Content="直接勾选文件名包含关键词" />
+                                <ComboBoxItem Content="勾选目标路径内、且其他路径存在副本的文件" />
+                                <ComboBoxItem Content="勾选其他路径内、且目标路径存在副本的文件" />
+                            </ComboBox>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <TextBlock Classes="fieldlabel" Text="关键词" />
+                            <TextBox
+                                Grid.Column="1"
+                                Text="{Binding Data.PikPakKeyword}"
+                                PlaceholderText="用于 4 个“包含关键词”规则；不区分大小写" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <TextBlock Classes="fieldlabel" VerticalAlignment="Top" Margin="0,6,0,0" Text="目标路径" />
+                            <TextBox
+                                Grid.Column="1"
+                                MinHeight="64"
+                                AcceptsReturn="True"
+                                TextWrapping="Wrap"
+                                Text="{Binding Data.PikPakTargetPaths}"
+                                PlaceholderText="用于最后 2 个路径范围规则；每行一个目录，也可用分号分隔&#10;例如：D:\Media\Archive" />
+                        </Grid>
+                        <TextBlock Classes="note" Text="关键词保留：同组多项命中时保留当前组内排序第一项；整组无命中则该组不自动勾选。同夹多余也严格按当前组内显示顺序保留第 1 个。" />
+                        <TextBlock
+                            Foreground="{actipro:ThemeResource ControlForegroundBrushAccent}"
+                            FontWeight="SemiBold"
+                            Text="{Binding PikPakStatus}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
                 <!--  criteria  -->
                 <Border Classes="card">
                     <StackPanel Spacing="10">
