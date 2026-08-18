@@ -19,6 +19,7 @@ using System.Reactive;
 using Avalonia.Collections;
 using Avalonia.Input.Platform;
 using ReactiveUI;
+using VDF.Core;
 using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
@@ -28,14 +29,38 @@ namespace VDF.GUI.ViewModels {
 	// in Stage 6).
 	public partial class MainWindowVM : ReactiveObject {
 
-		/// <summary>Flattened list the results ListBox renders: ResultsGroupHeader + ResultsItemRow.</summary>
+		/// <summary>
+		/// The rendered list. Traditional mode is the unchanged VDF GroupId list; resource
+		/// mode adds folder-relation headers above those SAME canonical groups.
+		/// </summary>
 		public AvaloniaList<object> ResultsRows { get; } = new();
 
 		readonly HashSet<Guid> collapsedResultsGroups = new();
 		readonly HashSet<DuplicateItemVM> expandedResultsDetails = new();
-		/// <summary>Groups of the last build, in display order (for navigation).</summary>
+		/// <summary>
+		/// Canonical traditional groups of the last build. This deliberately NEVER becomes
+		/// the resource-folder grouping: navigation and PikPak quick rules keep their stable,
+		/// original file-group semantics no matter which presentation the user selects.
+		/// </summary>
 		List<ResultsGroupHeader> resultsGroups = new();
 		bool resultsHavePartialClips;
+
+		ResultsDisplayMode _ActiveResultsDisplayMode = ResultsDisplayMode.SimilarityGroups;
+		public ResultsDisplayMode ActiveResultsDisplayMode {
+			get => _ActiveResultsDisplayMode;
+			private set => this.RaiseAndSetIfChanged(ref _ActiveResultsDisplayMode, value);
+		}
+
+		public ResultsDisplayModeOption[] ResultsDisplayModeOptions { get; } = {
+			new("相似文件组", ResultsDisplayMode.SimilarityGroups),
+			new("资源整合", ResultsDisplayMode.ResourceConsolidation),
+		};
+
+		internal void SetResultsDisplayMode(ResultsDisplayMode mode) {
+			if (mode == ActiveResultsDisplayMode) return;
+			ActiveResultsDisplayMode = mode;
+			RebuildResultsList();
+		}
 
 		/// <summary>
 		/// The Clip offset column only exists when it can carry data: partial-clip
@@ -121,6 +146,9 @@ namespace VDF.GUI.ViewModels {
 		internal void RebuildResultsList() {
 			ResultsScrollAnchor.Capture? anchor = ResultsAnchorProvider?.Invoke();
 			List<Guid> oldGroupOrder = resultsGroups.ConvertAll(g => g.GroupId);
+
+			// ALWAYS build the traditional file groups first. They are the source of truth and
+			// remain the model used by navigation/selection even while resource view is shown.
 			var result = ResultsListBuilder.Build(new ResultsBuildRequest {
 				Items = Duplicates.ToList(),
 				Filter = DuplicatesFilterCore,
@@ -138,15 +166,49 @@ namespace VDF.GUI.ViewModels {
 			});
 			resultsGroups = result.Groups;
 			resultsHavePartialClips = result.HasPartialClips;
+
+			var displayRows = new List<object> {
+				new ResultsViewSwitcherRow(ResultsDisplayModeOptions, ActiveResultsDisplayMode, SetResultsDisplayMode)
+			};
+
+			if (ActiveResultsDisplayMode == ResultsDisplayMode.ResourceConsolidation) {
+				var options = BuildResourceCoverageOptions(result.Groups);
+				var resource = ResourceResultsBuilder.Build(result.Groups, options, expandedResultsDetails);
+				displayRows.AddRange(resource.Rows);
+			}
+			else {
+				displayRows.AddRange(result.Rows);
+			}
+
 			ResultsRows.Clear();
-			ResultsRows.AddRange(result.Rows);
+			ResultsRows.AddRange(displayRows);
 			this.RaisePropertyChanged(nameof(ResultsShowClipOffsetColumn));
-			// The rebuild replaced every row object while the ScrollViewer kept its pixel
-			// offset — without restoring the anchor, deleting groups dumps the user at a
-			// random position in the list. The anchor row returns to its captured viewport
-			// offset, not flush to the top, so the viewport appears to stand still (#862).
-			if (anchor is { } a && ResultsScrollAnchor.FindRestoreTarget(a.Row, oldGroupOrder, result.Rows) is { } target)
+
+			// Restore only canonical row anchors. Resource headers/switcher are presentation
+			// rows and may disappear when the mode changes; failing to restore them is safer
+			// than jumping to a semantically unrelated folder relation.
+			if (anchor is { } a && ResultsScrollAnchor.FindRestoreTarget(a.Row, oldGroupOrder, displayRows) is { } target)
 				ResultsScrollToRow?.Invoke(target, a.ViewportOffsetY);
+		}
+
+		IReadOnlyList<PikPakFolderCoverageOption> BuildResourceCoverageOptions(IReadOnlyList<ResultsGroupHeader> canonicalGroups) {
+			if (canonicalGroups.Count == 0)
+				return Array.Empty<PikPakFolderCoverageOption>();
+
+			var groups = canonicalGroups
+				.Select(header => header.Rows.Select(row => row.Item).ToList())
+				.Where(group => group.Count >= 2)
+				.ToList();
+			var folders = groups
+				.SelectMany(group => group)
+				.Select(item => string.IsNullOrWhiteSpace(item.ItemInfo.Folder)
+					? GetPikPakFolder(item.ItemInfo.Path)
+					: item.ItemInfo.Folder)
+				.Where(folder => !string.IsNullOrWhiteSpace(folder))
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.ToList();
+			var stats = Scanner.GetDirectFolderMediaStats(folders);
+			return ComputePikPakFolderCoverageOptions(groups, stats);
 		}
 
 		/// <summary>Refreshes the results list after filter/sort/list changes.</summary>
