@@ -1,0 +1,297 @@
+<Window
+    x:Class="VDF.GUI.Views.MainWindow"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:Settings="clr-namespace:VDF.GUI.Data;assembly=VDF.GUI"
+    xmlns:actipro="http://schemas.actiprosoftware.com/avaloniaui"
+    xmlns:controls="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:i="clr-namespace:Avalonia.Xaml.Interactivity;assembly=Xaml.Behaviors.Interactivity"
+    xmlns:ic="clr-namespace:Avalonia.Xaml.Interactions.Custom;assembly=Xaml.Behaviors.Interactions.Custom"
+    xmlns:local="clr-namespace:VDF.GUI;assembly=VDF.GUI"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:media="clr-namespace:Avalonia.Media;assembly=Avalonia.Base"
+    xmlns:mvvm="clr-namespace:VDF.GUI.Mvvm;assembly=VDF.GUI"
+    xmlns:presenters="clr-namespace:Avalonia.Controls.Presenters;assembly=Avalonia.Controls"
+    xmlns:utils="clr-namespace:VDF.GUI.Utils;assembly=VDF.GUI"
+    xmlns:views="clr-namespace:VDF.GUI.Views;assembly=VDF.GUI"
+    xmlns:vm="clr-namespace:VDF.GUI.ViewModels;assembly=VDF.GUI"
+    x:DataType="vm:MainWindowVM"
+    x:Name="MainWindow"
+    Width="1020"
+    Height="950"
+    MinWidth="750"
+    MinHeight="450"
+    d:DesignHeight="750"
+    d:DesignWidth="900"
+    BorderBrush="{actipro:ThemeResource ButtonForegroundBrush}"
+    BorderThickness="1"
+    ExtendClientAreaToDecorationsHint="True"
+    FontSize="14"
+    Icon="/Assets/icon.ico"
+    WindowStartupLocation="CenterScreen"
+    mc:Ignorable="d">
+    <Window.Title>
+        <!-- Localized app title plus the build identity (e.g. "… 4.1.0 (a225a45)").
+             Releases roll to one tag, so the commit is the meaningful version. -->
+        <MultiBinding StringFormat="{}{0}  —  {1}">
+            <Binding Path="[App.Title]" Source="{x:Static local:App.Lang}" />
+            <Binding Source="{x:Static utils:VersionInfo.ShortDisplay}" />
+        </MultiBinding>
+    </Window.Title>
+    <Window.Resources>
+        <mvvm:ExtraShortDateTimeConverter x:Key="ExtraShortDateTimeConverter" />
+        <mvvm:SimilarityToFormattedConverter x:Key="SimilarityToFormattedConverter" />
+        <mvvm:MetricDisplayConverter x:Key="MetricDisplayConverter" />
+        <mvvm:ShowSkeletonConverter x:Key="ShowSkeletonConverter" />
+    </Window.Resources>
+    <Window.Styles>
+        <!-- Avalonia 12 draws managed caption buttons when the client area is extended
+             (ExtendClientAreaChromeHints/PreferSystemChrome no longer exists). Its button
+             set includes a full-screen toggle Windows chrome never had. Hiding it via
+             Button#PART_FullScreenButton works but leaves the remaining buttons offset
+             from the window edge, which looks worse — so the button stays for now. -->
+        <Style Selector="Button.hyperlink">
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <TextBlock Text="{TemplateBinding Content}" TextDecorations="Underline">
+                        <TextBlock.Styles>
+                            <Style Selector="TextBlock:pointerover">
+                                <Setter Property="Foreground" Value="{actipro:ThemeResource ControlBackgroundBrushEmphasizedAccent}" />
+                            </Style>
+                        </TextBlock.Styles>
+                    </TextBlock>
+                </ControlTemplate>
+            </Setter>
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <!-- titlebar nav links (mockup .navlink: quiet text, accent-soft pill on hover) -->
+        <Style Selector="Button.navlink">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="10,3" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Opacity" Value="0.8" />
+        </Style>
+        <Style Selector="Button.navlink:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{actipro:ThemeResource ControlBackgroundBrushSoftAccent}" />
+        </Style>
+        <Style Selector="Button.navlink:pointerover">
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+    </Window.Styles>
+    <Border BorderBrush="{DynamicResource SystemControlBackgroundChromeMediumBrush}" BorderThickness="2">
+        <Grid>
+            <controls:ExperimentalAcrylicBorder
+                x:Name="ExperimentalAcrylicBorderBackgroundWhite"
+                IsHitTestVisible="False"
+                IsVisible="False">
+                <controls:ExperimentalAcrylicBorder.Material>
+                    <media:ExperimentalAcrylicMaterial BackgroundSource="Digger" TintColor="White" />
+                </controls:ExperimentalAcrylicBorder.Material>
+            </controls:ExperimentalAcrylicBorder>
+            <controls:ExperimentalAcrylicBorder
+                x:Name="ExperimentalAcrylicBorderBackgroundBlack"
+                IsHitTestVisible="False"
+                IsVisible="False">
+                <controls:ExperimentalAcrylicBorder.Material>
+                    <media:ExperimentalAcrylicMaterial BackgroundSource="Digger" TintColor="Black" />
+                </controls:ExperimentalAcrylicBorder.Material>
+            </controls:ExperimentalAcrylicBorder>
+            <TextBlock
+                x:Name="TextBlockWindowTitle"
+                Margin="0,4,0,0"
+                HorizontalAlignment="Center"
+                IsHitTestVisible="false"
+                Text="{Binding #MainWindow.Title}" />
+            <!-- Titlebar nav links (mockup .navlink): right-aligned before the caption
+                 buttons; contextual per shell view. The strip only holds the buttons, so
+                 the rest of the titlebar stays a drag region. -->
+            <StackPanel
+                x:Name="TitlebarNav"
+                Height="30"
+                Margin="0,0,190,0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Orientation="Horizontal"
+                Spacing="2">
+                <!-- "New scan" returns to the Setup screen (discarding the shown results)
+                     instead of immediately rescanning with the current settings. -->
+                <Button
+                    Classes="navlink"
+                    Command="{Binding NewScanCommand}"
+                    Content="{Binding Source={x:Static local:App.Lang}, Path=[Shell.NewScan]}"
+                    IsVisible="{Binding ShowNavNewScan}" />
+                <Button
+                    Classes="navlink"
+                    Command="{Binding ShowShellViewCommand}"
+                    CommandParameter="Main"
+                    Content="{Binding Source={x:Static local:App.Lang}, Path=[Shell.BackToResults]}"
+                    IsVisible="{Binding ShowNavBackToResults}" />
+                <Button
+                    Classes="navlink"
+                    Command="{Binding ShowShellViewCommand}"
+                    CommandParameter="Log"
+                    Content="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Tab.Log]}"
+                    IsVisible="{Binding ShowNavLog}" />
+                <Button
+                    Classes="navlink"
+                    Command="{Binding ShowShellViewCommand}"
+                    CommandParameter="Settings"
+                    Content="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Tab.Settings]}"
+                    IsVisible="{Binding ShowNavSettings}" />
+                <!-- ⋯ overflow (stage 7): home of everything stateless — database
+                     maintenance, blacklist, About — plus a contextual scan-results
+                     section in the Review state. Replaces the legacy menu bar. -->
+                <Button
+                    Classes="navlink"
+                    FontWeight="Bold"
+                    Content="⋯"
+                    ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[Shell.MoreMenu]}">
+                    <Button.Flyout>
+                        <MenuFlyout Placement="BottomEdgeAlignedRight">
+                            <!-- Scan results (Review only) -->
+                            <MenuItem
+                                Command="{Binding StartScanCommand}"
+                                CommandParameter="CompareOnly"
+                                Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Command.Rescan]}"
+                                ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Tooltip.Rescan]}"
+                                IsEnabled="{Binding IsReadyToCompare}"
+                                IsVisible="{Binding IsReviewState}" />
+                            <MenuItem
+                                Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Menu.ExportScanResults]}"
+                                IsVisible="{Binding !!Duplicates.Count}">
+                                <MenuItem
+                                    Command="{Binding ExportScanResultsCommand}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Menu.ExportScanResults.Json]}" />
+                                <MenuItem
+                                    Command="{Binding ExportScanResultsPrettyCommand}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Menu.ExportScanResults.JsonPretty]}" />
+                                <MenuItem
+                                    Command="{Binding ExportScanResultsToFileCommand}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Menu.ExportScanResults.WithThumbnails]}" />
+                                <MenuItem
+                                    Command="{Binding ExportScanResultsToCsvCommand}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Menu.ExportScanResults.Csv]}" />
+                            </MenuItem>
+                            <MenuItem
+                                Command="{Binding ImportScanResultsFromFileCommand}"
+                                Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Menu.ImportScanResults]}"
+                                IsEnabled="{Binding !IsScanning}" />
+                            <Separator />
+                            <!-- Database maintenance: disabled while a scan runs (same rule the
+                                 old menu enforced by hiding the submenu) -->
+                            <MenuItem
+                                Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Menu.Database]}"
+                                IsEnabled="{Binding !IsScanning}">
+                                <MenuItem
+                                    Command="{Binding CleanDatabaseCommand}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Database.Cleanup]}"
+                                    ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Tooltip.CleanDatabase]}" />
+                                <MenuItem
+                                    Command="{Binding PruneGhostEntriesCommand}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Database.PruneGhostEntries]}"
+                                    ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Tooltip.PruneGhostEntries]}" />
+                                <MenuItem
+                                    Command="{Binding EditDataBaseCommand}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[Dialog.EditEllipsis]}" />
+                                <MenuItem
+                                    Command="{Binding RelocateDatabaseFilesCommand}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Database.RelocateFiles]}" />
+                                <Separator />
+                                <MenuItem
+                                    Command="{Binding ExportDataBaseToJsonCommand}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Database.ExportJson]}" />
+                                <MenuItem
+                                    Command="{Binding ExportDataBaseToJsonPrettyCommand}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Database.ExportJsonPretty]}" />
+                                <MenuItem
+                                    Command="{Binding ImportDataBaseFromJsonCommand}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Database.ImportJson]}" />
+                                <Separator />
+                                <MenuItem
+                                    Command="{Binding ClearDatabaseCommand}"
+                                    Foreground="{DynamicResource VdfDangerBrush}"
+                                    Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Database.Clear]}" />
+                            </MenuItem>
+                            <MenuItem
+                                Command="{Binding OpenBlacklistManagerCommand}"
+                                Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Menu.ManageBlacklist]}" />
+                            <Separator />
+                            <MenuItem
+                                Command="{Binding AboutCommand}"
+                                Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Menu.About]}" />
+                            <MenuItem
+                                Command="{Binding OpenOwnFolderCommand}"
+                                Header="{Binding Source={x:Static local:App.Lang}, Path=[Dialog.OpenFolder]}"
+                                IsVisible="{Binding IsDebug}" />
+                        </MenuFlyout>
+                    </Button.Flyout>
+                </Button>
+            </StackPanel>
+            <Grid x:Name="MainContentGrid" Margin="2,30,2,2">
+                <Grid IsVisible="{Binding IsShellMainVisible}">
+                        <Grid>
+                            <Grid>
+                                <!-- One window, three states: Setup → Scanning → Review (stage 2).
+                                     The legacy menu bar and stats row are gone (stage 7): stateless
+                                     commands live in the titlebar ⋯ menu, selection tools in the
+                                     Review toolbar, stats in the Review statusline. -->
+                                <views:SetupView IsVisible="{Binding IsSetupState}" />
+                                <views:ScanningView IsVisible="{Binding IsScanningState}" />
+                                <views:DuplicateResultsView
+                                    x:Name="NewResultsView"
+                                    IsVisible="{Binding IsReviewState}" />
+                            </Grid>
+                            <Grid x:Name="BusyIndicator">
+                                <!-- Scans render in the window center (Scanning state) — the busy
+                                     curtain only covers non-scan operations (delete, import, …). -->
+                                <Grid.IsVisible>
+                                    <MultiBinding Converter="{x:Static BoolConverters.And}">
+                                        <Binding Path="IsBusy" />
+                                        <Binding Path="!IsScanning" />
+                                    </MultiBinding>
+                                </Grid.IsVisible>
+                                <!-- Curtain: fades the view underneath and swallows its input;
+                                     kept as a sibling so the panel itself stays fully opaque. -->
+                                <Border Background="{actipro:ThemeResource Container1BackgroundBrush}" Opacity="0.85" />
+                                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <ProgressBar
+                                        Height="10"
+                                        MaxWidth="200"
+                                        BorderBrush="LimeGreen"
+                                        BorderThickness="1"
+                                        IsIndeterminate="{Binding IsBusy}" />
+                                    <TextBlock
+                                        Margin="0,10,0,0"
+                                        HorizontalAlignment="Center"
+                                        FontSize="14"
+                                        FontWeight="ExtraBold"
+                                        Text="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Busy.PleaseWait]}" />
+                                    <TextBlock
+                                        Name="LblBusyIndicator"
+                                        Margin="0,10,0,0"
+                                        HorizontalAlignment="Center"
+                                        FontSize="14"
+                                        Text="{Binding IsBusyOverlayText}" />
+                                    <Button
+                                        Margin="0,15,0,0"
+                                        HorizontalAlignment="Center"
+                                        Command="{Binding CancelBusyCommand}"
+                                        Content="{Binding Source={x:Static local:App.Lang}, Path=[Dialog.Cancel]}"
+                                        IsVisible="{Binding IsBusyCancelable}" />
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                </Grid>
+                <views:SettingsView IsVisible="{Binding IsShellSettingsVisible}" />
+                <views:LogView IsVisible="{Binding IsShellLogVisible}" />
+            </Grid>
+        </Grid>
+    </Border>
+
+
+</Window>

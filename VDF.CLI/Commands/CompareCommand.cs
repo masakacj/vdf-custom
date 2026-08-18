@@ -1,0 +1,62 @@
+// /*
+//     Copyright (C) 2026 0x90d
+//     This file is part of VideoDuplicateFinder
+//     VideoDuplicateFinder is free software: you can redistribute it and/or modify
+//     it under the terms of the GNU Affero General Public License as published by
+//     the Free Software Foundation, either version 3 of the License, or
+//     (at your option) any later version.
+//     VideoDuplicateFinder is distributed in the hope that it will be useful,
+//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//     GNU Affero General Public License for more details.
+//     You should have received a copy of the GNU Affero General Public License
+//     along with VideoDuplicateFinder.  If not, see <http://www.gnu.org/licenses/>.
+// */
+//
+
+using System.CommandLine;
+using VDF.CLI.Output;
+using VDF.Core;
+
+namespace VDF.CLI.Commands {
+	internal static class CompareCommand {
+		internal static Command Build() {
+			var cmd = new Command("compare", "Compare previously scanned hashes and output duplicate groups. Requires a prior 'scan' run.");
+
+			SharedOptions.AddCompareOptions(cmd);
+
+			cmd.SetAction(async (parseResult, ct) => {
+				var engine = new ScanEngine();
+				// Settings file first, explicit flags second — same layering as scan-and-compare.
+				engine.Settings = ScanRunner.LoadOrCreateSettings(parseResult.GetValue(SharedOptions.SettingsFile));
+				SharedOptions.ApplyToSettings(engine.Settings, parseResult);
+				// 'compare' has no --include option; without this, the empty include list
+				// would make the inclusion filter skip every database entry (0 results, #790).
+				if (engine.Settings.IncludeList.Count == 0)
+					engine.Settings.ScanAgainstEntireDatabase = true;
+				ScanRunner.WireProgress(engine);
+
+				// Compare-time AI needs: the union pass only reads embeddings cached by the
+				// scan, but --ai-partial constructs the ONNX session — provision like scan does.
+				if (engine.Settings.EnableAiPartialDetection)
+					await ScanRunner.EnsureAiComponentsAsync(engine.Settings, ct);
+
+				var duplicates = await ScanRunner.RunCompareAsync(engine, ct);
+
+				var format = Enum.TryParse<OutputFormat>(parseResult.GetValue(SharedOptions.Format), true, out var fmt) ? fmt : OutputFormat.Text;
+				var outFile = parseResult.GetValue(SharedOptions.Output);
+				string output = ResultFormatter.Format(duplicates, format);
+
+				if (outFile != null) {
+					File.WriteAllText(outFile.FullName, output);
+					Console.Error.WriteLine($"Results written to: {outFile.FullName}");
+				}
+				else {
+					Console.Write(output);
+				}
+			});
+
+			return cmd;
+		}
+	}
+}

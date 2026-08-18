@@ -1,0 +1,255 @@
+// /*
+//     Copyright (C) 2026 0x90d
+//     This file is part of VideoDuplicateFinder
+//     VideoDuplicateFinder is free software: you can redistribute it and/or modify
+//     it under the terms of the GNU Affero General Public License as published by
+//     the Free Software Foundation, either version 3 of the License, or
+//     (at your option) any later version.
+//     VideoDuplicateFinder is distributed in the hope that it will be useful,
+//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//     GNU Affero General Public License for more details.
+//     You should have received a copy of the GNU Affero General Public License
+//     along with VideoDuplicateFinder.  If not, see <http://www.gnu.org/licenses/>.
+// */
+//
+
+using System;
+using System.Linq;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
+using Avalonia.Markup.Xaml;
+using Avalonia.VisualTree;
+using VDF.GUI.Data;
+using VDF.GUI.ViewModels;
+
+namespace VDF.GUI.Views {
+	public partial class DuplicateResultsView : UserControl {
+		public DuplicateResultsView() {
+			AvaloniaXamlLoader.Load(this);
+			DataContextChanged += (_, _) => WireViewModel();
+			WireViewModel();
+			if (this.FindControl<Button>("AutoSelectButton")?.Flyout is MenuFlyout autoSelectFlyout)
+				autoSelectFlyout.Opening += (_, _) => RebuildSavedExpressionItems();
+		}
+
+		/// <summary>
+		/// Saved Expression Builder presets in the Auto-select menu (#850). Rebuilt each
+		/// time the flyout opens so preset adds/renames/deletes show up immediately;
+		/// the submenu hides entirely while no presets exist.
+		/// </summary>
+		void RebuildSavedExpressionItems() {
+			var menu = this.FindControl<MenuItem>("SavedExpressionsMenu");
+			if (menu == null || ViewModel is not MainWindowVM vm) return;
+			var presets = SettingsFile.Instance.ExpressionPresets;
+			menu.IsVisible = presets.Count > 0;
+			menu.ItemsSource = presets.Select(p => new MenuItem {
+				Header = p.Name,
+				Command = vm.ApplyExpressionPresetCommand,
+				CommandParameter = p,
+			}).ToList();
+		}
+
+		ListBox ResultsListControl => this.FindControl<ListBox>("ResultsList")!;
+
+		/// <summary>The control keyboard shortcuts are attached to (see ApplyKeyboardShortcuts).</summary>
+		internal ListBox ShortcutTarget => ResultsListControl;
+
+		MainWindowVM? ViewModel => DataContext as MainWindowVM;
+
+		void WireViewModel() {
+			if (ViewModel is not MainWindowVM vm) return;
+			vm.NewResultsSelectionProvider = () =>
+				ResultsListControl.SelectedItems?.OfType<ResultsItemRow>().Select(r => r.Item).ToList() ?? new();
+			vm.NewResultsSelectAndScrollTo = row => {
+				ResultsListControl.SelectedItems?.Clear();
+				ResultsListControl.SelectedItem = row;
+				ResultsListControl.ScrollIntoView(row);
+			};
+			vm.ResultsAnchorProvider = CaptureScrollAnchor;
+			vm.ResultsScrollToRow = ScrollRowToViewportOffset;
+		}
+
+		/// <summary>Row whose realized container is topmost in the viewport (partially visible counts), plus its viewport offset.</summary>
+		ResultsScrollAnchor.Capture? CaptureScrollAnchor() {
+			if (resultsScrollViewer == null) return null;
+			object? best = null;
+			double bestTop = double.MaxValue;
+			foreach (var container in ResultsListControl.GetRealizedContainers()) {
+				if (container.TranslatePoint(new Point(0, 0), resultsScrollViewer) is not { } p) continue;
+				if (p.Y + container.Bounds.Height <= 0) continue; // fully above the viewport
+				if (p.Y < bestTop) {
+					bestTop = p.Y;
+					best = container.DataContext;
+				}
+			}
+			return best == null ? null : new ResultsScrollAnchor.Capture(best, bestTop);
+		}
+
+		/// <summary>
+		/// Scrolls the row back to its captured viewport offset once the rebuilt list has
+		/// a layout. ScrollIntoView alone only guarantees visibility (the row lands at
+		/// whichever edge is closer), and snapping the row flush to the top still read as
+		/// a jump whenever the anchor row had been mid-viewport (#862).
+		/// </summary>
+		void ScrollRowToViewportOffset(object row, double viewportOffsetY) {
+			Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+				int index = ResultsListControl.Items.IndexOf(row);
+				if (index < 0) return;
+				ResultsListControl.ScrollIntoView(index);
+				// ScrollIntoView realized the container; align it after layout.
+				Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+					if (resultsScrollViewer == null) return;
+					var container = ResultsListControl.ContainerFromIndex(index);
+					if (container?.TranslatePoint(new Point(0, 0), resultsScrollViewer) is not { } p) return;
+					resultsScrollViewer.Offset = new Vector(
+						resultsScrollViewer.Offset.X,
+						Math.Max(0, resultsScrollViewer.Offset.Y + p.Y - viewportOffsetY));
+				}, Avalonia.Threading.DispatcherPriority.Loaded);
+			}, Avalonia.Threading.DispatcherPriority.Loaded);
+		}
+
+		// Group headers are rendered inside the same ListBox as file rows; they must never
+		// count as "selected duplicates", so any header that sneaks into the selection
+		// (marquee/range selection) is dropped again immediately.
+		readonly SelectionHeaderCleanup selectionHeaderCleanup = new();
+		void OnResultsSelectionChanged(object? sender, SelectionChangedEventArgs e) =>
+			selectionHeaderCleanup.Run(ResultsListControl.SelectedItems);
+
+		// The DataGrid selected rows on right-click; ListBox doesn't. Mirror that behavior
+		// so the context menu acts on the row under the cursor.
+		void OnResultsPointerPressed(object? sender, PointerPressedEventArgs e) {
+			if (!e.GetCurrentPoint(ResultsListControl).Properties.IsRightButtonPressed) return;
+			if (e.Source is not Control source) return;
+			var container = source.FindAncestorOfType<ListBoxItem>(includeSelf: true);
+			if (container?.DataContext is not ResultsItemRow row) return;
+			if (ResultsListControl.SelectedItems?.Contains(row) == true) return;
+			ResultsListControl.SelectedItems?.Clear();
+			ResultsListControl.SelectedItem = row;
+		}
+
+		void OnThumbnailDoubleTapped(object? sender, TappedEventArgs e) {
+			ViewModel?.ThumbnailDoubleClickCommand.Execute().Subscribe();
+			e.Handled = true;
+		}
+
+		// Click on the path line copies the full path (locked design decision 5), but only
+		// when the row was already selected — see ResultsInteractionRules (#849). This
+		// handler runs on the path element BEFORE the event bubbles up to the ListBoxItem,
+		// so SelectedItems still holds the pre-click selection here.
+		async void OnPathPointerPressed(object? sender, PointerPressedEventArgs e) {
+			if ((sender as Control)?.DataContext is not ResultsItemRow row) return;
+			bool rowWasAlreadySelected = ResultsListControl.SelectedItems?.Contains(row) == true;
+			if (!ResultsInteractionRules.ShouldCopyPathOnPointerPress(
+					e.GetCurrentPoint(this).Properties.IsLeftButtonPressed, rowWasAlreadySelected))
+				return;
+			if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) {
+				await clipboard.SetTextAsync(row.Item.ItemInfo.Path);
+				await row.Item.FlashPathCopiedAsync();
+			}
+		}
+
+		void OnPreviewGripDragDelta(object? sender, VectorEventArgs e) {
+			SettingsFile.Instance.ResultsPreviewWidth += e.Vector.X;
+		}
+
+		ScrollViewer? resultsScrollViewer;
+		bool headerInsetHooked;
+
+		// The header strip sits outside the list's scroll viewport, so whenever the
+		// vertical scrollbar reserves width the right-docked row cells end left of
+		// their headers (#837). Keep the header's usable width in lockstep with the
+		// viewport instead of guessing a scrollbar width.
+		void OnResultsListTemplateApplied(object? sender, TemplateAppliedEventArgs e) {
+			resultsScrollViewer = e.NameScope.Find<ScrollViewer>("PART_ScrollViewer");
+			if (resultsScrollViewer == null) return;
+			resultsScrollViewer.PropertyChanged += (_, args) => {
+				if (args.Property == ScrollViewer.ViewportProperty)
+					SyncHeaderInset();
+			};
+			if (!headerInsetHooked && this.FindControl<Border>("ColumnHeaderStrip") is { } header) {
+				headerInsetHooked = true;
+				header.PropertyChanged += (_, args) => {
+					if (args.Property == BoundsProperty)
+						SyncHeaderInset();
+				};
+			}
+			SyncHeaderInset();
+		}
+
+		void SyncHeaderInset() {
+			if (resultsScrollViewer == null) return;
+			var header = this.FindControl<Border>("ColumnHeaderStrip");
+			var columns = this.FindControl<DockPanel>("HeaderColumns");
+			if (header == null || columns == null) return;
+			double viewport = resultsScrollViewer.Viewport.Width;
+			if (viewport <= 0) return;
+			// Header strip and ListBox share the same outer width and the same 6px
+			// horizontal padding (strip padding vs. row Border padding), so whatever
+			// outer width the viewport does NOT get is exactly the scroll chrome.
+			double inset = Math.Max(0, header.Bounds.Width - viewport);
+			if (Math.Abs(columns.Margin.Right - inset) > 0.5)
+				columns.Margin = new Thickness(0, 0, inset, 0);
+		}
+
+		// Hover-diff. Tag carries the metric name(s), comma-separated: a two-line cell
+		// (Duration·Res) is ONE hover zone activating both its metrics — separate stacked
+		// zones made the display flip on tiny vertical mouse moves (#849 gif).
+		//
+		// Timing: activation waits for the pointer to rest (a raw PointerEntered swap
+		// flipped values the instant the cursor crossed a cell on its way elsewhere),
+		// and clearing gets a short grace so moving between rows of the same group —
+		// whose diffs are identical — doesn't clear and re-flash them. The swap itself
+		// fades in via the metric-diff.diffing animation in XAML.
+		static readonly TimeSpan HoverActivateDelay = TimeSpan.FromMilliseconds(160);
+		static readonly TimeSpan HoverClearGrace = TimeSpan.FromMilliseconds(120);
+		Avalonia.Threading.DispatcherTimer? metricHoverTimer;
+		Avalonia.Threading.DispatcherTimer? metricClearTimer;
+		DuplicateItemVM? activeDiffItem;
+		string? activeDiffMetrics;
+
+		void OnMetricPointerEntered(object? sender, PointerEventArgs e) {
+			if (sender is not Border { Tag: string metrics, DataContext: ResultsItemRow row }) return;
+			metricHoverTimer?.Stop();
+			// Same group, same metrics: the shown diffs are already correct — just keep them.
+			if (activeDiffItem != null && activeDiffMetrics == metrics &&
+				activeDiffItem.ItemInfo.GroupId == row.Item.ItemInfo.GroupId) {
+				metricClearTimer?.Stop();
+				return;
+			}
+			metricHoverTimer = RunOnce(HoverActivateDelay, () => {
+				if (ViewModel is not { } vm) return;
+				metricClearTimer?.Stop();
+				if (activeDiffItem != null)
+					vm.ClearHoveredMetric(activeDiffItem);
+				foreach (var metric in metrics.Split(','))
+					vm.SetHoveredMetric(row.Item, metric);
+				activeDiffItem = row.Item;
+				activeDiffMetrics = metrics;
+			});
+		}
+
+		void OnMetricPointerExited(object? sender, PointerEventArgs e) {
+			metricHoverTimer?.Stop();
+			if (activeDiffItem == null) return;
+			metricClearTimer?.Stop();
+			metricClearTimer = RunOnce(HoverClearGrace, () => {
+				if (activeDiffItem != null)
+					ViewModel?.ClearHoveredMetric(activeDiffItem);
+				activeDiffItem = null;
+				activeDiffMetrics = null;
+			});
+		}
+
+		static Avalonia.Threading.DispatcherTimer RunOnce(TimeSpan delay, Action action) {
+			var timer = new Avalonia.Threading.DispatcherTimer { Interval = delay };
+			timer.Tick += (_, _) => { timer.Stop(); action(); };
+			timer.Start();
+			return timer;
+		}
+	}
+}

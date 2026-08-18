@@ -1,0 +1,15 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Styles.Resources>
+        <Thickness x:Key="PageMargin">40 0 40 0</Thickness>
+    </Styles.Resources>
+
+    <!-- Modular style imports -->
+    <StyleInclude Source="avares://VDF.GUI/Styles/_Colors.xaml" />
+    <StyleInclude Source="avares://VDF.GUI/Styles/_Animations.xaml" />
+    <StyleInclude Source="avares://VDF.GUI/Styles/_Buttons.xaml" />
+    <StyleInclude Source="avares://VDF.GUI/Styles/_Badges.xaml" />
+
+    <Style Selector="Window[WindowState=Maximized]">
+        <Setter Property="Padding" Value="8" />
+    </Style>
+</Styles>

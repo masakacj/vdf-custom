@@ -1,0 +1,277 @@
+// /*
+//     Copyright (C) 2026 0x90d
+//     This file is part of VideoDuplicateFinder
+//     VideoDuplicateFinder is free software: you can redistribute it and/or modify
+//     it under the terms of the GNU Affero General Public License as published by
+//     the Free Software Foundation, either version 3 of the License, or
+//     (at your option) any later version.
+//     VideoDuplicateFinder is distributed in the hope that it will be useful,
+//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//     GNU Affero General Public License for more details.
+//     You should have received a copy of the GNU Affero General Public License
+//     along with VideoDuplicateFinder.  If not, see <http://www.gnu.org/licenses/>.
+// */
+//
+
+using System.Collections.ObjectModel;
+using System.Diagnostics;
+using System.Globalization;
+using System.Linq;
+using System.Reactive;
+using System.Reflection;
+using System.Text;
+using Avalonia.Controls;
+using Avalonia.Input.Platform;
+using Avalonia.Platform.Storage;
+using Avalonia.Platform.Storage.FileIO;
+using Avalonia.Threading;
+using ReactiveUI;
+using VDF.Core.Utils;
+using VDF.GUI.Data;
+using VDF.GUI.Views;
+
+namespace VDF.GUI.ViewModels {
+	public partial class MainWindowVM : ReactiveObject {
+		string _SettingsSearchQuery = string.Empty;
+		/// <summary>Query of the settings search box; filters option rows across all sections.</summary>
+		public string SettingsSearchQuery {
+			get => _SettingsSearchQuery;
+			set => this.RaiseAndSetIfChanged(ref _SettingsSearchQuery, value);
+		}
+
+#pragma warning disable CA1822 // Mark members as static => It's used by Avalonia binding
+		public IEnumerable<Core.FFTools.FFHardwareAccelerationMode> HardwareAccelerationModes =>
+#pragma warning restore CA1822 // Mark members as static
+			Enum.GetValues<Core.FFTools.FFHardwareAccelerationMode>();
+#pragma warning disable CA1822 // Mark members as static
+		public IEnumerable<Core.FolderMatchMode> FolderMatchModes =>
+#pragma warning restore CA1822 // Mark members as static
+			Enum.GetValues<Core.FolderMatchMode>();
+		public record LanguageOption(string Code, string DisplayName);
+		public IReadOnlyList<LanguageOption> LanguageOptions { get; } = BuildLanguageOptions();
+		public LanguageOption? SelectedLanguageOption {
+			get => LanguageOptions.FirstOrDefault(option =>
+				string.Equals(option.Code, SettingsFile.Instance.LanguageCode, StringComparison.OrdinalIgnoreCase));
+			set {
+				if (value == null) return;
+				if (!string.Equals(SettingsFile.Instance.LanguageCode, value.Code, StringComparison.OrdinalIgnoreCase))
+					SettingsFile.Instance.LanguageCode = value.Code;
+				this.RaisePropertyChanged();
+			}
+		}
+
+		// Bound via SelectedItem (not SelectedValue) so the choice actually persists — see
+		// SettingsCombo / issue #829.
+		public CustomSelectionPreset? SelectedAutoApplyPreset {
+			get => SettingsCombo.PresetFor(SettingsFile.Instance.CustomSelectionPresets, SettingsFile.Instance.AutoApplySelectionPreset);
+			set {
+				// Ignore a null selection: it only arises transiently while the item list
+				// populates (or when the stored preset was removed) — writing it back would
+				// wipe the saved preset name. The enable toggle governs whether it's applied.
+				if (value == null || string.Equals(value.Name, SettingsFile.Instance.AutoApplySelectionPreset, StringComparison.Ordinal)) return;
+				SettingsFile.Instance.AutoApplySelectionPreset = value.Name;
+				this.RaisePropertyChanged();
+			}
+		}
+
+		static readonly List<string> _CustomCommandList = typeof(SettingsFile.CustomActionCommands).GetProperties(BindingFlags.Public | BindingFlags.Instance).Select(p => p.Name).ToList();
+		public List<string> CustomCommandList => _CustomCommandList;
+		PropertyInfo _SelectedCustomCommand = typeof(SettingsFile.CustomActionCommands).GetProperty(_CustomCommandList[0])!;
+		public string SelectedCustomCommand {
+			get => _SelectedCustomCommand.Name;
+			set {
+				_SelectedCustomCommand = typeof(SettingsFile.CustomActionCommands).GetProperty(value)!;
+				this.RaisePropertyChanged(nameof(SelectedCustomCommandValue));
+			}
+		}
+		public string SelectedCustomCommandValue {
+			get => (string)_SelectedCustomCommand.GetValue(SettingsFile.Instance.CustomCommands)!;
+			set {
+				_SelectedCustomCommand.SetValue(SettingsFile.Instance.CustomCommands, value);
+				this.RaisePropertyChanged(nameof(IsMultiOpenSupported));
+				this.RaisePropertyChanged(nameof(IsMultiOpenInFolderSupported));
+			}
+		}
+		public ObservableCollection<ShortcutBindingVM> ShortcutBindings { get; } = BuildShortcutBindings();
+
+		static ObservableCollection<ShortcutBindingVM> BuildShortcutBindings() {
+			var collection = new ObservableCollection<ShortcutBindingVM>();
+			foreach (var id in KeyboardShortcutDefaults.MainWindowDefaults.Keys)
+				collection.Add(new ShortcutBindingVM(id, collection));
+			return collection;
+		}
+
+		public ReactiveCommand<Unit, Unit> ResetAllShortcutsCommand => ReactiveCommand.Create(() => {
+			KeyboardShortcutManager.Instance.ResetAll();
+			foreach (var binding in ShortcutBindings) {
+				binding.CurrentGesture = binding.DefaultGesture;
+				binding.ConflictText = null;
+			}
+		});
+
+		public ReactiveCommand<Unit, Unit> OpenHWInfoLinkCommand => ReactiveCommand.CreateFromTask(async () => {
+			try {
+				Process.Start(new ProcessStartInfo {
+					FileName = "https://trac.ffmpeg.org/wiki/HWAccelIntro#PlatformAPIAvailability",
+					UseShellExecute = true
+				});
+			}
+			catch {
+				await MessageBoxService.Show(App.Lang["Message.OpenHwAccelInfoFailed"]);
+			}
+		});
+		public ReactiveCommand<Unit, Unit> OpenWikiLinkCommand => ReactiveCommand.CreateFromTask(async () => {
+			try {
+				Process.Start(new ProcessStartInfo {
+					FileName = "https://github.com/0x90d/videoduplicatefinder/wiki/Setup-&-Use",
+					UseShellExecute = true
+				});
+			}
+			catch {
+				await MessageBoxService.Show(App.Lang["Message.OpenHwAccelInfoFailed"]);
+			}
+		});
+		public ReactiveCommand<Unit, Unit> AddIncludesToListCommand => ReactiveCommand.CreateFromTask(async () => {
+			var result = await Utils.PickerDialogUtils.OpenDialogPicker(
+				new FolderPickerOpenOptions() {
+					AllowMultiple = true,
+					Title = App.Lang["Dialog.SelectFolder"]
+				}
+				);
+
+			if (result == null || result.Count == 0) return;
+			foreach (var item in result) {
+				if (!SettingsFile.Instance.Includes.Contains(item))
+					SettingsFile.Instance.Includes.Add(item);
+			}
+		});
+		public ReactiveCommand<Unit, Unit> AddFilePathContainsTextToListCommand => ReactiveCommand.CreateFromTask(async () => {
+			var result = await InputBoxService.Show("New Entry");
+			if (string.IsNullOrEmpty(result)) return;
+			if (!SettingsFile.Instance.FilePathContainsTexts.Contains(result))
+				SettingsFile.Instance.FilePathContainsTexts.Add(result);
+		});
+		public ReactiveCommand<ListBox, Action> RemoveFilePathContainsTextFromListCommand => ReactiveCommand.Create<ListBox, Action>(lbox => {
+			while (lbox.SelectedItems?.Count > 0)
+				SettingsFile.Instance.FilePathContainsTexts.Remove((string)lbox.SelectedItems[0]!);
+			return null!;
+		});
+		public ReactiveCommand<Unit, Unit> AddFilePathNotContainsTextToListCommand => ReactiveCommand.CreateFromTask(async () => {
+			var result = await InputBoxService.Show("New Entry");
+			if (string.IsNullOrEmpty(result)) return;
+			if (!SettingsFile.Instance.FilePathNotContainsTexts.Contains(result))
+				SettingsFile.Instance.FilePathNotContainsTexts.Add(result);
+		});
+		public ReactiveCommand<ListBox, Action> RemoveFilePathNotContainsTextFromListCommand => ReactiveCommand.Create<ListBox, Action>(lbox => {
+			while (lbox.SelectedItems?.Count > 0)
+				SettingsFile.Instance.FilePathNotContainsTexts.Remove((string)lbox.SelectedItems[0]!);
+			return null!;
+		});
+
+		public ReactiveCommand<ListBox, Action> RemoveIncludesFromListCommand => ReactiveCommand.Create<ListBox, Action>(lbox => {
+			while (lbox.SelectedItems?.Count > 0)
+				SettingsFile.Instance.Includes.Remove((string)lbox.SelectedItems[0]!);
+			return null!;
+		});
+
+		public ReactiveCommand<Unit, Unit> ClearIncludesListCommand => ReactiveCommand.CreateFromTask(async () => {
+			var result = await MessageBoxService.Show(App.Lang["Message.ClearAllIncludedConfirm"], MessageBoxButtons.Yes | MessageBoxButtons.Cancel);
+			if (result == MessageBoxButtons.Yes)
+				SettingsFile.Instance.Includes.Clear();
+		});
+
+		public ReactiveCommand<Unit, Unit> ClearBlacklistListCommand => ReactiveCommand.CreateFromTask(async () => {
+			var result = await MessageBoxService.Show(App.Lang["Message.ClearAllExcludedConfirm"], MessageBoxButtons.Yes | MessageBoxButtons.Cancel);
+			if (result == MessageBoxButtons.Yes)
+				SettingsFile.Instance.Blacklists.Clear();
+		});
+
+		public ReactiveCommand<Unit, Unit> AddBlacklistToListCommand => ReactiveCommand.CreateFromTask(async () => {
+			var result = await Utils.PickerDialogUtils.OpenDialogPicker(
+				new FolderPickerOpenOptions() {
+					AllowMultiple = true,
+					Title = App.Lang["Dialog.SelectFolder"]
+				});
+
+			if (result == null || result.Count == 0) return;
+			foreach (var item in result) {
+				if (!SettingsFile.Instance.Blacklists.Contains(item))
+					SettingsFile.Instance.Blacklists.Add(item);
+			}
+		});
+
+		public ReactiveCommand<Unit, Unit> AddBlacklistPatternToListCommand => ReactiveCommand.CreateFromTask(async () => {
+			var result = await Views.InputBoxService.Show(App.Lang["Dialog.AddPatternPrompt"],
+				waterMark: "*.actors", title: App.Lang["Dialog.AddPattern"]);
+			if (string.IsNullOrWhiteSpace(result)) return;
+			if (!SettingsFile.Instance.Blacklists.Contains(result))
+				SettingsFile.Instance.Blacklists.Add(result);
+		});
+		public ReactiveCommand<ListBox, Action> RemoveBlacklistFromListCommand => ReactiveCommand.Create<ListBox, Action>(lbox => {
+			while (lbox.SelectedItems?.Count > 0)
+				SettingsFile.Instance.Blacklists.Remove((string)lbox.SelectedItems[0]!);
+			return null!;
+		});
+		public ReactiveCommand<Unit, Unit> SaveSettingsCommand => ReactiveCommand.CreateFromTask(async () => {
+			try {
+				SettingsFile.SaveSettings();
+			}
+			catch (Exception ex) {
+				await MessageBoxService.Show($"Saving settings has failed: {ex.Message}");
+			}
+		});
+		public ReactiveCommand<Unit, Unit> SaveSettingsProfileCommand => ReactiveCommand.CreateFromTask(async () => {
+			var result = await Utils.PickerDialogUtils.SaveFilePicker(new FilePickerSaveOptions() {
+				SuggestedStartLocation = await ApplicationHelpers.MainWindow.StorageProvider.TryGetFolderFromPathAsync(CoreUtils.CurrentFolder),
+				DefaultExtension = ".json",
+				FileTypeChoices = new FilePickerFileType[] {
+					 new FilePickerFileType("Setting File") { Patterns = new string[] { "*.json" }}}
+			});
+			if (string.IsNullOrEmpty(result)) return;
+
+			try {
+				SettingsFile.SaveSettings(result);
+			}
+			catch (Exception ex) {
+				await MessageBoxService.Show($"Saving settings to file has failed: {ex.Message}");
+			}
+		});
+		public ReactiveCommand<Unit, Unit> LoadSettingsProfileCommand => ReactiveCommand.CreateFromTask(async () => {
+			var result = await Utils.PickerDialogUtils.OpenFilePicker(new FilePickerOpenOptions() {
+				SuggestedStartLocation = await ApplicationHelpers.MainWindow.StorageProvider.TryGetFolderFromPathAsync(CoreUtils.CurrentFolder),
+				FileTypeFilter = new FilePickerFileType[] {
+					 new FilePickerFileType("Setting File") { Patterns = new string[] { "*.json", "*.xml" }}}
+			});
+			if (string.IsNullOrEmpty(result)) return;
+
+			try {
+				SettingsFile.LoadSettings(result);
+			}
+			catch (Exception ex) {
+				await MessageBoxService.Show($"Loading settings from file has failed: {ex.Message}");
+				return;
+			}
+			await MessageBoxService.Show(App.Lang["Message.RestartRequired"]);
+		});
+		static IReadOnlyList<LanguageOption> BuildLanguageOptions() {
+			var languageCodes = App.Lang.AvailableLanguages.ToList();
+			var currentLanguage = SettingsFile.Instance.LanguageCode;
+
+			return languageCodes
+				.Distinct(StringComparer.OrdinalIgnoreCase)
+				.Select(code => new LanguageOption(code, GetLanguageDisplayName(code)))
+				.OrderBy(option => option.DisplayName, StringComparer.CurrentCultureIgnoreCase)
+				.ToList();
+		}
+
+		static string GetLanguageDisplayName(string code) {
+			try {
+				return CultureInfo.GetCultureInfo(code).NativeName;
+			}
+			catch (CultureNotFoundException) {
+				return code;
+			}
+		}
+	}
+}

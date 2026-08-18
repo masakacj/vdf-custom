@@ -1,0 +1,507 @@
+@page "/settings"
+@rendermode InteractiveServer
+@inject VDF.Web.Services.ScanService Scan
+@inject VDF.Web.Services.WebSettingsService WebSettings
+@using System.Globalization
+
+<PageTitle>Settings — Video Duplicate Finder</PageTitle>
+
+<h1>Settings</h1>
+
+<div class="start-row" style="margin-bottom:1rem;margin-top:0;">
+    <button class="primary" @onclick="SaveSettings">Save Settings</button>
+    @if (_saveMsg != null) {
+        <span class="@(_saveFailed ? "aborted-msg" : "done-msg")" style="margin:0;">@_saveMsg</span>
+    }
+</div>
+
+<section class="settings-section">
+    <h2>Similarity</h2>
+    <label>
+        Threshold (hash difference, 0–10, lower = stricter)
+        <input type="number" min="0" max="10"
+               value="@Scan.Settings.Threshhold"
+               @onchange="e => Scan.Settings.Threshhold = ParseByte(e.Value)" />
+    </label>
+    <label>
+        Minimum similarity %
+        <input type="number" min="0" max="100" step="0.5"
+               value="@Scan.Settings.Percent.ToString(CultureInfo.InvariantCulture)"
+               @onchange="e => Scan.Settings.Percent = ParseFloat(e.Value)" />
+    </label>
+    <label>
+        Duration difference tolerance %
+        <input type="number" min="0" max="100" step="1"
+               value="@Scan.Settings.PercentDurationDifference.ToString(CultureInfo.InvariantCulture)"
+               @onchange="e => Scan.Settings.PercentDurationDifference = ParseDouble(e.Value)" />
+    </label>
+    <label>
+        Duration tolerance minimum (seconds, 0 = off)
+        <input type="number" min="0" step="1"
+               value="@Scan.Settings.DurationDifferenceMinSeconds.ToString(CultureInfo.InvariantCulture)"
+               @onchange="e => Scan.Settings.DurationDifferenceMinSeconds = ParseDouble(e.Value)" />
+    </label>
+    <label>
+        Duration tolerance maximum (seconds, 0 = off)
+        <input type="number" min="0" step="1"
+               value="@Scan.Settings.DurationDifferenceMaxSeconds.ToString(CultureInfo.InvariantCulture)"
+               @onchange="e => Scan.Settings.DurationDifferenceMaxSeconds = ParseDouble(e.Value)" />
+    </label>
+    <label>
+        Folder matching
+        <select @onchange="e => Scan.Settings.FolderMatchMode = Enum.Parse<VDF.Core.FolderMatchMode>(e.Value!.ToString()!)">
+            <option value="@VDF.Core.FolderMatchMode.None" selected="@(Scan.Settings.FolderMatchMode == VDF.Core.FolderMatchMode.None)">Compare across all folders</option>
+            <option value="@VDF.Core.FolderMatchMode.SameFolderOnly" selected="@(Scan.Settings.FolderMatchMode == VDF.Core.FolderMatchMode.SameFolderOnly)">Same folder only</option>
+            <option value="@VDF.Core.FolderMatchMode.DifferentFolderOnly" selected="@(Scan.Settings.FolderMatchMode == VDF.Core.FolderMatchMode.DifferentFolderOnly)">Different folders only</option>
+        </select>
+    </label>
+    @if (Scan.Settings.FolderMatchMode == VDF.Core.FolderMatchMode.SameFolderOnly) {
+        <label>
+            Same-folder depth (parent levels treated as the same folder)
+            <input type="number" min="1" max="10"
+                   value="@Scan.Settings.SameFolderDepth"
+                   @onchange="e => Scan.Settings.SameFolderDepth = Math.Max(1, ParseInt(e.Value))" />
+        </label>
+    }
+</section>
+
+<section class="settings-section">
+    <h2>Scanning</h2>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.IncludeSubDirectories"
+               @onchange="e => Scan.Settings.IncludeSubDirectories = (bool)e.Value!" />
+        Scan subdirectories
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.IncludeImages"
+               @onchange="e => Scan.Settings.IncludeImages = (bool)e.Value!" />
+        Include images
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.UsePHashing"
+               @onchange="e => Scan.Settings.UsePHashing = (bool)e.Value!" />
+        Use perceptual hashing
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.CombineGrayscaleAndPHash"
+               @onchange="e => Scan.Settings.CombineGrayscaleAndPHash = (bool)e.Value!" />
+        Combined matching (grayscale AND pHash in one pass; badges name the algorithm that found each group)
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.UseAiMatching"
+               @onchange="e => Scan.Settings.UseAiMatching = (bool)e.Value!" />
+        AI matching (additional pass; downloads ONNX Runtime + model on first scan, ~100 MB)
+    </label>
+    @if (Scan.Settings.UseAiMatching) {
+        <label>
+            AI similarity threshold % (50–100)
+            <input type="number" min="50" max="100" step="0.5"
+                   value="@Scan.Settings.AiPercent.ToString(CultureInfo.InvariantCulture)"
+                   @onchange="e => Scan.Settings.AiPercent = Math.Clamp(ParseFloat(e.Value), 50f, 100f)" />
+        </label>
+    }
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.EnableAiPartialDetection"
+               @onchange="e => Scan.Settings.EnableAiPartialDetection = (bool)e.Value!" />
+        Detect partial duplicates visually (AI)
+    </label>
+    @if (Scan.Settings.EnableAiPartialDetection) {
+        <label>
+            AI partial per-frame hit threshold % (70–99)
+            <input type="number" min="70" max="99" step="0.5"
+                   value="@Scan.Settings.AiPartialHitPercent.ToString(CultureInfo.InvariantCulture)"
+                   @onchange="e => Scan.Settings.AiPartialHitPercent = Math.Clamp(ParseFloat(e.Value), 70f, 99f)" />
+        </label>
+    }
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.CompareHorizontallyFlipped"
+               @onchange="e => Scan.Settings.CompareHorizontallyFlipped = (bool)e.Value!" />
+        Compare horizontally flipped
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.IgnoreBlackPixels"
+               @onchange="e => Scan.Settings.IgnoreBlackPixels = (bool)e.Value!" />
+        Ignore black pixels
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.IgnoreWhitePixels"
+               @onchange="e => Scan.Settings.IgnoreWhitePixels = (bool)e.Value!" />
+        Ignore white pixels
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.IgnoreReadOnlyFolders"
+               @onchange="e => Scan.Settings.IgnoreReadOnlyFolders = (bool)e.Value!" />
+        Ignore read-only folders
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.IgnoreReparsePoints"
+               @onchange="e => Scan.Settings.IgnoreReparsePoints = (bool)e.Value!" />
+        Ignore reparse points / symlinks
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.ExcludeHardLinks"
+               @onchange="e => Scan.Settings.ExcludeHardLinks = (bool)e.Value!" />
+        Exclude hardlinks of already scanned files
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.UseExifCreationDate"
+               @onchange="e => Scan.Settings.UseExifCreationDate = (bool)e.Value!" />
+        Use EXIF creation date for images
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.AlwaysRetryFailedSampling"
+               @onchange="e => Scan.Settings.AlwaysRetryFailedSampling = (bool)e.Value!" />
+        Always retry failed sampling on rescan
+    </label>
+    <label>
+        Limit sampling to the first N seconds (0 = entire video)
+        <input type="number" min="0" step="1"
+               value="@Scan.Settings.MaxSamplingDurationSeconds.ToString(CultureInfo.InvariantCulture)"
+               @onchange="e => Scan.Settings.MaxSamplingDurationSeconds = ParseDouble(e.Value)" />
+    </label>
+    <label>
+        Max degree of parallelism (-1 = all cores)
+        <input type="number" min="-1"
+               value="@Scan.Settings.MaxDegreeOfParallelism"
+               @onchange="e => Scan.Settings.MaxDegreeOfParallelism = ParseInt(e.Value)" />
+    </label>
+    <label>
+        Thumbnail count per file
+        <input type="number" min="1" max="20"
+               value="@Scan.Settings.ThumbnailCount"
+               @onchange="e => Scan.Settings.ThumbnailCount = ParseInt(e.Value)" />
+    </label>
+</section>
+
+<section class="settings-section">
+    <h2>File Filters</h2>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.FilterByFileSize"
+               @onchange="e => Scan.Settings.FilterByFileSize = (bool)e.Value!" />
+        Filter by file size
+    </label>
+    @if (Scan.Settings.FilterByFileSize) {
+        <label>
+            Minimum file size (MB)
+            <input type="number" min="0"
+                   value="@Scan.Settings.MinimumFileSize"
+                   @onchange="e => Scan.Settings.MinimumFileSize = ParseInt(e.Value)" />
+        </label>
+        <label>
+            Maximum file size (MB)
+            <input type="number" min="0"
+                   value="@Scan.Settings.MaximumFileSize"
+                   @onchange="e => Scan.Settings.MaximumFileSize = ParseInt(e.Value)" />
+        </label>
+    }
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.FilterByFilePathContains"
+               @onchange="e => Scan.Settings.FilterByFilePathContains = (bool)e.Value!" />
+        Only scan paths containing…
+    </label>
+    @if (Scan.Settings.FilterByFilePathContains) {
+        <label>
+            Path must contain one of (one entry per line)
+            <textarea rows="3"
+                      value="@string.Join('\n', Scan.Settings.FilePathContainsTexts)"
+                      @onchange="e => SetLines(Scan.Settings.FilePathContainsTexts, e.Value)"></textarea>
+        </label>
+    }
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.FilterByFilePathNotContains"
+               @onchange="e => Scan.Settings.FilterByFilePathNotContains = (bool)e.Value!" />
+        Skip paths containing…
+    </label>
+    @if (Scan.Settings.FilterByFilePathNotContains) {
+        <label>
+            Path must not contain any of (one entry per line)
+            <textarea rows="3"
+                      value="@string.Join('\n', Scan.Settings.FilePathNotContainsTexts)"
+                      @onchange="e => SetLines(Scan.Settings.FilePathNotContainsTexts, e.Value)"></textarea>
+        </label>
+    }
+</section>
+
+<section class="settings-section">
+    <h2>FFmpeg</h2>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.UseNativeFfmpegBinding"
+               @onchange="e => Scan.Settings.UseNativeFfmpegBinding = (bool)e.Value!" />
+        Use native FFmpeg binding
+    </label>
+    <label>
+        Hardware acceleration
+        <select @onchange="e => Scan.Settings.HardwareAccelerationMode = Enum.Parse<VDF.Core.FFTools.FFHardwareAccelerationMode>(e.Value!.ToString()!)">
+            @foreach (var mode in Enum.GetValues<VDF.Core.FFTools.FFHardwareAccelerationMode>()) {
+                <option value="@mode" selected="@(Scan.Settings.HardwareAccelerationMode == mode)">@mode</option>
+            }
+        </select>
+    </label>
+    <label>
+        Custom FFmpeg arguments
+        <input type="text"
+               value="@Scan.Settings.CustomFFArguments"
+               @onchange="e => Scan.Settings.CustomFFArguments = e.Value?.ToString() ?? string.Empty" />
+    </label>
+</section>
+
+<section class="settings-section">
+    <h2>Partial Clip Detection</h2>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.EnablePartialClipDetection"
+               @onchange="e => Scan.Settings.EnablePartialClipDetection = (bool)e.Value!" />
+        Enable partial clip detection (audio fingerprinting)
+    </label>
+    @if (Scan.Settings.EnablePartialClipDetection) {
+        <label>
+            Min clip / source ratio %
+            <input type="number" min="1" max="100" step="0.1"
+                   value="@((Scan.Settings.PartialClipMinRatio * 100).ToString(CultureInfo.InvariantCulture))"
+                   @onchange="e => Scan.Settings.PartialClipMinRatio = ParseDouble(e.Value) / 100.0" />
+        </label>
+        <label>
+            Min audio similarity %
+            <input type="number" min="1" max="100" step="0.1"
+                   value="@((Scan.Settings.PartialClipSimilarityThreshold * 100).ToString(CultureInfo.InvariantCulture))"
+                   @onchange="e => Scan.Settings.PartialClipSimilarityThreshold = ParseDouble(e.Value) / 100.0" />
+        </label>
+        <label>
+            <input type="checkbox"
+                   checked="@Scan.Settings.PartialClipRequireVisualMatch"
+                   @onchange="e => Scan.Settings.PartialClipRequireVisualMatch = (bool)e.Value!" />
+            Require visual confirmation of audio matches
+        </label>
+        @if (Scan.Settings.PartialClipRequireVisualMatch) {
+            <label>
+                Min visual similarity %
+                <input type="number" min="1" max="100" step="0.1"
+                       value="@((Scan.Settings.PartialClipVisualThreshold * 100).ToString(CultureInfo.InvariantCulture))"
+                       @onchange="e => Scan.Settings.PartialClipVisualThreshold = ParseDouble(e.Value) / 100.0" />
+            </label>
+        }
+    }
+</section>
+
+<section class="settings-section">
+    <h2>WebUI Thumbnails</h2>
+    <label>
+        <input type="checkbox"
+               checked="@WebSettings.AutoLoadThumbnails"
+               @onchange="e => WebSettings.AutoLoadThumbnails = (bool)e.Value!" />
+        Automatically load thumbnails on results page
+    </label>
+    <label>
+        Thumbnail width (px) — lower = less memory, more pixelated
+        <input type="number" min="48" max="960" step="48"
+               value="@WebSettings.ThumbnailWidth"
+               @onchange="e => WebSettings.ThumbnailWidth = Math.Clamp(ParseInt(e.Value), 48, 960)" />
+    </label>
+    <label>
+        JPEG quality (10–95) — lower = smaller files, more artifacts
+        <input type="number" min="10" max="95" step="5"
+               value="@WebSettings.ThumbnailJpegQuality"
+               @onchange="e => WebSettings.ThumbnailJpegQuality = Math.Clamp(ParseInt(e.Value), 10, 95)" />
+    </label>
+</section>
+
+<section class="settings-section">
+    <h2>Database</h2>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.IncludeNonExistingFiles"
+               @onchange="e => Scan.Settings.IncludeNonExistingFiles = (bool)e.Value!" />
+        Scan against non-existing files (compare database entries whose files have been deleted or moved)
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.ScanAgainstEntireDatabase"
+               @onchange="e => Scan.Settings.ScanAgainstEntireDatabase = (bool)e.Value!" />
+        Scan against the entire database (compare new files with every known entry, not only the scanned folders)
+    </label>
+    <label>
+        Custom database folder
+        <input type="text"
+               value="@Scan.Settings.CustomDatabaseFolder"
+               @onchange="e => Scan.Settings.CustomDatabaseFolder = e.Value?.ToString() ?? string.Empty" />
+    </label>
+    <label>
+        Database checkpoint interval (minutes, 0 = disabled)
+        <input type="number" min="0" max="60"
+               value="@Scan.Settings.DatabaseCheckpointIntervalMinutes"
+               @onchange="e => Scan.Settings.DatabaseCheckpointIntervalMinutes = ParseInt(e.Value)" />
+    </label>
+
+    <h3>Maintenance</h3>
+    <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+        <button @onclick="CleanDatabase" disabled="@_dbBusy">Clean Database</button>
+        @if (!_confirmClear) {
+            <button class="danger" @onclick="() => _confirmClear = true" disabled="@_dbBusy">Clear Database</button>
+        }
+        else {
+            <span style="color:var(--danger-color,#d33);">This will delete ALL stored data. Are you sure?</span>
+            <button class="danger" @onclick="ClearDatabase">Yes, clear</button>
+            <button @onclick="() => _confirmClear = false">Cancel</button>
+        }
+    </div>
+    @if (_dbMsg != null) {
+        <p class="@(_dbMsgIsError ? "aborted-msg" : "done-msg")" style="margin:0.25rem 0;">@_dbMsg</p>
+    }
+</section>
+
+<section class="settings-section">
+    <h2>Diagnostics</h2>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.ExtendedFFToolsLogging"
+               @onchange="e => Scan.Settings.ExtendedFFToolsLogging = (bool)e.Value!" />
+        Extended FFmpeg/FFprobe logging
+    </label>
+    <label>
+        <input type="checkbox"
+               checked="@Scan.Settings.LogExcludedFiles"
+               @onchange="e => Scan.Settings.LogExcludedFiles = (bool)e.Value!" />
+        Log files excluded by filters
+    </label>
+</section>
+
+<section class="settings-section">
+    <h2>Test Two Files</h2>
+    <p style="margin-top:0;">
+        Enter the full paths of two files you believe are duplicates and run the test.
+        They are compared with the current settings (saving is not required) and the report
+        explains at which step the pair passes or fails detection.
+    </p>
+    <label>
+        File A
+        <input type="text" placeholder="/videos/example1.mp4"
+               value="@_testFileA"
+               @onchange="e => _testFileA = e.Value?.ToString() ?? string.Empty" />
+    </label>
+    <label>
+        File B
+        <input type="text" placeholder="/videos/example2.mp4"
+               value="@_testFileB"
+               @onchange="e => _testFileB = e.Value?.ToString() ?? string.Empty" />
+    </label>
+    <div class="start-row" style="margin-top:0.5rem;">
+        <button class="primary" @onclick="RunFilePairTest" disabled="@_testBusy">@(_testBusy ? "Running…" : "Run Test")</button>
+    </div>
+    @if (_testResult != null) {
+        <pre style="white-space:pre-wrap;overflow-x:auto;background:var(--code-bg,#1e1e1e22);padding:0.75rem;border-radius:6px;margin-top:0.75rem;">@_testResult</pre>
+    }
+</section>
+
+@code {
+    string? _saveMsg;
+    bool _saveFailed;
+    bool _dbBusy;
+    bool _confirmClear;
+    string? _dbMsg;
+    bool _dbMsgIsError;
+    string _testFileA = string.Empty;
+    string _testFileB = string.Empty;
+    bool _testBusy;
+    string? _testResult;
+
+    async Task RunFilePairTest() {
+        _testBusy = true;
+        _testResult = null;
+        try {
+            _testResult = await Scan.TestFilePairAsync(_testFileA, _testFileB);
+        }
+        catch (Exception ex) {
+            _testResult = $"Test failed: {ex.Message}";
+        }
+        _testBusy = false;
+    }
+
+    void SaveSettings() {
+        bool ok = Scan.SaveSettings();
+        _saveMsg = ok ? "Settings saved." : "Failed to save settings.";
+        _saveFailed = !ok;
+        _ = Task.Delay(3000).ContinueWith(_ => InvokeAsync(() => {
+            _saveMsg = null;
+            StateHasChanged();
+        }));
+    }
+
+    async Task CleanDatabase() {
+        _dbBusy = true;
+        _dbMsg = null;
+        try {
+            int removed = await Scan.CleanDatabaseAsync();
+            _dbMsg = $"Cleanup complete — {removed} entry(ies) removed.";
+            _dbMsgIsError = false;
+        }
+        catch (Exception ex) {
+            _dbMsg = $"Cleanup failed: {ex.Message}";
+            _dbMsgIsError = true;
+        }
+        _dbBusy = false;
+        DismissDbMsg();
+    }
+
+    async Task ClearDatabase() {
+        _confirmClear = false;
+        _dbBusy = true;
+        _dbMsg = null;
+        try {
+            await Scan.ClearDatabaseAsync();
+            _dbMsg = "Database cleared.";
+            _dbMsgIsError = false;
+        }
+        catch (Exception ex) {
+            _dbMsg = $"Clear failed: {ex.Message}";
+            _dbMsgIsError = true;
+        }
+        _dbBusy = false;
+        DismissDbMsg();
+    }
+
+    void DismissDbMsg() =>
+        _ = Task.Delay(5000).ContinueWith(_ => InvokeAsync(() => {
+            _dbMsg = null;
+            StateHasChanged();
+        }));
+
+    static void SetLines(List<string> target, object? value) {
+        target.Clear();
+        target.AddRange((value?.ToString() ?? string.Empty)
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    // Culture-safe parsers: handle both comma and dot as decimal separator
+    static string Normalize(object? v) =>
+        (v?.ToString() ?? "0").Replace(',', '.');
+
+    static float ParseFloat(object? v) =>
+        float.TryParse(Normalize(v), NumberStyles.Float, CultureInfo.InvariantCulture, out var r) ? r : 0f;
+
+    static double ParseDouble(object? v) =>
+        double.TryParse(Normalize(v), NumberStyles.Float, CultureInfo.InvariantCulture, out var r) ? r : 0.0;
+
+    static int ParseInt(object? v) =>
+        int.TryParse(Normalize(v).Split('.')[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var r) ? r : 0;
+
+    static byte ParseByte(object? v) =>
+        byte.TryParse(Normalize(v).Split('.')[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var r) ? r : (byte)0;
+}

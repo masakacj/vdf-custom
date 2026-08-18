@@ -1,0 +1,199 @@
+// /*
+//     Copyright (C) 2026 0x90d
+//     This file is part of VideoDuplicateFinder
+//     VideoDuplicateFinder is free software: you can redistribute it and/or modify
+//     it under the terms of the GNU Affero General Public License as published by
+//     the Free Software Foundation, either version 3 of the License, or
+//     (at your option) any later version.
+//     VideoDuplicateFinder is distributed in the hope that it will be useful,
+//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//     GNU Affero General Public License for more details.
+//     You should have received a copy of the GNU Affero General Public License
+//     along with VideoDuplicateFinder.  If not, see <http://www.gnu.org/licenses/>.
+// */
+//
+
+using System.Diagnostics;
+using System.Globalization;
+
+namespace VDF.TestSupport;
+
+/// <summary>
+/// Generates small synthetic test videos via FFmpeg CLI using lavfi sources.
+/// Shared between VDF.IntegrationTests (correctness) and VDF.Benchmarks (perf).
+/// </summary>
+public static class TestVideoGenerator {
+	static bool RunFfmpeg(string ffmpegPath, string arguments, int timeoutMs = 60_000) {
+		var psi = new ProcessStartInfo {
+			FileName = ffmpegPath,
+			Arguments = arguments,
+			CreateNoWindow = true,
+			RedirectStandardOutput = true,
+			RedirectStandardError = true,
+			UseShellExecute = false,
+			WorkingDirectory = Path.GetDirectoryName(ffmpegPath)!,
+		};
+		try {
+			using var p = Process.Start(psi)!;
+			var stderrTask = p.StandardError.ReadToEndAsync();
+			p.StandardOutput.ReadToEnd();
+			p.WaitForExit(timeoutMs);
+			return p.ExitCode == 0;
+		}
+		catch {
+			return false;
+		}
+	}
+
+	public static bool HasEncoder(string ffmpegPath, string encoderName) {
+		var psi = new ProcessStartInfo {
+			FileName = ffmpegPath,
+			Arguments = "-hide_banner -encoders",
+			CreateNoWindow = true,
+			RedirectStandardOutput = true,
+			RedirectStandardError = true,
+			UseShellExecute = false,
+			WorkingDirectory = Path.GetDirectoryName(ffmpegPath)!,
+		};
+		try {
+			using var p = Process.Start(psi)!;
+			var stderrTask = p.StandardError.ReadToEndAsync();
+			string output = p.StandardOutput.ReadToEnd();
+			p.WaitForExit(10_000);
+			return p.ExitCode == 0 && output.Contains(encoderName);
+		}
+		catch {
+			return false;
+		}
+	}
+
+	/// <summary>
+	/// 2s 320x240 H.264 8-bit yuv420p with a deterministic test pattern.
+	/// </summary>
+	public static bool GenerateH264_8bit(string ffmpegPath, string outputPath) =>
+		RunFfmpeg(ffmpegPath,
+			$"-y -f lavfi -i testsrc2=duration=2:size=320x240:rate=25 " +
+			$"-c:v libx264 -preset ultrafast -crf 23 -pix_fmt yuv420p \"{outputPath}\"");
+
+	/// <summary>
+	/// 2s anamorphic H.264: 320x240 coded raster with SAR 2:1, i.e. a 640x240
+	/// display size. Exercises the SAR correction of display thumbnails.
+	/// </summary>
+	public static bool GenerateH264_Anamorphic(string ffmpegPath, string outputPath) =>
+		RunFfmpeg(ffmpegPath,
+			$"-y -f lavfi -i testsrc2=duration=2:size=320x240:rate=25 " +
+			$"-vf setsar=2/1 -c:v libx264 -preset ultrafast -crf 23 -pix_fmt yuv420p \"{outputPath}\"");
+
+	/// <summary>
+	/// 2s 320x240 HEVC 10-bit yuv420p10le with a deterministic test pattern.
+	/// </summary>
+	public static bool GenerateHEVC_10bit(string ffmpegPath, string outputPath) =>
+		RunFfmpeg(ffmpegPath,
+			$"-y -f lavfi -i testsrc2=duration=2:size=320x240:rate=25 " +
+			$"-c:v libx265 -preset ultrafast -crf 28 -pix_fmt yuv420p10le \"{outputPath}\"");
+
+	/// <summary>
+	/// 2s 320x240 VP9 8-bit with a deterministic test pattern.
+	/// </summary>
+	public static bool GenerateVP9(string ffmpegPath, string outputPath) =>
+		RunFfmpeg(ffmpegPath,
+			$"-y -f lavfi -i testsrc2=duration=2:size=320x240:rate=25 " +
+			$"-c:v libvpx-vp9 -crf 30 -b:v 0 -pix_fmt yuv420p \"{outputPath}\"");
+
+	/// <summary>
+	/// 2s 320x240 H.264 with a visually different pattern (color bars).
+	/// </summary>
+	public static bool GenerateH264_Different(string ffmpegPath, string outputPath) =>
+		RunFfmpeg(ffmpegPath,
+			$"-y -f lavfi -i smptebars=duration=2:size=320x240:rate=25 " +
+			$"-c:v libx264 -preset ultrafast -crf 23 -pix_fmt yuv420p \"{outputPath}\"");
+
+	/// <summary>
+	/// H.264 with the bitstream deliberately corrupted via the noise BSF, used to
+	/// regression-test the AVERROR_INVALIDDATA tolerance in <c>VideoStreamDecoder.TryDecodeFrame</c>.
+	/// </summary>
+	public static bool GenerateH264_Corrupted(string ffmpegPath, string cleanInputPath, string outputPath) =>
+		RunFfmpeg(ffmpegPath,
+			$"-y -i \"{cleanInputPath}\" -c copy -bsf:v \"noise=amount=20:dropamount=8\" \"{outputPath}\"");
+
+	/// <summary>
+	/// H.264 with EVERY packet byte corrupted (noise=amount=1), so no frame can ever be
+	/// recovered at any position — unlike <see cref="GenerateH264_Corrupted"/>, whose light
+	/// noise lets the decoder recover frames at some positions. The container (and thus
+	/// ffprobe metadata) stays intact. Drives the corrupt-file fast-fail (#867) deterministically.
+	/// </summary>
+	public static bool GenerateH264_FullyCorrupted(string ffmpegPath, string cleanInputPath, string outputPath) =>
+		RunFfmpeg(ffmpegPath,
+			$"-y -i \"{cleanInputPath}\" -c copy -bsf:v \"noise=amount=1\" \"{outputPath}\"");
+
+	/// <summary>
+	/// Tiny 1s 64x48 H.264 clip stamped with an explicit container <c>creation_time</c> tag.
+	/// Used to exercise <c>FFProbeEngine.GetCreationTime</c>, the HEIC EXIF-date fallback.
+	/// </summary>
+	public static bool GenerateMp4WithCreationTime(string ffmpegPath, string outputPath, string isoCreationTime) =>
+		RunFfmpeg(ffmpegPath,
+			string.Format(CultureInfo.InvariantCulture,
+				"-y -f lavfi -i testsrc2=duration=1:size=64x48:rate=5 " +
+				"-c:v libx264 -preset ultrafast -crf 23 -pix_fmt yuv420p " +
+				"-metadata creation_time=\"{0}\" \"{1}\"",
+				isoCreationTime, outputPath));
+
+	/// <summary>
+	/// Generic H.264 generator for benchmarks. Lets callers vary duration and resolution
+	/// to expose decode/seek scaling characteristics. Output is yuv420p, ultrafast.
+	/// </summary>
+	public static bool GenerateH264(string ffmpegPath, string outputPath, int width, int height, int durationSeconds, int fps = 25) =>
+		RunFfmpeg(ffmpegPath,
+			string.Format(CultureInfo.InvariantCulture,
+				"-y -f lavfi -i testsrc2=duration={0}:size={1}x{2}:rate={3} " +
+				"-c:v libx264 -preset ultrafast -crf 23 -pix_fmt yuv420p \"{4}\"",
+				durationSeconds, width, height, fps, outputPath),
+			timeoutMs: Math.Max(30_000, durationSeconds * 2_000));
+
+	/// <summary>
+	/// Generic HEVC 10-bit generator for benchmarks.
+	/// </summary>
+	public static bool GenerateHEVC10(string ffmpegPath, string outputPath, int width, int height, int durationSeconds, int fps = 25) =>
+		RunFfmpeg(ffmpegPath,
+			string.Format(CultureInfo.InvariantCulture,
+				"-y -f lavfi -i testsrc2=duration={0}:size={1}x{2}:rate={3} " +
+				"-c:v libx265 -preset ultrafast -crf 28 -pix_fmt yuv420p10le \"{4}\"",
+				durationSeconds, width, height, fps, outputPath),
+			timeoutMs: Math.Max(30_000, durationSeconds * 4_000));
+
+	/// <summary>
+	/// Generates a single still image whose codec is inferred from the output extension
+	/// (.jpg/.jpeg → MJPEG, .png → PNG). Content is the deterministic testsrc2 pattern so
+	/// the decoded gray bytes are non-uniform. Used to guard native still-image decoding,
+	/// which has no inter-frame timeline to seek into and so exercises the no-seek/drain path.
+	/// </summary>
+	public static bool GenerateStillImage(string ffmpegPath, string outputPath, int width = 320, int height = 240) =>
+		RunFfmpeg(ffmpegPath,
+			string.Format(CultureInfo.InvariantCulture,
+				"-y -f lavfi -i testsrc2=size={0}x{1}:rate=1 -frames:v 1 \"{2}\"",
+				width, height, outputPath));
+
+	/// <summary>
+	/// Raw AAC in an ADTS stream (no container), 44.1 kHz sine tone. ADTS is
+	/// self-syncing, so two such files can be byte-concatenated into a stream whose
+	/// channel config changes mid-stream — the corrupt-audio shape behind #861.
+	/// </summary>
+	public static bool GenerateAacAdts(string ffmpegPath, string outputPath, int channels, int durationSeconds = 2) =>
+		RunFfmpeg(ffmpegPath,
+			string.Format(CultureInfo.InvariantCulture,
+				"-y -f lavfi -i sine=frequency=440:duration={0} " +
+				"-ac {1} -ar 44100 -c:a aac -b:a 128k -f adts \"{2}\"",
+				durationSeconds, channels, outputPath));
+
+	/// <summary>
+	/// Generic VP9 generator for benchmarks.
+	/// </summary>
+	public static bool GenerateVP9(string ffmpegPath, string outputPath, int width, int height, int durationSeconds, int fps = 25) =>
+		RunFfmpeg(ffmpegPath,
+			string.Format(CultureInfo.InvariantCulture,
+				"-y -f lavfi -i testsrc2=duration={0}:size={1}x{2}:rate={3} " +
+				"-c:v libvpx-vp9 -crf 30 -b:v 0 -pix_fmt yuv420p \"{4}\"",
+				durationSeconds, width, height, fps, outputPath),
+			timeoutMs: Math.Max(60_000, durationSeconds * 6_000));
+}

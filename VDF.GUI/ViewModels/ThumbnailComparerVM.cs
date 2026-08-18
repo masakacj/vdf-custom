@@ -1,0 +1,1081 @@
+// /*
+//     Copyright (C) 2026 0x90d
+//     This file is part of VideoDuplicateFinder
+//     VideoDuplicateFinder is free software: you can redistribute it and/or modify
+//     it under the terms of the GNU Affero General Public License as published by
+//     the Free Software Foundation, either version 3 of the License, or
+//     (at your option) any later version.
+//     VideoDuplicateFinder is distributed in the hope that it will be useful,
+//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//     GNU Affero General Public License for more details.
+//     You should have received a copy of the GNU Affero General Public License
+//     along with VideoDuplicateFinder.  If not, see <http://www.gnu.org/licenses/>.
+// */
+//
+
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Reactive;
+using System.Reactive.Concurrency;
+using System.Reactive.Linq;
+using System.Threading;
+using Avalonia;
+using Avalonia.Media;
+using Avalonia.Media.Imaging;
+using ReactiveUI;
+using VDF.Core.FFTools;
+using VDF.GUI.Data;
+using VDF.GUI.Utils;
+
+namespace VDF.GUI.ViewModels {
+	// Persisted numerically in Settings.json — append new modes, never reorder.
+	public enum CompareMode { Single, Swipe, SideBySide, Stacked }
+	public sealed class ThumbnailComparerVM : ReactiveObject {
+		public ObservableCollection<LargeThumbnailDuplicateItem> Items { get; }
+
+		LargeThumbnailDuplicateItem? _selectedItemA;
+		public LargeThumbnailDuplicateItem? SelectedItemA {
+			get => _selectedItemA;
+			set {
+				if (_selectedItemA == value) return;
+				if (_selectedItemA != null) _selectedItemA.IsSourceA = false;
+				this.RaiseAndSetIfChanged(ref _selectedItemA, value);
+				if (_selectedItemA != null) _selectedItemA.IsSourceA = true;
+				OnSelectionChanged();
+			}
+		}
+
+		LargeThumbnailDuplicateItem? _selectedItemB;
+		public LargeThumbnailDuplicateItem? SelectedItemB {
+			get => _selectedItemB;
+			set {
+				if (_selectedItemB == value) return;
+				if (_selectedItemB != null) _selectedItemB.IsSourceB = false;
+				this.RaiseAndSetIfChanged(ref _selectedItemB, value);
+				if (_selectedItemB != null) _selectedItemB.IsSourceB = true;
+				OnSelectionChanged();
+			}
+		}
+
+		Bitmap? _imageA;
+		public Bitmap? ImageA { get => _imageA; set => this.RaiseAndSetIfChanged(ref _imageA, value); }
+
+		Bitmap? _imageB;
+		public Bitmap? ImageB { get => _imageB; set => this.RaiseAndSetIfChanged(ref _imageB, value); }
+		public Bitmap? ImageSingle => ImageA ?? ImageB;
+
+		public ReadOnlyObservableCollection<CompareMode> CompareModes { get; }
+		readonly ObservableCollection<CompareMode> compareModes = new();
+		CompareMode _selectedCompareMode = SettingsFile.Instance.ThumbnailComparerMode;
+		public CompareMode SelectedCompareMode {
+			get => _selectedCompareMode;
+			set {
+				bool forced = false;
+				if ((value != CompareMode.Single) && (SelectedItemA is null || SelectedItemB is null)) {
+					ShowMessage(App.Lang["ThumbnailComparerDialog.SelectTwoElementsMessage"]);
+					value = CompareMode.Single;
+					forced = true;
+				}
+				this.RaiseAndSetIfChanged(ref _selectedCompareMode, value);
+				if (!forced)
+					SettingsFile.Instance.ThumbnailComparerMode = value;
+				this.RaisePropertyChanged(nameof(IsSwipe));
+				this.RaisePropertyChanged(nameof(IsSideBySide));
+				this.RaisePropertyChanged(nameof(IsStacked));
+				this.RaisePropertyChanged(nameof(IsSingle));
+				this.RaisePropertyChanged(nameof(IsDualView));
+				this.RaisePropertyChanged(nameof(SwipeHintVisible));
+				UpdateImages();
+			}
+		}
+
+		bool _isLoadingThumbnails;
+		public bool IsLoadingThumbnails { get => _isLoadingThumbnails; set => this.RaiseAndSetIfChanged(ref _isLoadingThumbnails, value); }
+
+		double _loadProgress;
+		public double LoadProgress { get => _loadProgress; set => this.RaiseAndSetIfChanged(ref _loadProgress, value); }
+		public string LoadProgressText => $"{Math.Round(LoadProgress * 100)}%";
+
+		string? _userMessage;
+		public string? UserMessage { get => _userMessage; set => this.RaiseAndSetIfChanged(ref _userMessage, value); }
+
+		bool _isMessageVisible;
+		public bool IsMessageVisible { get => _isMessageVisible; set => this.RaiseAndSetIfChanged(ref _isMessageVisible, value); }
+
+		CancellationTokenSource? _messageCts;
+		public void ShowMessage(string msg, int millis = 3000) {
+			_messageCts?.Cancel();
+			_messageCts = new CancellationTokenSource();
+			UserMessage = msg;
+			IsMessageVisible = true;
+			var token = _messageCts.Token;
+			_ = Task.Run(async () => {
+				try {
+					await Task.Delay(millis, token);
+					RxSchedulers.MainThreadScheduler.Schedule(() => IsMessageVisible = false);
+				}
+				catch { }
+			});
+		}
+
+		public bool IsSwipe => SelectedCompareMode == CompareMode.Swipe;
+		public bool IsSideBySide => SelectedCompareMode == CompareMode.SideBySide;
+		public bool IsStacked => SelectedCompareMode == CompareMode.Stacked;
+		public bool IsSingle => SelectedCompareMode == CompareMode.Single;
+		// True for SideBySide or Stacked (both show two images with labels)
+		public bool IsDualView => IsSideBySide || IsStacked;
+		public bool SwipeHintVisible => IsSwipe;
+
+		double _modeSliderValue = 0.5;
+		public double ModeSliderValue {
+			get => _modeSliderValue;
+			set {
+				this.RaiseAndSetIfChanged(ref _modeSliderValue, value);
+				Recalc();
+			}
+		}
+
+		// --- Highlight differences (red boxes around regions where A and B differ) ---
+
+		bool _highlightDifferences = SettingsFile.Instance.ThumbnailComparerHighlightDifferences;
+		public bool HighlightDifferences {
+			get => _highlightDifferences;
+			set {
+				this.RaiseAndSetIfChanged(ref _highlightDifferences, value);
+				SettingsFile.Instance.ThumbnailComparerHighlightDifferences = value;
+			}
+		}
+
+		double _diffSensitivity = SettingsFile.Instance.ThumbnailComparerDiffSensitivity;
+		public double DiffSensitivity {
+			get => _diffSensitivity;
+			set {
+				this.RaiseAndSetIfChanged(ref _diffSensitivity, value);
+				SettingsFile.Instance.ThumbnailComparerDiffSensitivity = value;
+			}
+		}
+
+		// Transparent bitmap with the region outlines; rendered as a second
+		// Stretch=Uniform Image over each pane, so it tracks zoom/pan for free.
+		Bitmap? _diffOverlay;
+		public Bitmap? DiffOverlay { get => _diffOverlay; private set => this.RaiseAndSetIfChanged(ref _diffOverlay, value); }
+
+		bool _isComputingDiff;
+		public bool IsComputingDiff { get => _isComputingDiff; private set => this.RaiseAndSetIfChanged(ref _isComputingDiff, value); }
+
+		CancellationTokenSource? _diffCts;
+
+		internal static bool ShouldComputeDiff(bool highlightOn, bool hasImageA, bool hasImageB) =>
+			highlightOn && hasImageA && hasImageB;
+
+		void UpdateDiffOverlay() {
+			_diffCts?.Cancel();
+			_diffCts = null;
+			var imgA = ImageA;
+			var imgB = ImageB;
+			if (!ShouldComputeDiff(HighlightDifferences, imgA != null, imgB != null)) {
+				DiffOverlay = null;
+				IsComputingDiff = false;
+				return;
+			}
+			var sensitivity = DiffSensitivity;
+			var cts = new CancellationTokenSource();
+			_diffCts = cts;
+			IsComputingDiff = true;
+			_ = Task.Run(() => {
+				Bitmap? overlay = null;
+				try {
+					overlay = DiffOverlayRenderer.Render(imgA!, imgB!, sensitivity);
+				}
+				catch { /* unreadable pixels — reported below as unavailable */ }
+				if (cts.IsCancellationRequested) return;
+				RxSchedulers.MainThreadScheduler.Schedule(() => {
+					if (!ReferenceEquals(_diffCts, cts)) return;
+					_diffCts = null;
+					IsComputingDiff = false;
+					DiffOverlay = overlay;
+					if (overlay is null && HighlightDifferences)
+						ShowMessage(App.Lang["ThumbnailComparerDialog.DiffFailed"]);
+				});
+			});
+		}
+
+		// --- Frame stepping (works in ALL modes) ---
+
+		bool _showFrameControls;
+		public bool ShowFrameControls {
+			get => _showFrameControls;
+			private set => this.RaiseAndSetIfChanged(ref _showFrameControls, value);
+		}
+
+		// Only show position slider when there are multiple base positions to choose from
+		bool _showPositionControls;
+		public bool ShowPositionControls {
+			get => _showPositionControls;
+			private set => this.RaiseAndSetIfChanged(ref _showPositionControls, value);
+		}
+
+		// Selects which pre-extracted thumbnail position to start from
+		int _baseThumbnailIndex;
+		public int BaseThumbnailIndex {
+			get => _baseThumbnailIndex;
+			set {
+				this.RaiseAndSetIfChanged(ref _baseThumbnailIndex, Math.Clamp(value, 0, Math.Max(BaseThumbnailIndexMax, 0)));
+				StepA = 0;
+				StepB = 0;
+				UpdateStripCurrent();
+			}
+		}
+
+		int _baseThumbnailIndexMax;
+		public int BaseThumbnailIndexMax {
+			get => _baseThumbnailIndexMax;
+			private set => this.RaiseAndSetIfChanged(ref _baseThumbnailIndexMax, value);
+		}
+
+		// Independent frame step for A
+		int _stepA;
+		public int StepA {
+			get => _stepA;
+			set {
+				this.RaiseAndSetIfChanged(ref _stepA, value);
+				UpdateFrameImages();
+			}
+		}
+
+		// Independent frame step for B
+		int _stepB;
+		public int StepB {
+			get => _stepB;
+			set {
+				this.RaiseAndSetIfChanged(ref _stepB, value);
+				UpdateFrameImages();
+			}
+		}
+
+		// Display labels (visible in ALL modes)
+		string _frameLabelA = string.Empty;
+		public string FrameLabelA { get => _frameLabelA; set => this.RaiseAndSetIfChanged(ref _frameLabelA, value); }
+
+		string _frameLabelB = string.Empty;
+		public string FrameLabelB { get => _frameLabelB; set => this.RaiseAndSetIfChanged(ref _frameLabelB, value); }
+
+		bool _isExtractingFrame;
+		public bool IsExtractingFrame { get => _isExtractingFrame; set => this.RaiseAndSetIfChanged(ref _isExtractingFrame, value); }
+
+		double _zoom = 1.0;
+		public double Zoom { get => _zoom; set => this.RaiseAndSetIfChanged(ref _zoom, value); }
+
+		double _panOffsetX;
+		public double PanOffsetX { get => _panOffsetX; set => this.RaiseAndSetIfChanged(ref _panOffsetX, value); }
+
+		double _panOffsetY;
+		public double PanOffsetY { get => _panOffsetY; set => this.RaiseAndSetIfChanged(ref _panOffsetY, value); }
+
+		public ReactiveCommand<Unit, Unit> FitToViewCommand { get; }
+		public ReactiveCommand<Unit, Unit> ResetZoomCommand { get; }
+		public ReactiveCommand<Unit, Unit> ZoomInCommand { get; }
+		public ReactiveCommand<Unit, Unit> ZoomOutCommand { get; }
+
+		public ReactiveCommand<Unit, Unit> PrevBaseCommand { get; }
+		public ReactiveCommand<Unit, Unit> NextBaseCommand { get; }
+		public ReactiveCommand<Unit, Unit> StepAMinusCommand { get; }
+		public ReactiveCommand<Unit, Unit> StepAPlusCommand { get; }
+		public ReactiveCommand<Unit, Unit> StepBMinusCommand { get; }
+		public ReactiveCommand<Unit, Unit> StepBPlusCommand { get; }
+		public ReactiveCommand<Unit, Unit> ResetStepsCommand { get; }
+
+		public double DisplayWidth { get => _dispW; private set => this.RaiseAndSetIfChanged(ref _dispW, value); }
+		public double DisplayHeight { get => _dispH; private set => this.RaiseAndSetIfChanged(ref _dispH, value); }
+		public double LeftOffset { get => _left; private set => this.RaiseAndSetIfChanged(ref _left, value); }
+		public double TopOffset { get => _top; private set => this.RaiseAndSetIfChanged(ref _top, value); }
+		double _dispW, _dispH, _left, _top;
+
+		Geometry? _swipeClip;
+		public Geometry? SwipeClip { get => _swipeClip; private set => this.RaiseAndSetIfChanged(ref _swipeClip, value); }
+
+		public Thickness SeparatorMargin => new(SeparatorX, TopOffset, 0, 0);
+		double _separatorX;
+		public double SeparatorX {
+			get => _separatorX;
+			private set { this.RaiseAndSetIfChanged(ref _separatorX, value); this.RaisePropertyChanged(nameof(SeparatorMargin)); }
+		}
+
+		double _separatorY;
+		public double SeparatorY {
+			get => _separatorY;
+			private set => this.RaiseAndSetIfChanged(ref _separatorY, value);
+		}
+
+		double _viewportWidth;
+		public double ViewportWidth {
+			get => _viewportWidth;
+			set { this.RaiseAndSetIfChanged(ref _viewportWidth, value); Recalc(); }
+		}
+
+		double _viewportHeight;
+		public double ViewportHeight {
+			get => _viewportHeight;
+			set { this.RaiseAndSetIfChanged(ref _viewportHeight, value); Recalc(); }
+		}
+
+		CancellationTokenSource? _frameExtractCts;
+		CancellationTokenSource? _loadCts;
+
+		readonly Func<Guid, bool, (Guid GroupId, List<LargeThumbnailDuplicateItem> Items)?>? _groupNavigator;
+		readonly Func<Guid, (int Index, int Total)?>? _groupPosition;
+		Guid? _currentGroupId;
+		public bool CanNavigateGroups => _groupNavigator != null && _currentGroupId.HasValue;
+
+		public ReactiveCommand<Unit, Unit>? PreviousGroupCommand { get; }
+		public ReactiveCommand<Unit, Unit>? NextGroupCommand { get; }
+		public ReactiveCommand<Unit, Unit> CancelThumbnailLoadingCommand { get; }
+
+		/// <summary>
+		/// Stops the thumbnail load and any frame extraction. Wired to the loading
+		/// overlay's Cancel button and to window close, so an expensive load (many
+		/// items, slow disk) can neither trap the user in the overlay nor keep
+		/// FFmpeg busy after the window is gone.
+		/// </summary>
+		public void CancelBackgroundWork() {
+			_loadCts?.Cancel();
+			_frameExtractCts?.Cancel();
+			_diffCts?.Cancel();
+		}
+
+		public ThumbnailComparerVM(List<LargeThumbnailDuplicateItem> duplicateItemVMs)
+			: this(duplicateItemVMs, null, null, null) { }
+
+		[System.Diagnostics.CodeAnalysis.UnconditionalSuppressMessage("Trimming", "IL2026", Justification = MainWindowVM.WhenAnyValueTrimJustification)]
+		public ThumbnailComparerVM(
+			List<LargeThumbnailDuplicateItem> duplicateItemVMs,
+			Guid? currentGroupId,
+			Func<Guid, bool, (Guid GroupId, List<LargeThumbnailDuplicateItem> Items)?>? groupNavigator,
+			Func<Guid, (int Index, int Total)?>? groupPosition = null) {
+			Items = new(duplicateItemVMs);
+			_currentGroupId = currentGroupId;
+			_groupNavigator = groupNavigator;
+			_groupPosition = groupPosition;
+
+			// A settings file written by a build that had more modes may carry an
+			// out-of-range value; fall back instead of showing a blank canvas.
+			if ((uint)_selectedCompareMode > (uint)CompareMode.Stacked)
+				_selectedCompareMode = CompareMode.SideBySide;
+
+			var modes = new ObservableCollection<CompareMode> {
+				CompareMode.Single, CompareMode.Swipe, CompareMode.SideBySide, CompareMode.Stacked
+			};
+			foreach (var mode in modes)
+				compareModes.Add(mode);
+			CompareModes = new ReadOnlyObservableCollection<CompareMode>(compareModes);
+
+			this.WhenAnyValue(vm => vm.ModeSliderValue, vm => vm.SelectedCompareMode, vm => vm.ImageA, vm => vm.ImageB)
+				.Throttle(TimeSpan.FromMilliseconds(16))
+				.ObserveOn(RxSchedulers.MainThreadScheduler)
+				.Subscribe(_ => Recalc());
+
+			// Sensitivity drags and frame steps land here throttled, so the pixel work
+			// (a background Task per recompute) never queues up behind a slider.
+			this.WhenAnyValue(vm => vm.HighlightDifferences, vm => vm.ImageA, vm => vm.ImageB, vm => vm.DiffSensitivity)
+				.Throttle(TimeSpan.FromMilliseconds(120))
+				.ObserveOn(RxSchedulers.MainThreadScheduler)
+				.Subscribe(_ => UpdateDiffOverlay());
+
+			FitToViewCommand = ReactiveCommand.Create(() => { Zoom = 1.0; PanOffsetX = 0; PanOffsetY = 0; });
+			ResetZoomCommand = ReactiveCommand.Create(() => { Zoom = 1.0; PanOffsetX = 0; PanOffsetY = 0; });
+			ZoomInCommand = ReactiveCommand.Create(() => { Zoom = Math.Min(Zoom * 1.25, 8.0); });
+			ZoomOutCommand = ReactiveCommand.Create(() => { Zoom = Math.Max(Zoom / 1.25, 0.1); });
+
+			PrevBaseCommand = ReactiveCommand.Create(() => { if (BaseThumbnailIndex > 0) BaseThumbnailIndex--; });
+			NextBaseCommand = ReactiveCommand.Create(() => { if (BaseThumbnailIndex < BaseThumbnailIndexMax) BaseThumbnailIndex++; });
+			StepAMinusCommand = ReactiveCommand.Create(() => { StepA--; });
+			StepAPlusCommand = ReactiveCommand.Create(() => { StepA++; });
+			StepBMinusCommand = ReactiveCommand.Create(() => { StepB--; });
+			StepBPlusCommand = ReactiveCommand.Create(() => { StepB++; });
+			ResetStepsCommand = ReactiveCommand.Create(() => { StepA = 0; StepB = 0; });
+
+			if (_groupNavigator != null && _currentGroupId.HasValue) {
+				PreviousGroupCommand = ReactiveCommand.CreateFromTask(() => SwitchGroupAsync(forward: false));
+				NextGroupCommand = ReactiveCommand.CreateFromTask(() => SwitchGroupAsync(forward: true));
+			}
+
+			KeepLeftCommand = ReactiveCommand.Create(() => ApplyDecision(CullingPairFlow.Decision.KeepLeft));
+			KeepRightCommand = ReactiveCommand.Create(() => ApplyDecision(CullingPairFlow.Decision.KeepRight));
+			SkipPairCommand = ReactiveCommand.Create(() => ApplyDecision(CullingPairFlow.Decision.Skip));
+			NotAMatchCommand = ReactiveCommand.CreateFromTask(NotAMatchAsync);
+			ToggleZoomCommand = ReactiveCommand.Create(() => {
+				if (Math.Abs(Zoom - 1.0) < 0.01) {
+					Zoom = 2.0;
+				}
+				else {
+					Zoom = 1.0;
+					PanOffsetX = 0;
+					PanOffsetY = 0;
+				}
+			});
+			StepBothMinusCommand = ReactiveCommand.Create(() => { StepA--; StepB--; });
+			StepBothPlusCommand = ReactiveCommand.Create(() => { StepA++; StepB++; });
+			SelectBasePositionCommand = ReactiveCommand.Create<FrameStripEntry>(entry => {
+				if (entry != null) BaseThumbnailIndex = entry.Index;
+			});
+			CancelThumbnailLoadingCommand = ReactiveCommand.Create(CancelBackgroundWork);
+			UpdateGroupInfo();
+		}
+
+		async Task SwitchGroupAsync(bool forward) {
+			if (_groupNavigator is null || _currentGroupId is null) return;
+			var result = _groupNavigator(_currentGroupId.Value, forward);
+			if (result is null) return;
+			await ApplyGroupResultAsync(result.Value);
+		}
+
+		async Task ApplyGroupResultAsync((Guid GroupId, List<LargeThumbnailDuplicateItem> Items) result) {
+			// Cancel any in-flight thumbnail / frame work for the previous group
+			_loadCts?.Cancel();
+			_frameExtractCts?.Cancel();
+			IsExtractingFrame = false;
+
+			_suppressSelectionUpdates = true;
+			try {
+				if (_selectedItemA != null) _selectedItemA.IsSourceA = false;
+				if (_selectedItemB != null) _selectedItemB.IsSourceB = false;
+				_selectedItemA = null;
+				_selectedItemB = null;
+				this.RaisePropertyChanged(nameof(SelectedItemA));
+				this.RaisePropertyChanged(nameof(SelectedItemB));
+
+				Items.Clear();
+				foreach (var item in result.Items)
+					Items.Add(item);
+			}
+			finally {
+				_suppressSelectionUpdates = false;
+			}
+
+			_currentGroupId = result.GroupId;
+			ImageA = null;
+			ImageB = null;
+			this.RaisePropertyChanged(nameof(ImageSingle));
+			UpdateGroupInfo();
+
+			await LoadThumbnailsAsync();
+		}
+
+		// ---------- keyboard-first culling (redesign stage 4) ----------
+
+		public ReactiveCommand<Unit, Unit> KeepLeftCommand { get; }
+		public ReactiveCommand<Unit, Unit> KeepRightCommand { get; }
+		public ReactiveCommand<Unit, Unit> SkipPairCommand { get; }
+		public ReactiveCommand<Unit, Unit> NotAMatchCommand { get; }
+		public ReactiveCommand<Unit, Unit> ToggleZoomCommand { get; }
+		public ReactiveCommand<Unit, Unit> StepBothMinusCommand { get; }
+		public ReactiveCommand<Unit, Unit> StepBothPlusCommand { get; }
+		public ReactiveCommand<FrameStripEntry, Unit> SelectBasePositionCommand { get; }
+
+		CullingPairFlow? _pairFlow;
+
+		string _groupInfoText = string.Empty;
+		public string GroupInfoText { get => _groupInfoText; private set => this.RaiseAndSetIfChanged(ref _groupInfoText, value); }
+		string _pairInfoText = string.Empty;
+		public string PairInfoText { get => _pairInfoText; private set => this.RaiseAndSetIfChanged(ref _pairInfoText, value); }
+		string _similarityText = string.Empty;
+		public string SimilarityText { get => _similarityText; private set => this.RaiseAndSetIfChanged(ref _similarityText, value); }
+		public bool HasSimilarity => !string.IsNullOrEmpty(SimilarityText);
+
+		public ObservableCollection<MetaChip> LeftChips { get; } = new();
+		public ObservableCollection<MetaChip> RightChips { get; } = new();
+		public ObservableCollection<FrameStripEntry> StripA { get; } = new();
+		public ObservableCollection<FrameStripEntry> StripB { get; } = new();
+
+		bool _isLeftBest;
+		public bool IsLeftBest { get => _isLeftBest; private set => this.RaiseAndSetIfChanged(ref _isLeftBest, value); }
+		bool _isRightBest;
+		public bool IsRightBest { get => _isRightBest; private set => this.RaiseAndSetIfChanged(ref _isRightBest, value); }
+
+		void ApplyDecision(CullingPairFlow.Decision decision) {
+			if (_pairFlow is null || Items.Count < 2) return;
+			var step = _pairFlow.Advance(decision);
+
+			if (step.CheckIndex >= 0 && step.CheckIndex < Items.Count) {
+				Items[step.CheckIndex].Item.Checked = true;
+				ShowMessage(string.Format(App.Lang["Comparer.CheckedMessage"], Items[step.CheckIndex].FileName), 1600);
+			}
+			if (step.KeepIndex >= 0 && step.KeepIndex < Items.Count)
+				Items[step.KeepIndex].Item.Checked = false;
+
+			if (step.GroupFinished) {
+				if (CanNavigateGroups)
+					_ = SwitchGroupAsync(forward: true);
+				else
+					ShowMessage(App.Lang["Comparer.NoMoreGroups"]);
+				return;
+			}
+			SetPairSelection(_pairFlow.LeftIndex, _pairFlow.RightIndex);
+		}
+
+		async Task NotAMatchAsync() {
+			if (_currentGroupId is null) return;
+			var gid = _currentGroupId.Value;
+			// Capture the neighbor BEFORE the group disappears from the results list.
+			var next = _groupNavigator?.Invoke(gid, true);
+			await ApplicationHelpers.MainWindowDataContext.MarkGroupAsNotAMatch(gid);
+			if (next is null || next.Value.GroupId == gid) {
+				ShowMessage(App.Lang["Comparer.NoMoreGroups"]);
+				return;
+			}
+			await ApplyGroupResultAsync(next.Value);
+		}
+
+		void SetPairSelection(int left, int right) {
+			if (left < 0 || right < 0 || left >= Items.Count || right >= Items.Count) return;
+			_suppressSelectionUpdates = true;
+			try {
+				SelectedItemA = Items[left];
+				SelectedItemB = Items[right];
+			}
+			finally {
+				_suppressSelectionUpdates = false;
+			}
+			UpdateShowFrameControls();
+			UpdateImages();
+			UpdateCullingInfo();
+		}
+
+		void UpdateGroupInfo() {
+			var pos = _currentGroupId is Guid gid ? _groupPosition?.Invoke(gid) : null;
+			GroupInfoText = pos is { } p
+				? string.Format(App.Lang["Comparer.GroupInfo"], p.Index, p.Total)
+				: string.Empty;
+		}
+
+		void UpdateCullingInfo() {
+			if (_pairFlow is { PairCount: > 0 })
+				PairInfoText = string.Format(App.Lang["Comparer.PairInfo"], _pairFlow.PairNumber, _pairFlow.PairCount, Items.Count);
+			else
+				PairInfoText = string.Empty;
+
+			var sim = SelectedItemB?.Item.ItemInfo.Similarity;
+			SimilarityText = sim is float s and > 0 ? $"{s:0} %" : string.Empty;
+			this.RaisePropertyChanged(nameof(HasSimilarity));
+
+			IsLeftBest = SelectedItemA?.IsGroupBest == true;
+			IsRightBest = SelectedItemB?.IsGroupBest == true;
+
+			LeftChips.Clear();
+			RightChips.Clear();
+			var a = SelectedItemA?.Item.ItemInfo;
+			var b = SelectedItemB?.Item.ItemInfo;
+			if (a != null)
+				foreach (var chip in ComparerChips.Build(a, b))
+					LeftChips.Add(chip);
+			if (b != null)
+				foreach (var chip in ComparerChips.Build(b, a))
+					RightChips.Add(chip);
+
+			RebuildStrips();
+		}
+
+		void RebuildStrips() {
+			StripA.Clear();
+			StripB.Clear();
+			FillStrip(StripA, SelectedItemA);
+			FillStrip(StripB, SelectedItemB);
+		}
+
+		void FillStrip(ObservableCollection<FrameStripEntry> strip, LargeThumbnailDuplicateItem? item) {
+			if (item == null || item.Item.ItemInfo.IsImage || item.Frames.Count < 2) return;
+			for (int i = 0; i < item.Frames.Count; i++)
+				strip.Add(new FrameStripEntry(item.Frames[i], i) { IsCurrent = i == BaseThumbnailIndex });
+		}
+
+		void UpdateStripCurrent() {
+			foreach (var entry in StripA)
+				entry.IsCurrent = entry.Index == BaseThumbnailIndex;
+			foreach (var entry in StripB)
+				entry.IsCurrent = entry.Index == BaseThumbnailIndex;
+		}
+
+		bool _suppressSelectionUpdates;
+
+		public void AssignDefaultSelections() {
+			_pairFlow = new CullingPairFlow(Items.Count);
+			_suppressSelectionUpdates = true;
+			try {
+				if (Items.Count >= 2) {
+					SelectedItemA = Items[_pairFlow.LeftIndex];
+					SelectedItemB = Items[_pairFlow.RightIndex];
+				}
+				else if (Items.Count == 1) {
+					SelectedItemA = Items[0];
+				}
+			}
+			finally {
+				_suppressSelectionUpdates = false;
+			}
+			UpdateShowFrameControls();
+			UpdateImages();
+			UpdateCullingInfo();
+		}
+
+		void OnSelectionChanged() {
+			if (_suppressSelectionUpdates) return;
+			// A manual pick re-anchors the culling walk at the chosen pair.
+			int left = SelectedItemA != null ? Items.IndexOf(SelectedItemA) : -1;
+			int right = SelectedItemB != null ? Items.IndexOf(SelectedItemB) : -1;
+			_pairFlow?.SetPair(left, right);
+			UpdateShowFrameControls();
+			UpdateImages();
+			UpdateCullingInfo();
+		}
+
+		// Dual modes need two SELECTED items, not two loaded bitmaps: thumbnails load
+		// asynchronously, so keying off ImageA/ImageB knocked the dropdown back to
+		// Single whenever a mode was picked while thumbnails were still loading.
+		internal static bool ShouldForceSingleView(CompareMode mode, bool hasSelectionA, bool hasSelectionB) =>
+			mode != CompareMode.Single && (!hasSelectionA || !hasSelectionB);
+
+		// Auto-fallback to Single when only one image is available. Must not write to
+		// settings — otherwise the persisted user preference gets clobbered on every open.
+		void ForceSingleViewWithoutPersist() {
+			if (_selectedCompareMode == CompareMode.Single) return;
+			this.RaiseAndSetIfChanged(ref _selectedCompareMode, CompareMode.Single, nameof(SelectedCompareMode));
+			this.RaisePropertyChanged(nameof(IsSwipe));
+			this.RaisePropertyChanged(nameof(IsSideBySide));
+			this.RaisePropertyChanged(nameof(IsStacked));
+			this.RaisePropertyChanged(nameof(IsSingle));
+			this.RaisePropertyChanged(nameof(IsDualView));
+			this.RaisePropertyChanged(nameof(SwipeHintVisible));
+		}
+
+		void UpdateShowFrameControls() {
+			var a = SelectedItemA;
+			var b = SelectedItemB;
+			bool hasVideoA = a != null && !a.Item.ItemInfo.IsImage && a.Frames.Count > 0;
+			bool hasVideoB = b != null && !b.Item.ItemInfo.IsImage && b.Frames.Count > 0;
+			ShowFrameControls = hasVideoA || hasVideoB;
+
+			int maxA = hasVideoA ? a!.Frames.Count : 0;
+			int maxB = hasVideoB ? b!.Frames.Count : 0;
+			if (maxA > 0 && maxB > 0)
+				BaseThumbnailIndexMax = Math.Min(maxA, maxB) - 1;
+			else if (maxA > 0)
+				BaseThumbnailIndexMax = maxA - 1;
+			else if (maxB > 0)
+				BaseThumbnailIndexMax = maxB - 1;
+			else
+				BaseThumbnailIndexMax = 0;
+
+			if (BaseThumbnailIndex > BaseThumbnailIndexMax)
+				BaseThumbnailIndex = BaseThumbnailIndexMax;
+
+			ShowPositionControls = BaseThumbnailIndexMax > 0;
+		}
+
+		void UpdateImages() {
+			if (ShowFrameControls) {
+				UpdateFrameImages();
+			}
+			else {
+				ImageA = SelectedItemA?.Thumbnail;
+				ImageB = SelectedItemB?.Thumbnail;
+			}
+
+			if (ShouldForceSingleView(SelectedCompareMode, SelectedItemA is not null, SelectedItemB is not null))
+				ForceSingleViewWithoutPersist();
+
+			this.RaisePropertyChanged(nameof(ImageSingle));
+			UpdateFrameLabels();
+			Recalc();
+		}
+
+		Bitmap? GetItemFrameSync(LargeThumbnailDuplicateItem? item, int baseIdx, int step) {
+			if (item == null) return null;
+			if (item.Item.ItemInfo.IsImage || item.Frames.Count == 0)
+				return item.Thumbnail;
+			if (step == 0)
+				return item.GetFrame(baseIdx) ?? item.Thumbnail;
+			return item.GetCachedOffsetFrame(baseIdx, step) ?? item.GetFrame(baseIdx) ?? item.Thumbnail;
+		}
+
+		void UpdateFrameImages() {
+			// Invalidate work started for the previous selection, base frame or offsets.
+			// A stale extraction may still complete and populate its cache, but must
+			// not touch the UI anymore.
+			_frameExtractCts?.Cancel();
+			_frameExtractCts = null;
+			IsExtractingFrame = false;
+
+			var baseIdx = BaseThumbnailIndex;
+			var itemA = SelectedItemA;
+			var itemB = SelectedItemB;
+			var stepA = StepA;
+			var stepB = StepB;
+
+			bool isVideoA = itemA != null && !itemA.Item.ItemInfo.IsImage && itemA.Frames.Count > 0;
+			bool isVideoB = itemB != null && !itemB.Item.ItemInfo.IsImage && itemB.Frames.Count > 0;
+
+			// Show cached/base frames immediately
+			ImageA = GetItemFrameSync(itemA, baseIdx, isVideoA ? stepA : 0);
+			ImageB = GetItemFrameSync(itemB, baseIdx, isVideoB ? stepB : 0);
+			this.RaisePropertyChanged(nameof(ImageSingle));
+
+			bool needExtractA = isVideoA && stepA != 0 && itemA!.GetCachedOffsetFrame(baseIdx, stepA) == null;
+			bool needExtractB = isVideoB && stepB != 0 && itemB!.GetCachedOffsetFrame(baseIdx, stepB) == null;
+
+			if (!needExtractA && !needExtractB) {
+				UpdateFrameLabels();
+				return;
+			}
+
+			var cts = new CancellationTokenSource();
+			_frameExtractCts = cts;
+			IsExtractingFrame = true;
+
+			// Cancellation alone is not enough: a completed extraction that was
+			// superseded (new selection, base frame or step) races the UI-thread
+			// schedule against the next request, so re-check every input too.
+			bool IsStillCurrentRequest() =>
+				!cts.IsCancellationRequested &&
+				ReferenceEquals(_frameExtractCts, cts) &&
+				ReferenceEquals(SelectedItemA, itemA) &&
+				ReferenceEquals(SelectedItemB, itemB) &&
+				BaseThumbnailIndex == baseIdx &&
+				StepA == stepA &&
+				StepB == stepB;
+
+			_ = Task.Run(() => {
+				try {
+					Bitmap? bmpA = needExtractA ? itemA!.ExtractFrameAtOffset(baseIdx, stepA) : null;
+					if (cts.IsCancellationRequested) return;
+					Bitmap? bmpB = needExtractB ? itemB!.ExtractFrameAtOffset(baseIdx, stepB) : null;
+					if (cts.IsCancellationRequested) return;
+
+					RxSchedulers.MainThreadScheduler.Schedule(() => {
+						if (!IsStillCurrentRequest()) return;
+						if (needExtractA && bmpA != null)
+							ImageA = bmpA;
+						if (needExtractB && bmpB != null)
+							ImageB = bmpB;
+						this.RaisePropertyChanged(nameof(ImageSingle));
+						_frameExtractCts = null;
+						IsExtractingFrame = false;
+						UpdateFrameLabels();
+					});
+				}
+				catch {
+					RxSchedulers.MainThreadScheduler.Schedule(() => {
+						if (!ReferenceEquals(_frameExtractCts, cts)) return;
+						_frameExtractCts = null;
+						IsExtractingFrame = false;
+					});
+				}
+			});
+
+			UpdateFrameLabels();
+		}
+
+		string FormatFrameLabel(LargeThumbnailDuplicateItem item, int baseIdx, int step) {
+			var name = item.FileName;
+			if (item.Item.ItemInfo.IsImage || item.Frames.Count == 0)
+				return name;
+
+			var fps = item.Item.ItemInfo.Fps;
+			if (fps <= 0) fps = 30;
+
+			if (baseIdx >= 0 && baseIdx < item.Item.ItemInfo.ThumbnailTimestamps.Count) {
+				var baseTs = item.Item.ItemInfo.ThumbnailTimestamps[baseIdx];
+				var currentTs = baseTs + TimeSpan.FromSeconds(step / (double)fps);
+				if (currentTs < TimeSpan.Zero) currentTs = TimeSpan.Zero;
+				var approxFrame = (int)Math.Round(currentTs.TotalSeconds * fps);
+				var stepStr = step == 0 ? "" : $"  (step {(step > 0 ? "+" : "")}{step})";
+				return $"{name}  |  ~Frame {approxFrame}  |  {currentTs:hh\\:mm\\:ss\\.ff}{stepStr}";
+			}
+
+			return name;
+		}
+
+		void UpdateFrameLabels() {
+			if (SelectedItemA != null && ShowFrameControls)
+				FrameLabelA = FormatFrameLabel(SelectedItemA, BaseThumbnailIndex, StepA);
+			else
+				FrameLabelA = SelectedItemA?.FileName ?? string.Empty;
+
+			if (SelectedItemB != null && ShowFrameControls)
+				FrameLabelB = FormatFrameLabel(SelectedItemB, BaseThumbnailIndex, StepB);
+			else
+				FrameLabelB = SelectedItemB?.FileName ?? string.Empty;
+		}
+
+		void Recalc() {
+			if ((!IsSwipe && !IsStacked) || ImageA is null || ImageB is null || ViewportWidth <= 0 || ViewportHeight <= 0) {
+				SwipeClip = null;
+				return;
+			}
+
+			var wa = ImageA.PixelSize.Width;
+			var ha = ImageA.PixelSize.Height;
+
+			var scale = Math.Min(ViewportWidth / wa, ViewportHeight / ha);
+			var frameW = wa * scale;
+			var frameH = ha * scale;
+			var frameLeft = (ViewportWidth - frameW) / 2.0;
+			var frameTop = (ViewportHeight - frameH) / 2.0;
+
+			DisplayWidth = frameW;
+			DisplayHeight = frameH;
+			LeftOffset = frameLeft;
+			TopOffset = frameTop;
+
+			if (IsSwipe) {
+				var w = frameW * ModeSliderValue;
+				SwipeClip = new RectangleGeometry(new Rect(0, 0, w, frameH));
+				SeparatorX = frameLeft + Math.Max(0, w - 1);
+			}
+			else if (IsStacked) {
+				var h = frameH * ModeSliderValue;
+				SwipeClip = new RectangleGeometry(new Rect(0, 0, frameW, h));
+				SeparatorY = frameTop + Math.Max(0, h - 1);
+			}
+		}
+
+		public async Task LoadThumbnailsAsync(int maxParallel = 2) {
+			if (Items.Count == 0) return;
+
+			_loadCts?.Cancel();
+			var cts = new CancellationTokenSource();
+			_loadCts = cts;
+			var ct = cts.Token;
+
+			IsLoadingThumbnails = true;
+			LoadProgress = 0;
+			this.RaisePropertyChanged(nameof(LoadProgressText));
+
+			try {
+				await LoadItemsWithRetry(maxParallel, 3, ct);
+
+				// Check for still-failed items
+				var failed = Items.Where(i => i.Thumbnail == null).ToList();
+				if (failed.Count > 0) {
+					// Show notification and wait for main window thumbnail retrieval to finish
+					ShowMessage(string.Format(App.Lang["ThumbnailComparerDialog.ThumbnailLoadFailed"], failed.Count), 60000);
+
+					while (!ct.IsCancellationRequested) {
+						try {
+							if (!ApplicationHelpers.MainWindowDataContext.ShowThumbnailRetrievalProgressBar &&
+								!ApplicationHelpers.MainWindowDataContext.IsScanning) break;
+							await Task.Delay(1000, ct);
+						}
+						catch { break; }
+					}
+					ct.ThrowIfCancellationRequested();
+
+					// Final retry now that main window is done
+					IsLoadingThumbnails = true;
+					LoadProgress = 0;
+					this.RaisePropertyChanged(nameof(LoadProgressText));
+					IsMessageVisible = false;
+
+					await LoadItemsWithRetry(maxParallel, 1, ct, failed);
+				}
+
+				IsLoadingThumbnails = false;
+				AssignDefaultSelections();
+			}
+			catch (OperationCanceledException) {
+				IsLoadingThumbnails = false;
+				// Panes whose load never ran must not spin forever after a cancel.
+				foreach (var item in Items)
+					if (item.Thumbnail == null)
+						item.IsLoadingThumbnail = false;
+				AssignDefaultSelections();
+			}
+		}
+
+		async Task LoadItemsWithRetry(int maxParallel, int maxRetries, CancellationToken ct, List<LargeThumbnailDuplicateItem>? subset = null) {
+			var itemsToLoad = subset ?? Items.ToList();
+			for (int attempt = 0; attempt <= maxRetries; attempt++) {
+				if (attempt > 0) {
+					itemsToLoad = itemsToLoad.Where(i => i.Thumbnail == null).ToList();
+					if (itemsToLoad.Count == 0) break;
+				}
+
+				var sem = new SemaphoreSlim(maxParallel, maxParallel);
+				int done = 0;
+				// Frame-level progress: one unit per extracted frame, so multi-frame
+				// videos move the bar long before a whole item completes (a two-item
+				// group used to sit at 0% until the first file finished entirely).
+				int total = Math.Max(1, itemsToLoad.Sum(i =>
+					i.Item.ItemInfo.IsImage ? 1 : Math.Max(1, i.Item.ItemInfo.ThumbnailTimestamps.Count)));
+				void ReportFrame() {
+					var finished = Interlocked.Increment(ref done);
+					var p = Math.Clamp((double)finished / total, 0, 1);
+					if (ct.IsCancellationRequested) return; // stale load must not stomp a newer bar
+					RxSchedulers.MainThreadScheduler.Schedule(() => {
+						LoadProgress = p;
+						this.RaisePropertyChanged(nameof(LoadProgressText));
+					});
+				}
+
+				var tasks = itemsToLoad.Select(async item => {
+					await sem.WaitAsync(ct).ConfigureAwait(false);
+					try {
+						await Task.Run(() => item.LoadThumbnail(ct, ReportFrame), ct).ConfigureAwait(false);
+					}
+					finally {
+						sem.Release();
+					}
+				}).ToList();
+
+				// WaitAsync surfaces a cancel IMMEDIATELY. Awaiting WhenAll alone sat
+				// behind whatever FFmpeg grab was in flight - with a hung or very slow
+				// decode the Cancel button and window close appeared completely dead.
+				// The detached tasks stop at the next frame boundary via the token.
+				await Task.WhenAll(tasks).WaitAsync(ct);
+			}
+		}
+	}
+
+	/// <summary>One frame of the aligned strip under a comparer pane.</summary>
+	public sealed class FrameStripEntry : ReactiveObject {
+		public FrameStripEntry(Bitmap frame, int index) {
+			Frame = frame;
+			Index = index;
+		}
+		public Bitmap Frame { get; }
+		public int Index { get; }
+		bool _isCurrent;
+		public bool IsCurrent { get => _isCurrent; set => this.RaiseAndSetIfChanged(ref _isCurrent, value); }
+	}
+
+	// Unsealed so tests can stub LoadThumbnail (stuck-grab cancellation regression).
+	public class LargeThumbnailDuplicateItem : ReactiveObject {
+		public DuplicateItemVM Item { get; }
+		/// <summary>Set by MainWindowVM: this item is the group's quality keeper (BEST badge + pane tint).</summary>
+		public bool IsGroupBest { get; set; }
+
+		public Bitmap? Thumbnail { get; set; }
+		public IReadOnlyList<Bitmap> Frames => _frames;
+		readonly List<Bitmap> _frames = new();
+		readonly Dictionary<(int, int), Bitmap?> _offsetFrameCache = new();
+
+		public string FileName => System.IO.Path.GetFileName(Item.ItemInfo.Path);
+
+		bool _IsLoadingThumbnail = true;
+		public bool IsLoadingThumbnail {
+			get => _IsLoadingThumbnail;
+			set => this.RaiseAndSetIfChanged(ref _IsLoadingThumbnail, value);
+		}
+
+		bool _isSourceA;
+		public bool IsSourceA { get => _isSourceA; set => this.RaiseAndSetIfChanged(ref _isSourceA, value); }
+
+		bool _isSourceB;
+		public bool IsSourceB { get => _isSourceB; set => this.RaiseAndSetIfChanged(ref _isSourceB, value); }
+
+		public LargeThumbnailDuplicateItem(DuplicateItemVM duplicateItem) {
+			Item = duplicateItem;
+		}
+
+		/// <summary>
+		/// Extracts the full-size frames and joins them into the pane strip. The token
+		/// is checked between frame grabs — a single FFmpeg call can't be aborted, but
+		/// a cancel stops the item at the next frame boundary instead of grinding
+		/// through the rest; whatever was already grabbed still gets shown.
+		/// <paramref name="frameLoaded"/> fires once per attempted frame for the
+		/// overlay's frame-level progress. Virtual for tests.
+		/// </summary>
+		public virtual void LoadThumbnail(CancellationToken ct = default, Action? frameLoaded = null) {
+			try {
+				List<Bitmap> l = new(Item.ItemInfo.IsImage ? 1 : Item.ItemInfo.ThumbnailTimestamps.Count);
+				_frames.Clear();
+
+				if (Item.ItemInfo.IsImage) {
+					var bmp = new Bitmap(Item.ItemInfo.Path);
+					l.Add(bmp);
+					_frames.Add(bmp);
+					frameLoaded?.Invoke();
+				}
+				else {
+					for (int i = 0; i < Item.ItemInfo.ThumbnailTimestamps.Count; i++) {
+						if (ct.IsCancellationRequested) break;
+						var b = FfmpegEngine.GetThumbnail(new FfmpegSettings {
+							File = Item.ItemInfo.Path,
+							Position = Item.ItemInfo.ThumbnailTimestamps[i],
+							GrayScale = 0,
+							Fullsize = 1
+						}, SettingsFile.Instance.ExtendedFFToolsLogging);
+						if (b != null && b.Length > 0) {
+							using var byteStream = new MemoryStream(b);
+							var bmp = new Bitmap(byteStream);
+							l.Add(bmp);
+							_frames.Add(bmp);
+						}
+						frameLoaded?.Invoke();
+					}
+				}
+
+				if (l.Count > 0)
+					Thumbnail = ImageUtils.JoinImages(l);
+			}
+			catch { }
+			finally {
+				IsLoadingThumbnail = false;
+				this.RaisePropertyChanged(nameof(Thumbnail));
+			}
+		}
+
+		public Bitmap? GetFrame(int index) {
+			if (index < 0 || index >= _frames.Count)
+				return null;
+			return _frames[index];
+		}
+
+		public Bitmap? GetCachedOffsetFrame(int thumbnailIndex, int offset) {
+			if (offset == 0) return GetFrame(thumbnailIndex);
+			var key = (thumbnailIndex, offset);
+			return _offsetFrameCache.TryGetValue(key, out var cached) ? cached : null;
+		}
+
+		public Bitmap? ExtractFrameAtOffset(int thumbnailIndex, int offset) {
+			if (offset == 0) return GetFrame(thumbnailIndex);
+
+			var key = (thumbnailIndex, offset);
+			lock (_offsetFrameCache) {
+				if (_offsetFrameCache.TryGetValue(key, out var cached))
+					return cached;
+			}
+
+			if (Item.ItemInfo.IsImage) return GetFrame(thumbnailIndex);
+			if (thumbnailIndex < 0 || thumbnailIndex >= Item.ItemInfo.ThumbnailTimestamps.Count)
+				return null;
+
+			var fps = Item.ItemInfo.Fps;
+			if (fps <= 0) fps = 30;
+			var baseTimestamp = Item.ItemInfo.ThumbnailTimestamps[thumbnailIndex];
+			var targetTimestamp = baseTimestamp + TimeSpan.FromSeconds(offset / (double)fps);
+
+			if (targetTimestamp < TimeSpan.Zero) targetTimestamp = TimeSpan.Zero;
+			if (Item.ItemInfo.Duration > TimeSpan.Zero && targetTimestamp > Item.ItemInfo.Duration)
+				targetTimestamp = Item.ItemInfo.Duration;
+
+			var b = FfmpegEngine.GetThumbnail(new FfmpegSettings {
+				File = Item.ItemInfo.Path,
+				Position = targetTimestamp,
+				GrayScale = 0,
+				Fullsize = 1
+			}, SettingsFile.Instance.ExtendedFFToolsLogging);
+
+			Bitmap? bmp = null;
+			if (b != null && b.Length > 0) {
+				using var byteStream = new MemoryStream(b);
+				bmp = new Bitmap(byteStream);
+			}
+
+			lock (_offsetFrameCache) {
+				_offsetFrameCache[key] = bmp;
+			}
+			return bmp;
+		}
+	}
+}

@@ -1,0 +1,291 @@
+<Window
+    x:Class="VDF.GUI.Views.CustomSelectionView"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:actipro="http://schemas.actiprosoftware.com/avaloniaui"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:app="clr-namespace:VDF.GUI"
+    xmlns:data="using:VDF.GUI.Data"
+    xmlns:vm="using:VDF.GUI.ViewModels"
+    x:DataType="vm:CustomSelectionVM"
+    Title="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.Title]}"
+    MinWidth="560"
+    MaxHeight="860"
+    d:DesignHeight="700"
+    d:DesignWidth="620"
+    Icon="/Assets/icon.ico"
+    SizeToContent="WidthAndHeight"
+    WindowStartupLocation="CenterOwner"
+    mc:Ignorable="d">
+
+    <Window.Styles>
+        <Style Selector="Border.card">
+            <Setter Property="Background" Value="{actipro:ThemeResource Container1BackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{actipro:ThemeResource Container3BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14,12" />
+        </Style>
+        <Style Selector="TextBlock.cardtitle">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Opacity" Value="0.6" />
+        </Style>
+        <Style Selector="TextBlock.fieldlabel">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.note">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontStyle" Value="Italic" />
+            <Setter Property="Opacity" Value="0.6" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style Selector="Button.mini">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="10,3" />
+        </Style>
+        <Style Selector="ListBox.pathlist">
+            <Setter Property="MinHeight" Value="72" />
+            <Setter Property="MaxHeight" Value="140" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="{actipro:ThemeResource Container3BorderBrush}" />
+        </Style>
+    </Window.Styles>
+
+    <Grid
+        Margin="16"
+        RowDefinitions="Auto,*,Auto"
+        RowSpacing="12">
+
+        <!--  preset bar  -->
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="8">
+            <TextBlock
+                VerticalAlignment="Center"
+                Text="{Binding Source={x:Static app:App.Lang}, Path=[Preset.Label]}" />
+            <ComboBox
+                Grid.Column="1"
+                HorizontalAlignment="Stretch"
+                ItemsSource="{Binding CustomSelectionPresets}"
+                SelectedItem="{Binding SelectedPreset}">
+                <ComboBox.DisplayMemberBinding>
+                    <Binding Path="Name" DataType="data:CustomSelectionPreset" />
+                </ComboBox.DisplayMemberBinding>
+            </ComboBox>
+            <Button
+                Grid.Column="2"
+                Command="{Binding SavePresetCommand}"
+                Content="{Binding Source={x:Static app:App.Lang}, Path=[Preset.Save]}" />
+            <Button
+                Grid.Column="3"
+                Command="{Binding DeletePresetCommand}"
+                Content="{Binding Source={x:Static app:App.Lang}, Path=[Preset.Delete]}" />
+        </Grid>
+
+        <ScrollViewer
+            Grid.Row="1"
+            HorizontalScrollBarVisibility="Disabled"
+            VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="12">
+
+                <!--  criteria  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="10">
+                        <TextBlock Classes="cardtitle" Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.Section.Criteria]}" />
+                        <CheckBox
+                            Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.IgnoreGroupsWithCheckedItems]}"
+                            IsChecked="{Binding Data.IgnoreGroupsWithCheckedItems}"
+                            IsThreeState="False"
+                            ToolTip.Tip="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.IgnoreGroupsWithCheckedItemsTooltip]}" />
+                        <Grid
+                            ColumnDefinitions="Auto,*"
+                            ColumnSpacing="12"
+                            RowDefinitions="Auto,Auto,Auto"
+                            RowSpacing="8">
+                            <TextBlock Classes="fieldlabel" Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.FileType]}" />
+                            <ComboBox
+                                Grid.Column="1"
+                                MinWidth="220"
+                                HorizontalAlignment="Left"
+                                SelectedIndex="{Binding Data.FileTypeSelection}">
+                                <ComboBoxItem Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.FileType.All]}" />
+                                <ComboBoxItem Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.FileType.Videos]}" />
+                                <ComboBoxItem Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.FileType.Images]}" />
+                            </ComboBox>
+                            <TextBlock
+                                Grid.Row="1"
+                                Classes="fieldlabel"
+                                Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.Identical]}" />
+                            <ComboBox
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                MinWidth="220"
+                                HorizontalAlignment="Left"
+                                SelectedIndex="{Binding Data.IdenticalSelection}">
+                                <ComboBoxItem Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.Identical.Any]}" />
+                                <ComboBoxItem Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.Identical.Exact]}" />
+                                <ComboBoxItem Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.Identical.ExceptSize]}" />
+                                <ComboBoxItem Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.Identical.Not]}" />
+                            </ComboBox>
+                            <TextBlock
+                                Grid.Row="2"
+                                Classes="fieldlabel"
+                                Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.DateTime]}" />
+                            <ComboBox
+                                Grid.Row="2"
+                                Grid.Column="1"
+                                MinWidth="220"
+                                HorizontalAlignment="Left"
+                                SelectedIndex="{Binding Data.DateTimeSelection}">
+                                <ComboBoxItem Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.DateTime.Ignore]}" />
+                                <ComboBoxItem Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.DateTime.Newest]}" />
+                                <ComboBoxItem Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.DateTime.Oldest]}" />
+                            </ComboBox>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!--  size & similarity  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="10">
+                        <TextBlock Classes="cardtitle" Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.Section.Range]}" />
+                        <Grid
+                            ColumnDefinitions="Auto,*,Auto,*"
+                            ColumnSpacing="12"
+                            RowDefinitions="Auto,Auto"
+                            RowSpacing="8">
+                            <TextBlock Classes="fieldlabel" Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.MinimumFileSize]}" />
+                            <NumericUpDown
+                                x:Name="NumericUpDownMinimumFileSize"
+                                Grid.Column="1"
+                                MinWidth="140"
+                                HorizontalAlignment="Stretch"
+                                Minimum="0"
+                                Value="{Binding Data.MinimumFileSize}" />
+                            <TextBlock
+                                Grid.Column="2"
+                                Classes="fieldlabel"
+                                Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.MaximumFileSize]}" />
+                            <NumericUpDown
+                                Grid.Column="3"
+                                MinWidth="140"
+                                HorizontalAlignment="Stretch"
+                                Maximum="999999999"
+                                Minimum="{Binding #NumericUpDownMinimumFileSize.Value}"
+                                Value="{Binding Data.MaximumFileSize}" />
+                            <TextBlock
+                                Grid.Row="1"
+                                Classes="fieldlabel"
+                                Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.SimilarityFrom]}" />
+                            <NumericUpDown
+                                Grid.Row="1"
+                                Grid.Column="1"
+                                MinWidth="140"
+                                HorizontalAlignment="Stretch"
+                                Maximum="100"
+                                Minimum="0"
+                                Value="{Binding Data.SimilarityFrom}" />
+                            <TextBlock
+                                Grid.Row="1"
+                                Grid.Column="2"
+                                Classes="fieldlabel"
+                                Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.SimilarityTo]}" />
+                            <NumericUpDown
+                                Grid.Row="1"
+                                Grid.Column="3"
+                                MinWidth="140"
+                                HorizontalAlignment="Stretch"
+                                Maximum="100"
+                                Minimum="0"
+                                Value="{Binding Data.SimilarityTo}" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!--  path filters  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="8">
+                        <TextBlock Classes="cardtitle" Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.Section.Paths]}" />
+
+                        <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.PathContains]}" />
+                            <Button
+                                Grid.Column="1"
+                                Classes="mini"
+                                Command="{Binding AddFilePathContainsTextToListCommand}"
+                                CommandParameter="{Binding ElementName=ListboxFilePathContainsText}"
+                                Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.Add]}" />
+                            <Button
+                                Grid.Column="2"
+                                Classes="mini"
+                                Command="{Binding RemoveFilePathContainsTextFromListCommand}"
+                                CommandParameter="{Binding ElementName=ListboxFilePathContainsText}"
+                                Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.Remove]}" />
+                        </Grid>
+                        <ListBox
+                            Name="ListboxFilePathContainsText"
+                            Classes="pathlist"
+                            ItemsSource="{Binding Data.PathContains}"
+                            SelectionMode="Multiple" />
+
+                        <Grid
+                            Margin="0,6,0,0"
+                            ColumnDefinitions="*,Auto,Auto"
+                            ColumnSpacing="6">
+                            <TextBlock
+                                VerticalAlignment="Center"
+                                Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.PathNotContains]}" />
+                            <Button
+                                Grid.Column="1"
+                                Classes="mini"
+                                Command="{Binding AddFilePathNotContainsTextToListCommand}"
+                                CommandParameter="{Binding ElementName=ListboxFilePathNotContainsText}"
+                                Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.Add]}" />
+                            <Button
+                                Grid.Column="2"
+                                Classes="mini"
+                                Command="{Binding RemoveFilePathNotContainsTextFromListCommand}"
+                                CommandParameter="{Binding ElementName=ListboxFilePathNotContainsText}"
+                                Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.Remove]}" />
+                        </Grid>
+                        <ListBox
+                            Name="ListboxFilePathNotContainsText"
+                            Classes="pathlist"
+                            ItemsSource="{Binding Data.PathNotContains}"
+                            SelectionMode="Multiple" />
+
+                        <TextBlock Classes="note" Text="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.WildcardNote]}" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!--  footer  -->
+        <Grid
+            Grid.Row="2"
+            ColumnDefinitions="Auto,Auto,*,Auto,Auto"
+            ColumnSpacing="8">
+            <Button Command="{Binding SaveCommand}" Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.SaveToFile]}" />
+            <Button
+                Grid.Column="1"
+                Command="{Binding LoadCommand}"
+                Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.LoadFromFile]}" />
+            <Button
+                Grid.Column="3"
+                MinWidth="100"
+                Classes="accent"
+                Command="{Binding SelectCommand}"
+                Content="{Binding Source={x:Static app:App.Lang}, Path=[CustomSelection.Select]}"
+                IsDefault="True" />
+            <Button
+                Grid.Column="4"
+                MinWidth="100"
+                Command="{Binding CancelCommand}"
+                Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.Close]}"
+                IsCancel="True" />
+        </Grid>
+    </Grid>
+</Window>
