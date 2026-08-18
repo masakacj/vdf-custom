@@ -9,6 +9,7 @@
 
 using VDF.Core;
 using VDF.Core.ViewModels;
+using VDF.GUI.Data;
 using VDF.GUI.ViewModels;
 
 namespace VDF.GUI.Tests {
@@ -23,6 +24,13 @@ namespace VDF.GUI.Tests {
 				DateCreated = created ?? new DateTime(2020, 1, 1),
 			}
 		};
+
+		[Fact]
+		public void FreshPlanner_DefaultsToBestQuality() {
+			var data = new CustomSelectionData();
+
+			Assert.Equal((int)PikPakFolderMergeKeepRule.BestQuality, data.PikPakFolderMergeKeepSelection);
+		}
 
 		[Fact]
 		public void OneStrayFile_StillCreatesFolderRelationship_WithDirectionalCoverage() {
