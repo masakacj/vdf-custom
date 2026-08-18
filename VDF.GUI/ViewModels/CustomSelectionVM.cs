@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -43,6 +43,9 @@ namespace VDF.GUI.ViewModels {
 			set {
 				this.RaiseAndSetIfChanged(ref _Data, value);
 				PikPakStatus = string.Empty;
+				FolderCoverageStatus = string.Empty;
+				FolderCoverageOptions.Clear();
+				SelectedFolderCoverage = null;
 			}
 		}
 
@@ -51,6 +54,23 @@ namespace VDF.GUI.ViewModels {
 		public string PikPakStatus {
 			get => _PikPakStatus;
 			set => this.RaiseAndSetIfChanged(ref _PikPakStatus, value);
+		}
+
+		[JsonIgnore]
+		public ObservableCollection<PikPakFolderCoverageOption> FolderCoverageOptions { get; } = new();
+
+		PikPakFolderCoverageOption? _SelectedFolderCoverage;
+		[JsonIgnore]
+		public PikPakFolderCoverageOption? SelectedFolderCoverage {
+			get => _SelectedFolderCoverage;
+			set => this.RaiseAndSetIfChanged(ref _SelectedFolderCoverage, value);
+		}
+
+		string _FolderCoverageStatus = string.Empty;
+		[JsonIgnore]
+		public string FolderCoverageStatus {
+			get => _FolderCoverageStatus;
+			set => this.RaiseAndSetIfChanged(ref _FolderCoverageStatus, value);
 		}
 
 		[JsonIgnore]
@@ -86,6 +106,49 @@ namespace VDF.GUI.ViewModels {
 				CustomSelectionPresets.Remove(_SelectedPreset);
 				SelectedPreset = null;
 			}
+		});
+
+		/// <summary>
+		/// Re-groups the CURRENT visible ordinary file-duplicate groups by direct parent
+		/// folder pair and cached folder coverage. No media is rescanned here.
+		/// </summary>
+		[JsonIgnore]
+		public ReactiveCommand<Unit, Unit> RefreshFolderCoverageCommand => ReactiveCommand.Create(() => {
+			var options = ApplicationHelpers.MainWindowDataContext.BuildPikPakFolderCoverageOptions();
+			FolderCoverageOptions.Clear();
+			foreach (var option in options)
+				FolderCoverageOptions.Add(option);
+			SelectedFolderCoverage = FolderCoverageOptions.FirstOrDefault();
+			FolderCoverageStatus = options.Count == 0
+				? "当前可见结果中没有跨文件夹的相似文件组。"
+				: $"已按父目录覆盖关系整理出 {options.Count:N0} 组目录关系；完全基于现有文件查重结果和缓存数据库，没有重新读取媒体文件。";
+		});
+
+		/// <summary>
+		/// Applies a keeper policy only to the two folders in the selected coverage bucket.
+		/// This deliberately produces an editable Checked plan rather than deleting/moving
+		/// anything: similar-file conflicts remain file-level decisions.
+		/// </summary>
+		[JsonIgnore]
+		public ReactiveCommand<Unit, Unit> ApplyFolderMergeCommand => ReactiveCommand.Create(() => {
+			if (SelectedFolderCoverage == null) {
+				FolderCoverageStatus = "请先分析覆盖关系并选择一组目录。";
+				return;
+			}
+
+			var keepRule = (PikPakFolderMergeKeepRule)Data.PikPakFolderMergeKeepSelection;
+			bool swapDirection = Data.PikPakFolderMergeTargetSelection == 1;
+			var (target, source) = SelectedFolderCoverage.ResolveDirection(swapDirection);
+			if (keepRule == PikPakFolderMergeKeepRule.Manual) {
+				FolderCoverageStatus = $"手动模式：目标 {target} ← 来源 {source}。未修改任何勾选；关闭窗口后可在这些文件级相似组中逐项决定保留项。";
+				return;
+			}
+
+			int selected = ApplicationHelpers.MainWindowDataContext.RunPikPakFolderMergeSelection(
+				SelectedFolderCoverage, swapDirection, keepRule);
+			FolderCoverageStatus = selected > 0
+				? $"合并预选：目标 {target} ← 来源 {source}；已勾选 {selected:N0} 个待淘汰相似文件。这里只生成可编辑的文件级计划，不会自动移动或删除。"
+				: "该目录关系没有产生可勾选的冲突项，原勾选状态未修改。";
 		});
 
 		[JsonIgnore]
