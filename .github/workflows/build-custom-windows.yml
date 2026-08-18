@@ -1,0 +1,62 @@
+name: Build VDF Custom Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'VDF.Core/**'
+      - 'VDF.GUI/**'
+      - 'VDF.CLI/**'
+      - 'Directory.Build.props'
+      - 'VideoDuplicateFinder.sln'
+      - '.github/workflows/build-custom-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vdf-custom-win-x64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore .\VideoDuplicateFinder.sln
+
+      - name: Publish GUI win-x64 Native AOT
+        shell: pwsh
+        run: dotnet publish .\VDF.GUI\VDF.GUI.csproj -c Release -v q -p:PublishAot=true -r win-x64 -o .\artifacts\GUI-win-x64
+
+      - name: Publish CLI win-x64 Native AOT
+        shell: pwsh
+        run: dotnet publish .\VDF.CLI\VDF.CLI.csproj -c Release -v q -p:PublishAot=true -r win-x64 -o .\artifacts\CLI-win-x64
+
+      - name: Record build metadata
+        shell: pwsh
+        run: |
+          $sha = git rev-parse --short HEAD
+          "Repository: $env:GITHUB_REPOSITORY" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8
+          "Commit: $sha" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8 -Append
+          "Built UTC: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8 -Append
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: VDF-Custom-win-x64-${{ github.sha }}
+          path: artifacts/**
+          if-no-files-found: error
+          retention-days: 14
