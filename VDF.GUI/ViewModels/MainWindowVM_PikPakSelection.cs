@@ -269,7 +269,7 @@ namespace VDF.GUI.ViewModels {
 
 		internal static string NormalizePikPakPath(string path) {
 			string value = (path ?? string.Empty).Trim().Replace('\\', '/');
-			while (value.Length > 1 && value.EndsWith('/', StringComparison.Ordinal))
+			while (value.Length > 1 && value.EndsWith("/", StringComparison.Ordinal))
 				value = value[..^1];
 			return value;
 		}
