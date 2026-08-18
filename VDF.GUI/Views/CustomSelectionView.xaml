@@ -143,7 +143,6 @@
                         </Grid>
                         <TextBlock Classes="note" Text="关键词保留：同组多项命中时保留当前组内排序第一项；整组无命中则该组不自动勾选。同夹多余也严格按当前组内显示顺序保留第 1 个。" />
                         <TextBlock
-                            Foreground="{actipro:ThemeResource ControlForegroundBrushAccent}"
                             FontWeight="SemiBold"
                             Text="{Binding PikPakStatus}"
                             TextWrapping="Wrap" />
