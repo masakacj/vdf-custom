@@ -1,0 +1,120 @@
+name: Apply Chinese default startup fix
+
+on:
+  push:
+    branches: ['fix/chinese-default-startup']
+    paths:
+      - '.github/workflows/apply-chinese-default-fix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: fix/chinese-default-startup
+          fetch-depth: 0
+
+      - name: Patch language startup and settings persistence
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text(encoding='utf-8-sig')
+              if old not in text:
+                  raise SystemExit(f'pattern not found in {path}: {old[:120]!r}')
+              text = text.replace(old, new, 1)
+              p.write_text(text, encoding='utf-8', newline='\n')
+
+          replace_once(
+              'VDF.GUI/App.xaml.cs',
+              'Lang.LoadLanguage("en");',
+              'Lang.LoadLanguage("zh-Hans");')
+
+          replace_once(
+              'VDF.GUI/LanguageService.cs',
+              'string _currentLanguage = "en";',
+              'string _currentLanguage = "zh-Hans";')
+
+          replace_once(
+              'VDF.GUI/Data/SettingsFile.cs',
+              '''\t\tpublic static void SaveSettings(string? path = null) {\n\t\t\tpath = ResolveSettingsPath(path);\n\t\t\tFile.WriteAllText(path, JsonSerializer.Serialize(instance, GuiJsonContext.Default.SettingsFile));\n\t\t}''',
+              '''\t\tpublic static void SaveSettings(string? path = null) {\n\t\t\tpath = ResolveSettingsPath(path);\n\t\t\tstring? directory = Path.GetDirectoryName(path);\n\t\t\tif (!string.IsNullOrWhiteSpace(directory))\n\t\t\t\tDirectory.CreateDirectory(directory);\n\n\t\t\t// A language change is persisted by the settings-page debounce. Writing\n\t\t\t// directly to Settings.json meant closing/crashing during that write could\n\t\t\t// leave a truncated file and make the next launch appear completely dead.\n\t\t\t// Write a sibling temp file and atomically replace the real file instead.\n\t\t\tstring tempPath = path + ".tmp";\n\t\t\ttry {\n\t\t\t\tFile.WriteAllText(tempPath, JsonSerializer.Serialize(instance, GuiJsonContext.Default.SettingsFile));\n\t\t\t\tFile.Move(tempPath, path, overwrite: true);\n\t\t\t}\n\t\t\tfinally {\n\t\t\t\ttry { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }\n\t\t\t}\n\t\t}''')
+
+          replace_once(
+              'VDF.GUI/Data/SettingsFile.cs',
+              '''\t\tstatic string ResolveDefaultLanguageCode() => ResolveLanguageCode(null);\n\n\t\tstatic string ResolveLanguageCode(string? languageCode) {\n\t\t\tif (!string.IsNullOrWhiteSpace(languageCode))\n\t\t\t\treturn languageCode;\n\n\t\t\tvar culture = CultureInfo.CurrentUICulture;\n\t\t\tif (!string.IsNullOrWhiteSpace(culture.TwoLetterISOLanguageName))\n\t\t\t\treturn culture.TwoLetterISOLanguageName;\n\n\t\t\treturn "en";\n\t\t}''',
+              '''\t\tstatic string ResolveDefaultLanguageCode() => "zh-Hans";\n\n\t\tstatic string ResolveLanguageCode(string? languageCode) {\n\t\t\tif (string.IsNullOrWhiteSpace(languageCode))\n\t\t\t\treturn "zh-Hans";\n\n\t\t\tstring normalized = languageCode.Trim();\n\t\t\t// VDF ships one Chinese translation today: Simplified Chinese. Normalize\n\t\t\t// Windows/.NET aliases such as zh, zh-CN and zh-SG to the actual asset name\n\t\t\t// so a fresh Chinese installation never tries to load a non-existent zh.json.\n\t\t\tif (normalized.Equals("zh", StringComparison.OrdinalIgnoreCase) ||\n\t\t\t\tnormalized.StartsWith("zh-", StringComparison.OrdinalIgnoreCase))\n\t\t\t\treturn "zh-Hans";\n\n\t\t\treturn normalized;\n\t\t}''')
+
+          replace_once(
+              'VDF.GUI/ViewModels/MainWindowVM_Settings.cs',
+              '''\t\t\tset {\n\t\t\t\tif (value == null) return;\n\t\t\t\tif (!string.Equals(SettingsFile.Instance.LanguageCode, value.Code, StringComparison.OrdinalIgnoreCase))\n\t\t\t\t\tSettingsFile.Instance.LanguageCode = value.Code;\n\t\t\t\tthis.RaisePropertyChanged();\n\t\t\t}''',
+              '''\t\t\tset {\n\t\t\t\tif (value == null) return;\n\t\t\t\tif (!string.Equals(SettingsFile.Instance.LanguageCode, value.Code, StringComparison.OrdinalIgnoreCase)) {\n\t\t\t\t\t// Load first so the UI switches immediately; the debounced settings save\n\t\t\t\t\t// then persists the normalized code without requiring a restart.\n\t\t\t\t\tApp.Lang.CurrentLanguage = value.Code;\n\t\t\t\t\tSettingsFile.Instance.LanguageCode = value.Code;\n\t\t\t\t}\n\t\t\t\tthis.RaisePropertyChanged();\n\t\t\t}''')
+
+          Path('VDF.GUI.Tests/ChineseLanguageDefaultsTests.cs').write_text(r'''// /*
+          //     Copyright (C) 2026 0x90d
+          //     This file is part of VideoDuplicateFinder
+          // */
+
+          using System.Text.Json;
+          using VDF.GUI.Data;
+
+          namespace VDF.GUI.Tests;
+
+          public class ChineseLanguageDefaultsTests : IDisposable {
+              readonly string dir = Directory.CreateTempSubdirectory("vdf-chinese-language-tests-").FullName;
+
+              public void Dispose() {
+                  SettingsFile.SetSettingsPath(null);
+                  try { Directory.Delete(dir, recursive: true); } catch { }
+              }
+
+              [Fact]
+              public void FreshSettings_DefaultToSimplifiedChinese() {
+                  var settings = new SettingsFile();
+                  Assert.Equal("zh-Hans", settings.LanguageCode);
+              }
+
+              [Theory]
+              [InlineData("zh")]
+              [InlineData("zh-CN")]
+              [InlineData("zh-SG")]
+              [InlineData("zh-Hans")]
+              [InlineData("ZH-cn")]
+              public void ChineseAliases_NormalizeToZhHans(string code) {
+                  var settings = new SettingsFile { LanguageCode = code };
+                  Assert.Equal("zh-Hans", settings.LanguageCode);
+              }
+
+              [Fact]
+              public void SaveSettings_UsesAtomicSiblingAndLeavesValidJson() {
+                  string path = Path.Combine(dir, "Settings.json");
+                  SettingsFile.Instance.LanguageCode = "zh-Hans";
+
+                  SettingsFile.SaveSettings(path);
+                  SettingsFile.SaveSettings(path);
+
+                  Assert.True(File.Exists(path));
+                  Assert.False(File.Exists(path + ".tmp"));
+                  using var doc = JsonDocument.Parse(File.ReadAllText(path));
+                  Assert.Equal("zh-Hans", doc.RootElement.GetProperty("LanguageCode").GetString());
+              }
+          }
+          ''', encoding='utf-8', newline='\n')
+          PY
+
+      - name: Commit patched sources
+        shell: bash
+        run: |
+          rm .github/workflows/apply-chinese-default-fix.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: make Simplified Chinese the safe default language"
+          git push origin HEAD:fix/chinese-default-startup
