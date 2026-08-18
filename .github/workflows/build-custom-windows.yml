@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: vdf-custom-win-x64-${{ github.ref }}
@@ -54,10 +54,58 @@ jobs:
           "Commit: $sha" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8 -Append
           "Built UTC: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8 -Append
 
-      - name: Upload Windows build
+      - name: Package release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force .\release | Out-Null
+          Compress-Archive -Path .\artifacts\GUI-win-x64\* -DestinationPath .\release\VDF-Custom-GUI-win-x64.zip -Force
+          Compress-Archive -Path .\artifacts\CLI-win-x64\* -DestinationPath .\release\VDF-Custom-CLI-win-x64.zip -Force
+          Copy-Item .\artifacts\BUILD_INFO.txt .\release\BUILD_INFO.txt -Force
+
+      - name: Upload Actions artifact
         uses: actions/upload-artifact@v4
         with:
           name: VDF-Custom-win-x64-${{ github.sha }}
-          path: artifacts/**
+          path: release/**
           if-no-files-found: error
           retention-days: 14
+
+      - name: Move rolling release tag to this build
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f custom-latest $env:GITHUB_SHA
+          git push origin refs/tags/custom-latest --force
+
+      - name: Publish rolling GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $sha = git rev-parse --short HEAD
+          $built = [DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss UTC')
+          $notes = @"
+          Automated Windows x64 build of VDF Custom.
+
+          Commit: $sha
+          Built: $built
+
+          Assets:
+          - VDF-Custom-GUI-win-x64.zip
+          - VDF-Custom-CLI-win-x64.zip
+          - BUILD_INFO.txt
+          "@
+
+          gh release view custom-latest *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create custom-latest --title "VDF Custom Latest" --notes $notes --latest
+          } else {
+            gh release edit custom-latest --title "VDF Custom Latest" --notes $notes --latest
+          }
+
+          gh release upload custom-latest `
+            .\release\VDF-Custom-GUI-win-x64.zip `
+            .\release\VDF-Custom-CLI-win-x64.zip `
+            .\release\BUILD_INFO.txt `
+            --clobber
