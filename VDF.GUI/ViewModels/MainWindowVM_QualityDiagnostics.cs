@@ -15,6 +15,8 @@ using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
 	public partial class MainWindowVM : ReactiveObject {
+		const int MaxLightweightQualityGroupSize = 12;
+
 		/// <summary>
 		/// Optional post-match quality diagnostic. It is intentionally independent from the
 		/// three scan profiles: switching precise/quality/AI modes never changes this preference.
@@ -97,9 +99,10 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		static bool IsEligibleDiagnosticGroup(List<DuplicateItemVM> group) {
-			if (group.Count < 2) return false;
-			// Flipped/AI-only/partial matches are intentionally excluded: cached frame positions
-			// are not guaranteed to be spatially aligned enough for the conservative overlay test.
+			if (group.Count < 2 || group.Count > MaxLightweightQualityGroupSize) return false;
+			// The detector is pairwise. Capping pathological giant groups keeps this optional
+			// post-pass bounded and prevents a malformed/over-broad match from consuming scan time.
+			// Such groups remain fully visible and simply use the normal BEST rules.
 			const DuplicateFlags unsupported = DuplicateFlags.Flipped | DuplicateFlags.AiMatched | DuplicateFlags.PartialClip;
 			if (group.Any(item => (item.ItemInfo.Flags & unsupported) != 0))
 				return false;
