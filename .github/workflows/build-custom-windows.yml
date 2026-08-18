@@ -48,7 +48,7 @@ jobs:
       - name: Record build metadata
         shell: pwsh
         run: |
-          $sha = git rev-parse --short HEAD
+          $sha = (git rev-parse --short=8 HEAD).Trim()
           "Repository: $env:GITHUB_REPOSITORY" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8
           "Commit: $sha" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8 -Append
           "Built UTC: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8 -Append
@@ -69,20 +69,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Move rolling release tag to this build
-        shell: pwsh
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f custom-latest $env:GITHUB_SHA
-          git push origin refs/tags/custom-latest --force
-
-      - name: Publish rolling GitHub Release
+      - name: Publish versioned GitHub Release
+        if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $sha = git rev-parse --short HEAD
+          $sha = (git rev-parse --short=8 HEAD).Trim()
+          $tag = "custom-$sha"
           $built = [DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss UTC')
           $notes = @(
             'Automated Windows x64 build of VDF Custom.'
@@ -96,11 +90,52 @@ jobs:
             '- BUILD_INFO.txt'
           ) -join "`n"
 
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --target $env:GITHUB_SHA --title "VDF Custom $sha" --notes $notes
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            gh release edit $tag --title "VDF Custom $sha" --notes $notes
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          gh release upload $tag `
+            .\release\VDF-Custom-GUI-win-x64.zip `
+            .\release\VDF-Custom-CLI-win-x64.zip `
+            .\release\BUILD_INFO.txt `
+            --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Update rolling custom-latest Release
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $sha = (git rev-parse --short=8 HEAD).Trim()
+          $built = [DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss UTC')
+          $notes = @(
+            'Rolling alias for the latest successful Windows x64 build of VDF Custom.'
+            ''
+            "Commit: $sha"
+            "Built: $built"
+            ''
+            'A separate immutable release is also created for this commit.'
+          ) -join "`n"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f custom-latest $env:GITHUB_SHA
+          git push origin refs/tags/custom-latest --force
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
           gh release view custom-latest *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create custom-latest --title "VDF Custom Latest" --notes $notes
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } else {
             gh release edit custom-latest --title "VDF Custom Latest" --notes $notes
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
           gh release upload custom-latest `
@@ -108,3 +143,4 @@ jobs:
             .\release\VDF-Custom-CLI-win-x64.zip `
             .\release\BUILD_INFO.txt `
             --clobber
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
