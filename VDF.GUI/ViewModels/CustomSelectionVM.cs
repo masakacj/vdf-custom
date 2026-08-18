@@ -108,10 +108,6 @@ namespace VDF.GUI.ViewModels {
 			}
 		});
 
-		/// <summary>
-		/// Re-groups the CURRENT visible ordinary file-duplicate groups by direct parent
-		/// folder pair and cached folder coverage. No media is rescanned here.
-		/// </summary>
 		[JsonIgnore]
 		public ReactiveCommand<Unit, Unit> RefreshFolderCoverageCommand => ReactiveCommand.Create(() => {
 			var options = ApplicationHelpers.MainWindowDataContext.BuildPikPakFolderCoverageOptions();
@@ -120,14 +116,13 @@ namespace VDF.GUI.ViewModels {
 				FolderCoverageOptions.Add(option);
 			SelectedFolderCoverage = FolderCoverageOptions.FirstOrDefault();
 			FolderCoverageStatus = options.Count == 0
-				? "当前可见结果中没有跨文件夹的相似文件组。"
-				: $"已按父目录覆盖关系整理出 {options.Count:N0} 组目录关系；完全基于现有文件查重结果和缓存数据库，没有重新读取媒体文件。";
+				? "当前可见结果中没有跨文件夹的相似资源组。"
+				: $"已整理出 {options.Count:N0} 组目录关系。覆盖率按逻辑资源估算，重复副本不会重复计数；文件数和大小仍完整显示。";
 		});
 
 		/// <summary>
-		/// Applies a keeper policy only to the two folders in the selected coverage bucket.
-		/// This deliberately produces an editable Checked plan rather than deleting/moving
-		/// anything: similar-file conflicts remain file-level decisions.
+		/// Editable preview only. The resource-consolidation workflow always uses VDF's
+		/// BEST-quality ranking; users can still change individual checkboxes afterwards.
 		/// </summary>
 		[JsonIgnore]
 		public ReactiveCommand<Unit, Unit> ApplyFolderMergeCommand => ReactiveCommand.Create(() => {
@@ -136,19 +131,74 @@ namespace VDF.GUI.ViewModels {
 				return;
 			}
 
-			var keepRule = (PikPakFolderMergeKeepRule)Data.PikPakFolderMergeKeepSelection;
 			bool swapDirection = Data.PikPakFolderMergeTargetSelection == 1;
 			var (target, source) = SelectedFolderCoverage.ResolveDirection(swapDirection);
-			if (keepRule == PikPakFolderMergeKeepRule.Manual) {
-				FolderCoverageStatus = $"手动模式：目标 {target} ← 来源 {source}。未修改任何勾选；关闭窗口后可在这些文件级相似组中逐项决定保留项。";
+			var (_, sourceCoverage) = SelectedFolderCoverage.ResolveCoverage(swapDirection);
+			int selected = ApplicationHelpers.MainWindowDataContext.RunPikPakFolderMergeSelection(
+				SelectedFolderCoverage, swapDirection, PikPakFolderMergeKeepRule.BestQuality);
+
+			string scope = sourceCoverage >= MainWindowVM.WholeSourceCoverageThreshold
+				? $"来源资源覆盖率 {sourceCoverage:0.#}% ≥ 90%，可进一步执行“安全整合”补齐来源独有资源。"
+				: $"来源资源覆盖率仅 {sourceCoverage:0.#}%：只处理已匹配资源，不会移动来源目录中的其他文件。";
+			FolderCoverageStatus = selected > 0
+				? $"BEST 预选：{target} ← {source}；已勾选 {selected:N0} 个低质量/多余版本。{scope}"
+				: $"该目录关系没有产生待淘汰项。{scope}";
+		});
+
+		/// <summary>
+		/// Explicit, confirmed consolidation. It moves BEST keepers into the target and,
+		/// only for a >=90% covered source collection, moves source-only files as well.
+		/// It never deletes losers; they are merely checked for later review/deletion.
+		/// </summary>
+		[JsonIgnore]
+		public ReactiveCommand<Unit, Unit> ExecuteFolderConsolidationCommand => ReactiveCommand.CreateFromTask(async () => {
+			if (SelectedFolderCoverage == null) {
+				FolderCoverageStatus = "请先分析覆盖关系并选择一组目录。";
 				return;
 			}
 
-			int selected = ApplicationHelpers.MainWindowDataContext.RunPikPakFolderMergeSelection(
-				SelectedFolderCoverage, swapDirection, keepRule);
-			FolderCoverageStatus = selected > 0
-				? $"合并预选：目标 {target} ← 来源 {source}；已勾选 {selected:N0} 个待淘汰相似文件。这里只生成可编辑的文件级计划，不会自动移动或删除。"
-				: "该目录关系没有产生可勾选的冲突项，原勾选状态未修改。";
+			var main = ApplicationHelpers.MainWindowDataContext;
+			bool swapDirection = Data.PikPakFolderMergeTargetSelection == 1;
+			var plan = main.BuildPikPakFolderConsolidationPlan(SelectedFolderCoverage, swapDirection);
+			if (plan.MatchedGroups == 0) {
+				FolderCoverageStatus = "没有可整合的匹配资源。";
+				return;
+			}
+
+			string wholeSourceLine = plan.WholeSourceEligible
+				? $"来源覆盖率 {plan.SourceCoverage:0.#}% ≥ 90%：另外将补入 {plan.UniqueSourceFiles.Count:N0} 个来源独有文件（{plan.UniqueSourceBytes.BytesToString()}）。"
+				: $"来源覆盖率 {plan.SourceCoverage:0.#}% < 90%：来源未匹配文件全部保持原位。";
+			string message =
+				$"目标合集：{plan.TargetFolder}\n" +
+				$"来源目录：{plan.SourceFolder}\n\n" +
+				$"匹配资源：{plan.MatchedGroups:N0} 组\n" +
+				$"需要把 BEST 移入目标：{plan.KeeperMoveCount:N0} 个\n" +
+				$"成功后仅勾选、不会自动删除：最多 {plan.LoserCount:N0} 个低质量/多余版本\n" +
+				wholeSourceLine + "\n\n" +
+				"同盘使用文件系统移动；跨盘先完整复制并校验 SHA-256，校验成功后才删除来源。任何 BEST 移动失败时，该资源组的旧版本都不会被勾选。继续？";
+
+			var confirmed = await MessageBoxService.Show(message, MessageBoxButtons.Yes | MessageBoxButtons.No,
+				defaultButton: MessageBoxButtons.No);
+			if (confirmed != MessageBoxButtons.Yes)
+				return;
+
+			main.IsBusy = true;
+			main.IsBusyOverlayText = "正在安全整合最高质量资源…";
+			FolderConsolidationResult result;
+			try {
+				result = await main.ExecutePikPakFolderConsolidationAsync(plan);
+			}
+			finally {
+				main.IsBusy = false;
+			}
+
+			FolderCoverageStatus =
+				$"整合完成：准备 {result.GroupsPrepared:N0}/{plan.MatchedGroups:N0} 个资源组；" +
+				$"BEST 移入 {result.KeeperMovesSucceeded:N0} 个；来源独有文件移入 {result.UniqueMovesSucceeded:N0} 个；" +
+				$"已勾选 {result.SafeLosersMarked:N0} 个待复核低质量版本。" +
+				(result.GroupMoveFailures + result.UniqueMoveFailures > 0
+					? $" 有 {result.GroupMoveFailures + result.UniqueMoveFailures:N0} 个移动失败，原文件保持不删，请查看日志。"
+					: " 没有自动删除任何文件。");
 		});
 
 		[JsonIgnore]
@@ -241,7 +291,6 @@ namespace VDF.GUI.ViewModels {
 
 			try {
 				Data = JsonSerializer.Deserialize(File.ReadAllText(result), GuiJsonContext.Default.CustomSelectionData)!;
-
 			}
 			catch (Exception ex) {
 				await MessageBoxService.Show($"Loading from file has failed: {ex.Message}");
@@ -263,6 +312,5 @@ namespace VDF.GUI.ViewModels {
 
 		static bool HasTrailingWildcard(string value) =>
 			value.EndsWith("*", StringComparison.Ordinal) || value.EndsWith("?", StringComparison.Ordinal);
-
 	}
 }
