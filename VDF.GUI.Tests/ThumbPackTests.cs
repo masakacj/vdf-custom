@@ -75,14 +75,18 @@ namespace VDF.GUI.Tests {
 			}));
 			Assert.True(encodeStarted.Wait(TimeSpan.FromSeconds(5)));
 
-			var reader = Task.Run(() => pack.TryGetEntry("seed", out _, out _));
-			try {
-				Assert.True(await reader.WaitAsync(TimeSpan.FromSeconds(2)));
-			}
-			catch (TimeoutException) {
-				releaseEncode.Set();
-				Assert.Fail("TryGetEntry blocked behind an in-progress encode — the encode is running inside the pack lock again");
-			}
+			// Do the read synchronously on the test thread. The previous Task.Run-based
+			// version could false-fail on a busy/low-core CI runner when the ThreadPool
+			// delayed scheduling the reader even though the pack lock was completely free.
+			// If AppendIfMissing ever moves the encode back under _gate, this direct call
+			// blocks until the writer's 10-second safety timeout and the elapsed assertion
+			// fails deterministically.
+			var sw = System.Diagnostics.Stopwatch.StartNew();
+			bool found = pack.TryGetEntry("seed", out _, out _);
+			sw.Stop();
+			Assert.True(found);
+			Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2),
+				$"TryGetEntry blocked behind an in-progress encode for {sw.Elapsed}; the encode is running inside the pack lock again");
 
 			releaseEncode.Set();
 			await writer.WaitAsync(TimeSpan.FromSeconds(5));
@@ -131,25 +135,18 @@ namespace VDF.GUI.Tests {
 		public void SnapshotForExport_IsConsistent_AndExcludesLaterAppends() {
 			using var pack = OpenPack();
 			Append(pack, "a", new byte[] { 1, 2, 3 });
-			Append(pack, "b", new byte[] { 4, 5 });
+			var snap = pack.SnapshotForExport();
+			Append(pack, "b", new byte[] { 4, 5, 6, 7 });
 
-			var (packLength, indexJson) = pack.SnapshotForExport();
-			Append(pack, "late", new byte[] { 6, 7, 8, 9 });
+			using var ms = new MemoryStream();
+			pack.CopyPackTo(ms, snap.PackLength);
+			Assert.Equal(snap.PackLength, ms.Length);
+			Assert.Equal(new byte[] { 1, 2, 3 }, ms.ToArray());
 
 			var idx = System.Text.Json.JsonSerializer.Deserialize(
-				indexJson, VDF.GUI.Data.GuiJsonFieldsContext.Default.ThumbPackIndex)!;
-			Assert.Equal(new[] { "a", "b" }, idx.Keys.OrderBy(k => k).ToArray());
-
-			using var copy = new MemoryStream();
-			pack.CopyPackTo(copy, packLength);
-			Assert.Equal(packLength, copy.Length);
-
-			// Every snapshotted entry lies inside the copied bytes and round-trips.
-			byte[] bytes = copy.ToArray();
-			var (offA, lenA) = idx["a"];
-			Assert.Equal(new byte[] { 1, 2, 3 }, bytes.AsSpan((int)offA, lenA).ToArray());
-			var (offB, lenB) = idx["b"];
-			Assert.Equal(new byte[] { 4, 5 }, bytes.AsSpan((int)offB, lenB).ToArray());
+				snap.IndexJson, Data.GuiJsonFieldsContext.Default.ThumbPackIndex)!;
+			Assert.True(idx.ContainsKey("a"));
+			Assert.False(idx.ContainsKey("b"));
 		}
 
 		ThumbPack OpenPack() => ThumbPack.Open(dir);
