@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -14,12 +14,7 @@
 // */
 //
 
-using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using ReactiveUI;
 
 namespace VDF.GUI.Data {
@@ -67,6 +62,48 @@ namespace VDF.GUI.Data {
 		public int SimilarityTo {
 			get => _SimilarityTo;
 			set => this.RaiseAndSetIfChanged(ref _SimilarityTo, value);
+		}
+
+		// ---- PikPak-style quick duplicate selection ----
+		// 0 = disabled; 1..15 map to PikPakQuickAction. Kept as an int so saved
+		// .vdfselection files remain simple JSON and older builds ignore these fields.
+		int _PikPakActionSelection;
+		public int PikPakActionSelection {
+			get => _PikPakActionSelection;
+			set => this.RaiseAndSetIfChanged(ref _PikPakActionSelection, value);
+		}
+
+		string _PikPakKeyword = string.Empty;
+		public string PikPakKeyword {
+			get => _PikPakKeyword;
+			set => this.RaiseAndSetIfChanged(ref _PikPakKeyword, value ?? string.Empty);
+		}
+
+		string _PikPakTargetPaths = string.Empty;
+		/// <summary>One target directory per line (semicolon is also accepted).</summary>
+		public string PikPakTargetPaths {
+			get => _PikPakTargetPaths;
+			set => this.RaiseAndSetIfChanged(ref _PikPakTargetPaths, value ?? string.Empty);
+		}
+
+		// ---- Unified file-first / folder-coverage merge planner ----
+		// The planner always uses ordinary VDF file duplicate groups as its atomic matches.
+		// These values only remember how the user wants a selected folder-pair bucket applied.
+		int _PikPakFolderMergeTargetSelection;
+		/// <summary>0 = suggested target side; 1 = swap and use the other side.</summary>
+		public int PikPakFolderMergeTargetSelection {
+			get => _PikPakFolderMergeTargetSelection;
+			set => this.RaiseAndSetIfChanged(ref _PikPakFolderMergeTargetSelection, value);
+		}
+
+		// Default to VDF's quality-ranked keeper: the merge planner should replace the
+		// lower-quality copy with the better resource unless the user explicitly picks
+		// a different rule. Index 2 maps to PikPakFolderMergeKeepRule.BestQuality.
+		int _PikPakFolderMergeKeepSelection = 2;
+		/// <summary>Maps to PikPakFolderMergeKeepRule.</summary>
+		public int PikPakFolderMergeKeepSelection {
+			get => _PikPakFolderMergeKeepSelection;
+			set => this.RaiseAndSetIfChanged(ref _PikPakFolderMergeKeepSelection, value);
 		}
 	}
 }

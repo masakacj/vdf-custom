@@ -89,6 +89,137 @@
             VerticalScrollBarVisibility="Auto">
             <StackPanel Spacing="12">
 
+                <!--  Unified file-first folder coverage merge planner  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="9">
+                        <TextBlock Classes="cardtitle" Text="统一文件查重 · 文件夹覆盖分组" />
+                        <TextBlock
+                            Classes="note"
+                            Text="不再单独做一套文件夹查重：所有关系都以现有的文件相似组为原子，再按文件实际父目录之间的覆盖率重新聚合。目录统计直接读取 VDF 已缓存数据库，不重新扫描媒体文件。即使“系列 A”有 100 个文件、杂项目录只有 1 个相似文件，也会形成一个可单独处理的目录关系。" />
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                            <ComboBox
+                                MinWidth="430"
+                                HorizontalAlignment="Stretch"
+                                MaxDropDownHeight="380"
+                                ItemsSource="{Binding FolderCoverageOptions}"
+                                SelectedItem="{Binding SelectedFolderCoverage}">
+                                <ComboBox.DisplayMemberBinding>
+                                    <Binding Path="DisplayText" />
+                                </ComboBox.DisplayMemberBinding>
+                            </ComboBox>
+                            <Button
+                                Grid.Column="1"
+                                Command="{Binding RefreshFolderCoverageCommand}"
+                                Content="分析覆盖关系" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <TextBlock Classes="fieldlabel" Text="合并方向" />
+                            <ComboBox
+                                Grid.Column="1"
+                                HorizontalAlignment="Stretch"
+                                SelectedIndex="{Binding Data.PikPakFolderMergeTargetSelection}">
+                                <ComboBoxItem Content="使用建议方向：资源侧作为目标" />
+                                <ComboBoxItem Content="交换方向：另一侧作为目标" />
+                            </ComboBox>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <TextBlock Classes="fieldlabel" Text="相似文件保留" />
+                            <ComboBox
+                                Grid.Column="1"
+                                HorizontalAlignment="Stretch"
+                                SelectedIndex="{Binding Data.PikPakFolderMergeKeepSelection}">
+                                <ComboBoxItem Content="保留目标目录中的当前第 1 个，勾选其余" />
+                                <ComboBoxItem Content="保留来源目录中的当前第 1 个，勾选其余" />
+                                <ComboBoxItem Content="保留 VDF 质量排序最佳项，勾选其余" />
+                                <ComboBoxItem Content="保留最大文件，勾选其余" />
+                                <ComboBoxItem Content="保留最小文件，勾选其余" />
+                                <ComboBoxItem Content="保留最新文件，勾选其余" />
+                                <ComboBoxItem Content="保留最旧文件，勾选其余" />
+                                <ComboBoxItem Content="手动决定：不自动修改勾选" />
+                            </ComboBox>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                            <TextBlock
+                                Classes="note"
+                                VerticalAlignment="Center"
+                                Text="“合并预选”只处理所选两个目录在同一文件相似组中的成员；第三个目录里的副本不会被连带勾选。生成后仍可回到结果列表逐项改保留项。" />
+                            <Button
+                                Grid.Column="1"
+                                Classes="accent"
+                                Command="{Binding ApplyFolderMergeCommand}"
+                                Content="生成合并预选" />
+                        </Grid>
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Text="{Binding FolderCoverageStatus}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
+                <!--  PikPak-style quick dedupe rules  -->
+                <Border Classes="card">
+                    <StackPanel Spacing="9">
+                        <TextBlock Classes="cardtitle" Text="PikPak 快捷去重筛选" />
+                        <TextBlock
+                            Classes="note"
+                            Text="选择非“关闭”规则后，下方原自定义筛选条件不会参与本次执行。规则只作用于当前结果筛选后仍可见的重复组；如果高亮了多行，则继续遵循 VDF 的高亮范围。勾选代表待处理/待删除。" />
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <TextBlock Classes="fieldlabel" Text="快捷规则" />
+                            <ComboBox
+                                Grid.Column="1"
+                                MinWidth="360"
+                                HorizontalAlignment="Stretch"
+                                MaxDropDownHeight="430"
+                                SelectedIndex="{Binding Data.PikPakActionSelection}">
+                                <ComboBoxItem Content="关闭（使用原自定义筛选）" />
+                                <ComboBoxItem Content="保留最新，勾选其余" />
+                                <ComboBoxItem Content="保留最旧，勾选其余" />
+                                <ComboBoxItem Content="保留最大文件，勾选其余" />
+                                <ComboBoxItem Content="保留最小文件，勾选其余" />
+                                <ComboBoxItem Content="保留文件名最短，勾选其余" />
+                                <ComboBoxItem Content="保留文件名最长，勾选其余" />
+                                <ComboBoxItem Content="保留完整路径最短，勾选其余" />
+                                <ComboBoxItem Content="保留完整路径最长，勾选其余" />
+                                <ComboBoxItem Content="同夹多余：同组同目录保留当前排序第 1 个" />
+                                <ComboBoxItem Content="保留路径包含关键词，勾选其余" />
+                                <ComboBoxItem Content="保留文件名包含关键词，勾选其余" />
+                                <ComboBoxItem Content="直接勾选路径包含关键词" />
+                                <ComboBoxItem Content="直接勾选文件名包含关键词" />
+                                <ComboBoxItem Content="勾选目标路径内、且其他路径存在副本的文件" />
+                                <ComboBoxItem Content="勾选其他路径内、且目标路径存在副本的文件" />
+                            </ComboBox>
+                        </Grid>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <TextBlock Classes="fieldlabel" Text="关键词" />
+                            <TextBox
+                                Grid.Column="1"
+                                Text="{Binding Data.PikPakKeyword}"
+                                PlaceholderText="用于 4 个“包含关键词”规则；不区分大小写" />
+                        </Grid>
+
+                        <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                            <TextBlock Classes="fieldlabel" VerticalAlignment="Top" Margin="0,6,0,0" Text="目标路径" />
+                            <TextBox
+                                Grid.Column="1"
+                                MinHeight="64"
+                                AcceptsReturn="True"
+                                TextWrapping="Wrap"
+                                Text="{Binding Data.PikPakTargetPaths}"
+                                PlaceholderText="用于最后 2 个路径范围规则；每行一个目录，也可用分号分隔&#10;例如：D:\Media\Archive" />
+                        </Grid>
+                        <TextBlock Classes="note" Text="关键词保留：同组多项命中时保留当前组内排序第一项；整组无命中则该组不自动勾选。同夹多余也严格按当前组内显示顺序保留第 1 个。" />
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Text="{Binding PikPakStatus}"
+                            TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+
                 <!--  criteria  -->
                 <Border Classes="card">
                     <StackPanel Spacing="10">

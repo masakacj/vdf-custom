@@ -86,15 +86,25 @@ namespace VDF.GUI.Utils {
 						if (lastReport.Elapsed >= progressInterval) {
 							lastReport.Restart();
 							onProgress(new FolderCountProgress(count, bytes, Completed: false));
+							// A callback may synchronously cancel this walk. Honor that before
+							// touching another file, and never emit a terminal completion after it.
+							cts.Token.ThrowIfCancellationRequested();
 						}
 					}
+
+					// Cancellation can race with the final item. Always re-check immediately
+					// before the terminal callback so Cancel()/CancelAll() suppress completion.
+					cts.Token.ThrowIfCancellationRequested();
 					onProgress(new FolderCountProgress(count, bytes, Completed: true));
 				}
 				catch (OperationCanceledException) {
 					// canceled walks report nothing further
 				}
 				catch (Exception) {
-					onProgress(new FolderCountProgress(count, bytes, Completed: true, Failed: true));
+					// A cancellation that arrives while another exception is being surfaced
+					// is still cancellation, not a failed completed walk.
+					if (!cts.IsCancellationRequested)
+						onProgress(new FolderCountProgress(count, bytes, Completed: true, Failed: true));
 				}
 				finally {
 					lock (gate) {
