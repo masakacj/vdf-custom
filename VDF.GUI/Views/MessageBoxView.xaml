@@ -1,0 +1,72 @@
+<Window
+    x:Class="VDF.GUI.Views.MessageBoxView"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:mvvm="clr-namespace:VDF.GUI.Mvvm;assembly=VDF.GUI"
+    xmlns:local="clr-namespace:VDF.GUI;assembly=VDF.GUI"
+    xmlns:vm="using:VDF.GUI.ViewModels"
+    x:DataType="vm:MessageBoxVM"
+    Title="{Binding Title}"
+    MinWidth="400"
+    MaxWidth="600"
+    MaxHeight="600"
+    CanResize="false"
+    SizeToContent="WidthAndHeight"
+    WindowStartupLocation="CenterOwner">
+    <ScrollViewer x:Name="ScrollViewerMessageboxContent" VerticalScrollBarVisibility="Auto">
+        <Grid x:Name="GridMessageboxContent" RowDefinitions="Auto, Auto">
+            <!-- MaxWidth must be set here, not only on the window: SizeToContent measures
+                 the text at infinite width first, so the window's own MaxWidth clamp CLIPS
+                 an unbroken line (e.g. a long path) instead of wrapping it. -->
+            <TextBlock
+                Grid.Row="0"
+                MaxWidth="560"
+                Margin="10,20,10,20"
+                HorizontalAlignment="Center"
+                Text="{Binding Message}"
+                TextWrapping="Wrap" />
+            <Grid Grid.Row="1" Margin="5,0,5,5">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition />
+                </Grid.ColumnDefinitions>
+                <Button
+                    x:Name="OkButton"
+                    Grid.Column="1"
+                    Width="100"
+                    Margin="5"
+                    Command="{Binding OKCommand}"
+                    Content="{Binding Source={x:Static local:App.Lang}, Path=[Dialog.OK]}"
+                    IsVisible="{Binding HasOKButton}" />
+                <Button
+                    x:Name="YesButton"
+                    Grid.Column="2"
+                    Width="100"
+                    Margin="5"
+                    Command="{Binding YesCommand}"
+                    Content="{Binding Source={x:Static local:App.Lang}, Path=[Dialog.Yes]}"
+                    IsVisible="{Binding HasYesButton}" />
+                <Button
+                    x:Name="NoButton"
+                    Grid.Column="3"
+                    Width="100"
+                    Margin="5"
+                    Command="{Binding NoCommand}"
+                    Content="{Binding Source={x:Static local:App.Lang}, Path=[Dialog.No]}"
+                    IsVisible="{Binding HasNoButton}" />
+                <Button
+                    x:Name="CancelButton"
+                    Grid.Column="4"
+                    Width="100"
+                    Margin="5"
+                    Command="{Binding CancelCommand}"
+                    Content="{Binding Source={x:Static local:App.Lang}, Path=[Dialog.Cancel]}"
+                    IsVisible="{Binding HasCancelButton}" />
+            </Grid>
+        </Grid>
+    </ScrollViewer>
+</Window>

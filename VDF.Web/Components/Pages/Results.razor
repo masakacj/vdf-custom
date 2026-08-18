@@ -1,0 +1,869 @@
+@page "/results"
+@rendermode InteractiveServer
+@inject ScanService Scan
+@inject WebSettingsService WebSettings
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>Results — Video Duplicate Finder</PageTitle>
+
+<h1>Duplicate Groups</h1>
+
+@{
+    var allDuplicates = Scan.Duplicates;
+    var filteredGroups = GetFilteredGroups();
+    long totalSize = 0, potentialSavings = 0;
+    int totalFiles = 0;
+    foreach (var g in filteredGroups) {
+        long groupTotal = 0, largest = 0;
+        foreach (var i in g) {
+            totalFiles++;
+            long s = Math.Max(0, i.SizeLong);
+            groupTotal += s;
+            if (s > largest) largest = s;
+        }
+        totalSize += groupTotal;
+        potentialSavings += groupTotal - largest;
+    }
+    long selectedSize = _selected.Sum(i => Math.Max(0, i.SizeLong));
+    int renderIndex = 0;
+}
+
+@if (!allDuplicates.Any()) {
+    <p>No duplicates found. <a href="/">Run a scan</a> first.</p>
+}
+else {
+    <div class="results-toolbar" @onkeydown="OnKeyDown" tabindex="0">
+        <input class="search-box" @bind="_search" @bind:event="oninput"
+               placeholder="Filter by path (* and ? wildcards)..." />
+        @if (!string.IsNullOrEmpty(_search)) {
+            <button @onclick="() => _search = string.Empty">&#x2715;</button>
+        }
+        <span class="result-count">
+            @filteredGroups.Count group(s), @totalFiles file(s), @FormatSize(totalSize) — potential savings @FormatSize(potentialSavings)
+            @if (_selected.Count > 0) { <text> — @_selected.Count selected (@FormatSize(selectedSize))</text> }
+        </span>
+
+        @* Auto-select dropdown *@
+        <div class="dropdown-wrap">
+            <button @onclick="() => _autoSelectOpen = !_autoSelectOpen">Select &#x25BE;</button>
+            @if (_autoSelectOpen) {
+                <div class="dropdown-overlay" @onclick="() => _autoSelectOpen = false"></div>
+                <div class="dropdown-menu">
+                    <button @onclick="() => AutoSelect(AutoSelectMode.LowestQuality)">Lowest quality</button>
+                    <button @onclick="() => AutoSelect(AutoSelectMode.SmallestFile)">Smallest file</button>
+                    <button @onclick="() => AutoSelect(AutoSelectMode.Oldest)">Oldest (keep newest)</button>
+                    <button @onclick="() => AutoSelect(AutoSelectMode.Newest)">Newest (keep oldest)</button>
+                    <button @onclick="() => AutoSelect(AutoSelectMode.HundredPercentEqual)">100% equal groups</button>
+                    <hr />
+                    <button @onclick="InvertSelection">Invert selection</button>
+                    <button @onclick="ClearSelection">Deselect all</button>
+                </div>
+            }
+        </div>
+
+        @* Collapse all / Expand all *@
+        <button @onclick="CollapseAll" title="Collapse all groups">Collapse all</button>
+        <button @onclick="ExpandAll" title="Expand all groups">Expand all</button>
+        <button @onclick="ExportCsv" title="Download the results list as CSV">Export CSV</button>
+
+        @if (_selected.Count > 0) {
+            <div class="action-group">
+                <button @onclick="RemoveSelected">Remove from list</button>
+                <button @onclick="() => _confirmDelete = true" class="danger-outline" disabled="@Scan.FileOpRunning">Delete (trash)</button>
+                <button @onclick="() => _confirmDeletePermanent = true" class="danger" disabled="@Scan.FileOpRunning">Delete permanently</button>
+                <button @onclick="() => _showMovePanel = !_showMovePanel" disabled="@Scan.FileOpRunning">Move to folder…</button>
+                <button @onclick="() => _showLinkPanel = !_showLinkPanel" disabled="@Scan.FileOpRunning">Replace with links…</button>
+                <button @onclick="ClearSelection">Deselect all</button>
+            </div>
+        }
+    </div>
+
+    @* Batch file operation progress *@
+    @if (Scan.FileOpRunning) {
+        <div class="action-panel">
+            <span class="spinner"></span>
+            <span>@Scan.FileOpVerb… @Scan.FileOpCurrent / @Scan.FileOpMax</span>
+            <div class="progress-bar-track inline-bar">
+                <div class="progress-bar-fill" style="width:@(Scan.FileOpMax > 0 ? 100 * Scan.FileOpCurrent / Scan.FileOpMax : 0)%"></div>
+            </div>
+        </div>
+    }
+
+    @* Move panel *@
+    @if (_showMovePanel) {
+        <div class="action-panel">
+            <label>Destination folder:
+                <input @bind="_moveDestination" placeholder="/path/to/destination" class="@(Directory.Exists(_moveDestination) ? "input-valid" : "")" />
+            </label>
+            <button class="primary" @onclick="MoveSelected" disabled="@(string.IsNullOrWhiteSpace(_moveDestination) || Scan.FileOpRunning)">Move @_selected.Count file(s)</button>
+            <button @onclick="() => _showMovePanel = false">Cancel</button>
+        </div>
+    }
+
+    @* Link panel *@
+    @if (_showLinkPanel) {
+        <div class="action-panel">
+            <span>Replace each selected file with a link to the best remaining file of its group:</span>
+            <label><input type="radio" name="linktype" checked="@(!_linkHard)" @onchange="() => _linkHard = false" /> Symlink</label>
+            <label><input type="radio" name="linktype" checked="@_linkHard" @onchange="() => _linkHard = true" /> Hardlink (same volume only)</label>
+            <button class="primary" @onclick="CreateLinksSelected" disabled="@Scan.FileOpRunning">Create links for @_selected.Count file(s)</button>
+            <button @onclick="() => _showLinkPanel = false">Cancel</button>
+        </div>
+    }
+
+    @* Delete confirmation *@
+    @if (_confirmDelete || _confirmDeletePermanent) {
+        bool perm = _confirmDeletePermanent;
+        <div class="confirm-panel">
+            <strong>&#x26A0; @(perm ? "Permanently delete" : "Move to trash")  @_selected.Count file(s)?</strong>
+            @if (perm) { <span class="warn-text">This cannot be undone.</span> }
+            <button class="danger" @onclick="() => ExecuteDelete(perm)">Confirm</button>
+            <button @onclick="() => { _confirmDelete = false; _confirmDeletePermanent = false; }">Cancel</button>
+        </div>
+    }
+
+    @* Operation result feedback *@
+    @if (_operationMsg != null) {
+        <div class="@(_operationFailed ? "error-box" : "info-box")">@_operationMsg</div>
+    }
+
+    @foreach (var group in filteredGroups) {
+        var groupId = group.Key;
+        var sortedItems = SortItems(group.ToList());
+        bool allGroupSelected = sortedItems.All(i => _selected.Contains(i));
+        bool isCollapsed = _collapsedGroups.Contains(groupId);
+        float maxSimilarity = sortedItems.Max(i => i.Similarity);
+        long groupSize = sortedItems.Sum(i => Math.Max(0, i.SizeLong));
+        int groupIndex = renderIndex++;
+        int hiddenCount = sortedItems.Count(i => _hiddenItems.Contains(i.Path));
+        var hoveredMetric = _hoveredMetrics.GetValueOrDefault(groupId);
+
+        <div class="dup-group @(groupIndex == _focusedGroup ? "focused" : "")" @key="groupId">
+            <div class="dup-group-header">
+                <label class="group-select-all">
+                    <input type="checkbox" checked="@allGroupSelected"
+                           @onchange="() => ToggleGroup(sortedItems, !allGroupSelected)" />
+                    @sortedItems.Count file(s) &#183; @FormatSize(groupSize)
+                </label>
+                <span class="similarity-badge @SimilarityClass(maxSimilarity)">
+                    @maxSimilarity.ToString("F1")% similar
+                </span>
+                <div class="group-actions">
+                    <select class="group-sort" title="Sort cards"
+                            @onchange="e => SetGroupSort(groupId, e.Value?.ToString())">
+                        <option value="" selected="@(!_groupSorts.ContainsKey(groupId))">Sort by…</option>
+                        <option value="similarity">Similarity</option>
+                        <option value="size">Size</option>
+                        <option value="duration">Duration</option>
+                        <option value="bitrate">Bitrate</option>
+                        <option value="resolution">Resolution</option>
+                        <option value="date">Date</option>
+                        <option value="name">Name</option>
+                    </select>
+                    <button class="compare-btn" @onclick="() => OpenCompare(sortedItems)" title="Compare fullsize">Compare</button>
+                    <button @onclick="() => KeepBest(sortedItems)" title="Select all except best quality">Keep Best</button>
+                    <button class="collapse-toggle" @onclick="() => ToggleCollapse(groupId)" title="@(isCollapsed ? "Expand" : "Collapse")">
+                        @(isCollapsed ? "\u25B6" : "\u25BC")
+                    </button>
+                </div>
+            </div>
+
+            @if (!isCollapsed) {
+                <div class="dup-cards">
+                    @foreach (var item in sortedItems) {
+                        if (_hiddenItems.Contains(item.Path)) continue;
+                        bool sel = _selected.Contains(item);
+                        bool isBest = item.IsBestBitRateKbs || item.IsBestFrameSize;
+
+                        <div class="dup-card @(isBest ? "best" : "") @(sel ? "selected" : "")"
+                             @key="item.Path"
+                             @onclick="() => ToggleItem(item)"
+                             @oncontextmenu="e => ShowContextMenu(e, item, sortedItems)"
+                             @oncontextmenu:preventDefault>
+
+                            <div class="card-top-bar" @onclick:stopPropagation>
+                                <label class="card-check">
+                                    <input type="checkbox" checked="@sel"
+                                           @onchange="() => ToggleItem(item)" />
+                                </label>
+                                <div style="display:flex;gap:0.2rem;">
+                                    <button class="card-hide" @onclick="() => HideItem(item.Path)" title="Hide card">&#x1F441;</button>
+                                    <button class="card-remove" @onclick="() => RemoveSingle(item)" title="Remove from list">&#x2715;</button>
+                                </div>
+                            </div>
+
+                            <div class="card-thumb" @onclick:stopPropagation>
+                                @if (WebSettings.AutoLoadThumbnails) {
+                                    <div class="thumb-skeleton"></div>
+                                    <img data-src="/thumbnail/hq?path=@Uri.EscapeDataString(item.Path)&amp;w=@WebSettings.ThumbnailWidth&amp;q=@WebSettings.ThumbnailJpegQuality"
+                                         alt="thumbnail"
+                                         onerror="this.style.display='none'" />
+                                }
+                                else {
+                                    <div class="thumb-placeholder">No preview</div>
+                                }
+                                <span class="similarity-overlay">@item.Similarity.ToString("F1")%</span>
+                            </div>
+
+                            <div class="card-body">
+                                <div class="card-filename" title="@item.Path">@System.IO.Path.GetFileName(item.Path)</div>
+                                <div class="card-path" title="@item.Path">@System.IO.Path.GetDirectoryName(item.Path)</div>
+
+                                <div class="card-meta">
+                                    @if (!item.IsImage) {
+                                        <div class="meta-row" @onmouseover="() => SetHoveredMetric(groupId, MetricResolution)"
+                                             @onmouseout="() => ClearHoveredMetric(groupId)">
+                                            <span class="meta-label">Res</span>
+                                            <span class="meta-value @MetaClass(item.IsBestFrameSize, hoveredMetric == MetricResolution && !item.IsBestFrameSize)">
+                                                @if (hoveredMetric == MetricResolution && !item.IsBestFrameSize) {
+                                                    @RelativeResolution(item, sortedItems)
+                                                } else {
+                                                    @(item.FrameSize ?? "?")
+                                                }
+                                            </span>
+                                        </div>
+                                        <div class="meta-row" @onmouseover="() => SetHoveredMetric(groupId, MetricDuration)"
+                                             @onmouseout="() => ClearHoveredMetric(groupId)">
+                                            <span class="meta-label">Dur</span>
+                                            <span class="meta-value @MetaClass(item.IsBestDuration, hoveredMetric == MetricDuration && !item.IsBestDuration)">
+                                                @if (hoveredMetric == MetricDuration && !item.IsBestDuration) {
+                                                    @RelativeDuration(item, sortedItems)
+                                                } else {
+                                                    @item.Duration.ToString(@"hh\:mm\:ss")
+                                                }
+                                            </span>
+                                        </div>
+                                        <div class="meta-row" @onmouseover="() => SetHoveredMetric(groupId, MetricBitrate)"
+                                             @onmouseout="() => ClearHoveredMetric(groupId)">
+                                            <span class="meta-label">Bitrate</span>
+                                            <span class="meta-value @MetaClass(item.IsBestBitRateKbs, hoveredMetric == MetricBitrate && !item.IsBestBitRateKbs)">
+                                                @if (hoveredMetric == MetricBitrate && !item.IsBestBitRateKbs) {
+                                                    @RelativePercentage(item.BitRateKbs, sortedItems.Where(i => i.IsBestBitRateKbs).Select(i => i.BitRateKbs).FirstOrDefault())
+                                                } else {
+                                                    @item.BitRateKbs<text> kbps</text>
+                                                }
+                                            </span>
+                                        </div>
+                                        <div class="meta-row" @onmouseover="() => SetHoveredMetric(groupId, MetricFps)"
+                                             @onmouseout="() => ClearHoveredMetric(groupId)">
+                                            <span class="meta-label">FPS</span>
+                                            <span class="meta-value @MetaClass(item.IsBestFps, hoveredMetric == MetricFps && !item.IsBestFps)">
+                                                @if (hoveredMetric == MetricFps && !item.IsBestFps) {
+                                                    @RelativePercentageFloat(item.Fps, sortedItems.Where(i => i.IsBestFps).Select(i => i.Fps).FirstOrDefault())
+                                                } else {
+                                                    @item.Fps.ToString("F2")
+                                                }
+                                            </span>
+                                        </div>
+                                        <div class="meta-row">
+                                            <span class="meta-label">Format</span>
+                                            <span class="meta-value">@(item.Format ?? "?")</span>
+                                        </div>
+                                    }
+                                    else {
+                                        <div class="meta-row">
+                                            <span class="meta-label">Res</span>
+                                            <span class="meta-value @(item.IsBestFrameSize ? "meta-best" : "")">@(item.FrameSize ?? "?")</span>
+                                        </div>
+                                        <div class="meta-row">
+                                            <span class="meta-label">Format</span>
+                                            <span class="meta-value">@(item.Format ?? "?")</span>
+                                        </div>
+                                    }
+                                    <div class="meta-row" @onmouseover="() => SetHoveredMetric(groupId, MetricSize)"
+                                         @onmouseout="() => ClearHoveredMetric(groupId)">
+                                        <span class="meta-label">Size</span>
+                                        <span class="meta-value @MetaClass(item.IsBestSize, hoveredMetric == MetricSize && !item.IsBestSize)">
+                                            @if (hoveredMetric == MetricSize && !item.IsBestSize) {
+                                                @RelativePercentageLong(item.SizeLong, sortedItems.Where(i => i.IsBestSize).Select(i => i.SizeLong).FirstOrDefault())
+                                            } else {
+                                                @FormatSize(item.SizeLong)
+                                            }
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div class="card-badges">
+                                    @if (isBest) {
+                                        <span class="badge-best">Best quality</span>
+                                    }
+                                    @if (item.Flags.HasFlag(VDF.Core.DuplicateFlags.PartialClip)) {
+                                        <span class="badge-partial-clip">partial clip @item.PartialClipOffsetDisplay</span>
+                                    }
+                                    @if (item.Flags.HasFlag(VDF.Core.DuplicateFlags.AiMatched)) {
+                                        <span class="badge-ai-matched">AI match</span>
+                                    }
+                                    @if (item.Flags.HasFlag(VDF.Core.DuplicateFlags.GrayscaleMatched)) {
+                                        <span class="badge-partial-clip">grayscale</span>
+                                    }
+                                    @if (item.Flags.HasFlag(VDF.Core.DuplicateFlags.PHashMatched)) {
+                                        <span class="badge-partial-clip">pHash</span>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    }
+
+                    @if (hiddenCount > 0) {
+                        <div class="hidden-indicator" @onclick="() => ShowAllInGroup(sortedItems)">
+                            +@hiddenCount hidden — click to show all
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+}
+
+@* Fullsize comparison modal *@
+@if (_compareVisible && _compareItems != null && _compareItems.Count >= 2) {
+    var itemA = _compareItems[_compareA];
+    var itemB = _compareItems[_compareB];
+    <div class="compare-overlay active" id="compare-modal">
+        <div class="compare-header">
+            <h3>Compare</h3>
+            <button class="compare-close" @onclick="CloseCompare">&#x2715;</button>
+        </div>
+        <div class="compare-mode-tabs">
+            <button class="@(_compareMode == CompareMode.SideBySide ? "active" : "")" @onclick="() => SetCompareMode(CompareMode.SideBySide)">Side by Side</button>
+            <button class="@(_compareMode == CompareMode.Swipe ? "active" : "")" @onclick="() => SetCompareMode(CompareMode.Swipe)">Swipe</button>
+        </div>
+        <div class="compare-selector">
+            @for (int i = 0; i < _compareItems.Count; i++) {
+                int idx = i;
+                var ci = _compareItems[idx];
+                string cls = idx == _compareA ? "active-a" : idx == _compareB ? "active-b" : "";
+                <div class="compare-selector-item @cls"
+                     @onclick="() => SelectCompareItem(idx)">
+                    <img src="/thumbnail/hq?path=@Uri.EscapeDataString(ci.Path)" alt="" />
+                    <div class="sel-label">@System.IO.Path.GetFileName(ci.Path)</div>
+                </div>
+            }
+        </div>
+        <div class="compare-body">
+            @if (_compareMode == CompareMode.SideBySide) {
+                <div class="compare-side-by-side">
+                    <div class="compare-pane">
+                        <div class="compare-pane-img">
+                            <img src="/thumbnail/full?path=@Uri.EscapeDataString(itemA.Path)" alt="A" />
+                        </div>
+                        <div class="compare-pane-info">
+                            <div class="compare-pane-label">@System.IO.Path.GetFileName(itemA.Path)</div>
+                            <div class="compare-pane-meta">@(itemA.FrameSize) | @FormatSize(itemA.SizeLong) | @itemA.BitRateKbs kbps</div>
+                        </div>
+                    </div>
+                    <div class="compare-pane-divider"></div>
+                    <div class="compare-pane">
+                        <div class="compare-pane-img">
+                            <img src="/thumbnail/full?path=@Uri.EscapeDataString(itemB.Path)" alt="B" />
+                        </div>
+                        <div class="compare-pane-info">
+                            <div class="compare-pane-label">@System.IO.Path.GetFileName(itemB.Path)</div>
+                            <div class="compare-pane-meta">@(itemB.FrameSize) | @FormatSize(itemB.SizeLong) | @itemB.BitRateKbs kbps</div>
+                        </div>
+                    </div>
+                </div>
+            }
+            else {
+                <div class="compare-swipe" style="--swipe-pos: 50%">
+                    <div class="compare-swipe-img-a">
+                        <img src="/thumbnail/full?path=@Uri.EscapeDataString(itemA.Path)" alt="A" />
+                    </div>
+                    <div class="compare-swipe-img-b">
+                        <img src="/thumbnail/full?path=@Uri.EscapeDataString(itemB.Path)" alt="B" />
+                    </div>
+                    <div class="compare-swipe-line"></div>
+                    <div class="compare-swipe-handle">&#x2194;</div>
+                    <span class="compare-swipe-label label-a">A</span>
+                    <span class="compare-swipe-label label-b">B</span>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@* Context menu overlay + popup *@
+@if (_menuVisible && _menuItem != null) {
+    <div class="ctx-overlay" @onclick="HideContextMenu"></div>
+    <div class="ctx-menu" style="left:@(_menuX.ToString("F0"))px;top:@(_menuY.ToString("F0"))px">
+        <button @onclick="() => OpenFile(_menuItem)">Open file</button>
+        <button @onclick="() => OpenFolder(_menuItem)">Open folder</button>
+        <button @onclick="() => CopyPath(_menuItem)">Copy path</button>
+        <hr />
+        <button @onclick="() => { ToggleItem(_menuItem); HideContextMenu(); }">
+            @(_selected.Contains(_menuItem) ? "Deselect" : "Select")
+        </button>
+        @if (_menuGroup != null) {
+            bool allSel = _menuGroup.All(i => _selected.Contains(i));
+            <button @onclick="() => { ToggleGroup(_menuGroup, !allSel); HideContextMenu(); }">
+                @(allSel ? "Deselect group" : "Select group")
+            </button>
+        }
+        <hr />
+        <button @onclick="() => { HideItem(_menuItem.Path); HideContextMenu(); }">Hide card</button>
+        <button @onclick="() => RemoveSingle(_menuItem)">Remove from list</button>
+    </div>
+}
+
+@code {
+    string _search = string.Empty;
+    readonly HashSet<DuplicateItem> _selected = new();
+    bool _confirmDelete;
+    bool _confirmDeletePermanent;
+    bool _showMovePanel;
+    bool _showLinkPanel;
+    bool _linkHard;
+    string _moveDestination = string.Empty;
+    string? _operationMsg;
+    bool _operationFailed;
+
+    // Context menu
+    bool _menuVisible;
+    double _menuX, _menuY;
+    DuplicateItem? _menuItem;
+    List<DuplicateItem>? _menuGroup;
+
+    // Auto-select dropdown
+    bool _autoSelectOpen;
+
+    // QoL state
+    readonly HashSet<Guid> _collapsedGroups = new();
+    readonly HashSet<string> _hiddenItems = new();
+    readonly Dictionary<Guid, string> _hoveredMetrics = new();
+    readonly Dictionary<Guid, string> _groupSorts = new();
+    int _focusedGroup = -1;
+
+    // Comparison modal
+    bool _compareVisible;
+    List<DuplicateItem>? _compareItems;
+    int _compareA;
+    int _compareB = 1;
+    CompareMode _compareMode = CompareMode.SideBySide;
+    bool _compareSelectingB;
+
+    enum CompareMode { SideBySide, Swipe }
+
+    // Metric name constants (avoid escaped quotes in Razor attributes)
+    const string MetricResolution = "resolution";
+    const string MetricDuration = "duration";
+    const string MetricBitrate = "bitrate";
+    const string MetricFps = "fps";
+    const string MetricSize = "size";
+
+    enum AutoSelectMode { LowestQuality, SmallestFile, Oldest, Newest, HundredPercentEqual }
+
+    protected override void OnInitialized() =>
+        Scan.StateChanged += OnStateChanged;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender) {
+        try {
+            if (firstRender && !_compareModeLoaded) {
+                _compareModeLoaded = true;
+                var saved = await JS.InvokeAsync<string>("vdf.getCompareMode");
+                if (Enum.TryParse<CompareMode>(saved, out var parsed)) {
+                    _compareMode = parsed;
+                    StateHasChanged();
+                }
+            }
+            await JS.InvokeVoidAsync("vdf.initLazyThumbs");
+            if (_compareVisible && _compareMode == CompareMode.Swipe)
+                await JS.InvokeVoidAsync("vdf.initSwipe");
+        }
+        catch { }
+    }
+
+    void OnStateChanged() {
+        try { _ = InvokeAsync(StateHasChanged); }
+        catch { }
+    }
+
+    // === Selection ===
+    void ToggleItem(DuplicateItem item) {
+        if (!_selected.Remove(item))
+            _selected.Add(item);
+    }
+
+    void ToggleGroup(IEnumerable<DuplicateItem> items, bool select) {
+        foreach (var item in items) {
+            if (select) _selected.Add(item);
+            else _selected.Remove(item);
+        }
+    }
+
+    void InvertSelection() {
+        _autoSelectOpen = false;
+        foreach (var item in Scan.Duplicates.ToList()) {
+            if (!_selected.Remove(item))
+                _selected.Add(item);
+        }
+    }
+
+    void ClearSelection() {
+        _autoSelectOpen = false;
+        _selected.Clear();
+    }
+
+    // === Remove / Delete / Move ===
+    void RemoveSelected() {
+        Scan.RemoveFromResults(_selected.ToList());
+        _selected.Clear();
+        ShowMsg("Removed from results list.", false);
+    }
+
+    void RemoveSingle(DuplicateItem item) {
+        HideContextMenu();
+        Scan.RemoveFromResults(new List<DuplicateItem> { item });
+        _selected.Remove(item);
+    }
+
+    async Task ExecuteDelete(bool permanent) {
+        _confirmDelete = false;
+        _confirmDeletePermanent = false;
+        var toDelete = _selected.ToList();
+        _selected.Clear();
+        var result = await Scan.DeleteItemsAsync(toDelete, permanent);
+        ShowOpResult($"{result.Done} file(s) {(permanent ? "permanently deleted" : "moved to trash")}", result);
+    }
+
+    async Task MoveSelected() {
+        _showMovePanel = false;
+        var toMove = _selected.ToList();
+        _selected.Clear();
+        var result = await Scan.MoveItemsAsync(toMove, _moveDestination);
+        ShowOpResult($"{result.Done} file(s) moved to '{_moveDestination}'", result);
+    }
+
+    async Task CreateLinksSelected() {
+        _showLinkPanel = false;
+        var toLink = _selected.ToList();
+        _selected.Clear();
+        var result = await Scan.CreateLinksAsync(toLink, _linkHard);
+        ShowOpResult($"{result.Done} file(s) replaced with {(_linkHard ? "hardlinks" : "symlinks")}", result);
+    }
+
+    void ShowOpResult(string action, FileOpResult result) {
+        string msg = action;
+        if (result.FreedBytes > 0) msg += $" — {FormatSize(result.FreedBytes)} freed";
+        msg += ".";
+        if (result.Failed > 0) msg += $" {result.Failed} failed: {string.Join("; ", result.Errors.Take(3))}";
+        ShowMsg(msg, result.Failed > 0);
+    }
+
+    void ShowMsg(string msg, bool failed) {
+        _operationMsg = msg;
+        _operationFailed = failed;
+        _ = Task.Delay(5000).ContinueWith(_ => InvokeAsync(() => {
+            _operationMsg = null;
+            StateHasChanged();
+        }));
+    }
+
+    // === Context Menu ===
+    void ShowContextMenu(MouseEventArgs e, DuplicateItem item, List<DuplicateItem> group) {
+        _menuItem = item;
+        _menuGroup = group;
+        _menuX = e.ClientX;
+        _menuY = e.ClientY;
+        _menuVisible = true;
+        _autoSelectOpen = false;
+    }
+
+    void HideContextMenu() {
+        _menuVisible = false;
+        _menuItem = null;
+        _menuGroup = null;
+    }
+
+    void OpenFile(DuplicateItem item) {
+        HideContextMenu();
+        try {
+            System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(item.Path) { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    void OpenFolder(DuplicateItem item) {
+        HideContextMenu();
+        try {
+            var dir = Path.GetDirectoryName(item.Path);
+            if (dir != null)
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(dir) { UseShellExecute = true });
+        }
+        catch { }
+    }
+
+    async Task CopyPath(DuplicateItem item) {
+        HideContextMenu();
+        try { await JS.InvokeVoidAsync("vdf.copyToClipboard", item.Path); }
+        catch { }
+    }
+
+    // === QoL: Collapse / Expand ===
+    void ToggleCollapse(Guid groupId) {
+        if (!_collapsedGroups.Remove(groupId))
+            _collapsedGroups.Add(groupId);
+    }
+
+    void CollapseAll() {
+        foreach (var g in Scan.Duplicates.Select(d => d.GroupId).Distinct())
+            _collapsedGroups.Add(g);
+    }
+
+    void ExpandAll() => _collapsedGroups.Clear();
+
+    // === QoL: Hide Cards ===
+    void HideItem(string path) => _hiddenItems.Add(path);
+
+    void ShowAllInGroup(List<DuplicateItem> items) {
+        foreach (var item in items)
+            _hiddenItems.Remove(item.Path);
+    }
+
+    // === QoL: Fullsize Compare ===
+    bool _compareModeLoaded;
+    void OpenCompare(List<DuplicateItem> items) {
+        if (items.Count < 2) return;
+        _compareItems = items;
+        _compareA = 0;
+        _compareB = Math.Min(1, items.Count - 1);
+        _compareSelectingB = false;
+        _compareVisible = true;
+    }
+
+    void SetCompareMode(CompareMode mode) {
+        _compareMode = mode;
+        _ = JS.InvokeVoidAsync("vdf.setCompareMode", mode.ToString());
+    }
+
+    void CloseCompare() => _compareVisible = false;
+
+    async Task InitSwipeIfNeeded() {
+        if (_compareMode == CompareMode.Swipe)
+            await JS.InvokeVoidAsync("vdf.initSwipe");
+    }
+
+    void SelectCompareItem(int idx) {
+        if (_compareSelectingB) {
+            _compareB = idx;
+        }
+        else {
+            _compareA = idx;
+        }
+        _compareSelectingB = !_compareSelectingB;
+    }
+
+    // === QoL: Keep Best ===
+    void KeepBest(List<DuplicateItem> items) {
+        if (items.Count < 2) return;
+        var keeper = PickHighestQuality(items);
+        foreach (var item in items)
+            if (item.Path != keeper.Path)
+                _selected.Add(item);
+    }
+
+    // === QoL: Sort Within Group ===
+    void SetGroupSort(Guid groupId, string? sort) {
+        if (string.IsNullOrEmpty(sort))
+            _groupSorts.Remove(groupId);
+        else
+            _groupSorts[groupId] = sort;
+    }
+
+    List<DuplicateItem> SortItems(List<DuplicateItem> items) {
+        if (items.Count == 0) return items;
+        var groupId = items[0].GroupId;
+        if (!_groupSorts.TryGetValue(groupId, out var sort))
+            return items.OrderByDescending(i => i.Similarity).ToList();
+
+        return sort switch {
+            "similarity" => items.OrderByDescending(i => i.Similarity).ToList(),
+            "size" => items.OrderByDescending(i => i.SizeLong).ToList(),
+            "duration" => items.OrderByDescending(i => i.Duration).ToList(),
+            "bitrate" => items.OrderByDescending(i => i.BitRateKbs).ToList(),
+            "resolution" => items.OrderByDescending(i => i.FrameSizeInt).ToList(),
+            "date" => items.OrderByDescending(i => i.DateCreated).ToList(),
+            "name" => items.OrderBy(i => System.IO.Path.GetFileName(i.Path)).ToList(),
+            _ => items.OrderByDescending(i => i.Similarity).ToList()
+        };
+    }
+
+    // === QoL: Hover-to-Compare ===
+    void SetHoveredMetric(Guid groupId, string metric) => _hoveredMetrics[groupId] = metric;
+    void ClearHoveredMetric(Guid groupId) => _hoveredMetrics.Remove(groupId);
+
+    string RelativeDuration(DuplicateItem item, List<DuplicateItem> group) {
+        var best = group.Where(i => i.IsBestDuration).Select(i => i.Duration).FirstOrDefault();
+        if (best == TimeSpan.Zero) best = group.Max(i => i.Duration);
+        var diff = item.Duration - best;
+        if (Math.Abs(diff.TotalSeconds) < 1) return "=";
+        string sign = diff < TimeSpan.Zero ? "-" : "+";
+        var abs = diff < TimeSpan.Zero ? -diff : diff;
+        if (abs.TotalHours >= 1) return $"{sign}{abs:h\\hm\\mss\\s}";
+        if (abs.TotalMinutes >= 1) return $"{sign}{abs:m\\mss\\s}";
+        return $"{sign}{abs.TotalSeconds:F0}s";
+    }
+
+    string RelativeResolution(DuplicateItem item, List<DuplicateItem> group) {
+        int bestPixels = group.Where(i => i.IsBestFrameSize).Select(i => i.FrameSizeInt).FirstOrDefault();
+        if (bestPixels == 0) bestPixels = group.Max(i => i.FrameSizeInt);
+        if (bestPixels == 0) return "?";
+        if (item.FrameSizeInt == bestPixels) return "=";
+        double pct = (double)(item.FrameSizeInt - bestPixels) / bestPixels * 100;
+        return $"{pct:+0;-0}%";
+    }
+
+    string RelativePercentage(decimal value, decimal best) {
+        if (best == 0) return "?";
+        if (value == best) return "=";
+        double pct = (double)(value - best) / (double)best * 100;
+        return $"{pct:+0;-0}%";
+    }
+
+    string RelativePercentageFloat(float value, float best) {
+        if (best == 0) return "?";
+        if (Math.Abs(value - best) < 0.01f) return "=";
+        double pct = (value - best) / best * 100;
+        return $"{pct:+0;-0}%";
+    }
+
+    string RelativePercentageLong(long value, long best) {
+        if (best == 0) return "?";
+        if (value == best) return "=";
+        double pct = (double)(value - best) / best * 100;
+        return $"{pct:+0;-0}%";
+    }
+
+    string MetaClass(bool isBest, bool showDelta) {
+        if (isBest) return "meta-best";
+        if (showDelta) return "meta-delta";
+        return "";
+    }
+
+    static string SimilarityClass(float sim) => sim >= 99f ? "high" : sim >= 90f ? "medium" : "low";
+
+    // === Filtering ===
+    List<IGrouping<Guid, DuplicateItem>> GetFilteredGroups() =>
+        Scan.Duplicates
+            .GroupBy(d => d.GroupId)
+            .Where(g => string.IsNullOrEmpty(_search) || g.Any(i => PathMatchesFilter(i.Path, _search)))
+            .OrderBy(g => g.Key)
+            .ToList();
+
+    // Substring match by default; * and ? switch to wildcard matching (same rules as the GUI filter).
+    // Backslashes are escaped because MatchesSimpleExpression treats '\' in the pattern as an
+    // escape character - raw Windows paths would never match (#864).
+    static bool PathMatchesFilter(string path, string needle) {
+        if (needle.IndexOfAny(['*', '?']) < 0)
+            return path.Contains(needle, StringComparison.OrdinalIgnoreCase);
+        string pattern = needle.Replace("\\", "\\\\");
+        if (!pattern.StartsWith('*')) pattern = "*" + pattern;
+        if (!pattern.EndsWith('*')) pattern += "*";
+        return System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(pattern, path);
+    }
+
+    // === CSV Export ===
+    async Task ExportCsv() {
+        try { await JS.InvokeVoidAsync("vdf.download", "/export/csv"); }
+        catch { }
+    }
+
+    // === QoL: Keyboard Navigation ===
+    async Task OnKeyDown(KeyboardEventArgs e) {
+        // Same group list the page renders, so j/k/x/1-9 act on what the user sees.
+        var groups = GetFilteredGroups();
+        if (groups.Count == 0) return;
+
+        switch (e.Key) {
+            case "j" or "J":
+                _focusedGroup = Math.Min(_focusedGroup + 1, groups.Count - 1);
+                await JS.InvokeVoidAsync("vdf.scrollToGroup", _focusedGroup);
+                break;
+            case "k" or "K":
+                _focusedGroup = Math.Max(_focusedGroup - 1, 0);
+                await JS.InvokeVoidAsync("vdf.scrollToGroup", _focusedGroup);
+                break;
+            case "x" or "X":
+                if (_focusedGroup >= 0 && _focusedGroup < groups.Count) {
+                    var items = groups[_focusedGroup].ToList();
+                    KeepBest(items);
+                }
+                break;
+            case "h" or "H":
+                // Hide/show card — would need card focus tracking, skip for now
+                break;
+            default:
+                if (int.TryParse(e.Key, out int num) && num >= 1 && num <= 9) {
+                    if (_focusedGroup >= 0 && _focusedGroup < groups.Count) {
+                        var items = groups[_focusedGroup].ToList();
+                        if (num <= items.Count)
+                            ToggleItem(items[num - 1]);
+                    }
+                }
+                break;
+        }
+    }
+
+    // === Auto-select ===
+    void AutoSelect(AutoSelectMode mode) {
+        _autoSelectOpen = false;
+        var all = Scan.Duplicates;
+        var processed = new HashSet<Guid>();
+
+        if (mode == AutoSelectMode.HundredPercentEqual) {
+            foreach (var grp in all.GroupBy(d => d.GroupId)) {
+                var items = grp.ToList();
+                if (items.All(i => i.Similarity >= 100f)) {
+                    for (int i = 1; i < items.Count; i++)
+                        _selected.Add(items[i]);
+                }
+            }
+            return;
+        }
+
+        foreach (var first in all) {
+            if (processed.Contains(first.GroupId)) continue;
+            var groupItems = all.Where(d => d.GroupId == first.GroupId).ToList();
+            if (groupItems.Count < 2) { processed.Add(first.GroupId); continue; }
+
+            DuplicateItem keeper = mode switch {
+                AutoSelectMode.LowestQuality => PickHighestQuality(groupItems),
+                AutoSelectMode.SmallestFile  => groupItems.OrderByDescending(d => d.SizeLong).First(),
+                AutoSelectMode.Oldest        => groupItems.OrderByDescending(d => d.DateCreated).First(),
+                AutoSelectMode.Newest        => groupItems.OrderBy(d => d.DateCreated).First(),
+                _                            => groupItems[0]
+            };
+
+            foreach (var item in groupItems)
+                if (item.Path != keeper.Path)
+                    _selected.Add(item);
+
+            processed.Add(first.GroupId);
+        }
+    }
+
+    static readonly VDF.Core.Utils.QualityRanker.Criterion<DuplicateItem>[] WebCriteria = {
+        new("Duration",      d => d.Duration,        videoOnly: true),
+        new("Resolution",    d => d.FrameSizeInt,    videoOnly: false),
+        new("Bitrate",       d => d.BitRateKbs,      videoOnly: true),
+        new("FPS",           d => d.Fps,             videoOnly: true),
+        new("Audio Bitrate", d => d.AudioSampleRate, videoOnly: true),
+        new("Size",          d => d.SizeLong,        videoOnly: false, ascending: true),
+    };
+
+    static DuplicateItem PickHighestQuality(List<DuplicateItem> items) =>
+        VDF.Core.Utils.QualityRanker.PickKeeper(items, WebCriteria, d => d.IsImage);
+
+    static string FormatSize(long bytes) {
+        if (bytes < 0) return "?";
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+        if (bytes < 1024L * 1024 * 1024) return $"{bytes / (1024.0 * 1024):F1} MB";
+        return $"{bytes / (1024.0 * 1024 * 1024):F2} GB";
+    }
+
+    public void Dispose() =>
+        Scan.StateChanged -= OnStateChanged;
+}

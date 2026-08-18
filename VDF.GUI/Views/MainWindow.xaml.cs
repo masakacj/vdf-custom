@@ -1,0 +1,306 @@
+// /*
+//     Copyright (C) 2026 0x90d
+//     This file is part of VideoDuplicateFinder
+//     VideoDuplicateFinder is free software: you can redistribute it and/or modify
+//     it under the terms of the GNU Affero General Public License as published by
+//     the Free Software Foundation, either version 3 of the License, or
+//     (at your option) any later version.
+//     VideoDuplicateFinder is distributed in the hope that it will be useful,
+//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//     GNU Affero General Public License for more details.
+//     You should have received a copy of the GNU Affero General Public License
+//     along with VideoDuplicateFinder.  If not, see <http://www.gnu.org/licenses/>.
+// */
+//
+
+using System.Linq;
+using System.Windows.Input;
+using System.Runtime.InteropServices;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
+using Avalonia.Layout;
+using Avalonia.Markup.Xaml;
+using Avalonia.Markup.Xaml.Styling;
+using Avalonia.Media;
+using Avalonia.Platform.Storage;
+using Avalonia.Styling;
+using Avalonia.Themes.Fluent;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
+using VDF.Core.Utils;
+using VDF.GUI.Data;
+using VDF.GUI.Mvvm;
+using VDF.GUI.ViewModels;
+
+namespace VDF.GUI.Views {
+	public class MainWindow : Window {
+		bool keepBackupFile;
+		bool hasExited;
+		DispatcherTimer? settingsSaveDebounce;
+
+		void RestartSettingsSaveDebounce() {
+			if (settingsSaveDebounce == null || hasExited) return;
+			settingsSaveDebounce.Stop();
+			settingsSaveDebounce.Start();
+		}
+
+		public readonly Core.FFTools.FFHardwareAccelerationMode InitialHwMode;
+		public MainWindow() {
+			//Settings must be load before XAML is parsed
+			SettingsFile.LoadSettingsAtStartup();
+			App.Lang.CurrentLanguage = SettingsFile.Instance.LanguageCode;
+
+			InitializeComponent();
+			Closing += MainWindow_Closing;
+			Opened += MainWindow_Opened;
+			//Don't use this Window.OnClosing event,
+			//datacontext might not be the same due to Avalonia internal handling data differently
+
+			ApplicationHelpers.CurrentApplicationLifetime.Startup += MainWindow_Startup;
+			ApplicationHelpers.CurrentApplicationLifetime.Exit += MainWindow_Exit;
+			ApplicationHelpers.CurrentApplicationLifetime.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+			if (SettingsFile.Instance.UseMica &&
+				RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&
+				Environment.OSVersion.Version.Build >= 22000) {
+				Background = null;
+				TransparencyLevelHint = new List<WindowTransparencyLevel> { WindowTransparencyLevel.Mica };
+				// Avalonia 12: ExtendClientAreaChromeHints was removed; WindowDecorations.Full
+				// (system chrome) is the default, matching the old PreferSystemChrome behavior.
+				if (SettingsFile.Instance.DarkMode)
+					this.FindControl<ExperimentalAcrylicBorder>("ExperimentalAcrylicBorderBackgroundBlack")!.IsVisible = true;
+				else
+					this.FindControl<ExperimentalAcrylicBorder>("ExperimentalAcrylicBorderBackgroundWhite")!.IsVisible = true;
+			}
+
+			// GNOME (and other Linux compositors) keep their server-side title bar even when
+			// ExtendClientAreaToDecorationsHint is set, so VDF's own centered title rendered a
+			// second time just below the decoration (#798). Fall back to native decorations on
+			// Linux and drop the in-window title. The 30px top band stays: it hosts the shell
+			// nav links, which render as a normal top strip under the native titlebar (no
+			// caption buttons to avoid, so the strip reaches the right edge).
+			if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) {
+				ExtendClientAreaToDecorationsHint = false;
+				this.FindControl<TextBlock>("TextBlockWindowTitle")!.IsVisible = false;
+				this.FindControl<StackPanel>("TitlebarNav")!.Margin = new Thickness(0, 0, 8, 0);
+			}
+
+			// Application-level, not window-level: the managed window chrome (caption bar,
+			// titlebar buttons) resolves its brushes against the application's variant, so a
+			// window-only override leaves a dark titlebar band on an otherwise light window.
+			if (!SettingsFile.Instance.DarkMode && Application.Current != null)
+				Application.Current.RequestedThemeVariant = ThemeVariant.Light;
+
+			// Switch theme at runtime when the user toggles the DarkMode setting
+			SettingsFile.Instance.PropertyChanged += (_, e) => {
+				if (e.PropertyName == nameof(SettingsFile.DarkMode) && Application.Current != null)
+					Application.Current.RequestedThemeVariant = SettingsFile.Instance.DarkMode ? ThemeVariant.Dark : ThemeVariant.Light;
+			};
+
+			// The settings page has no Save button anymore ("Settings save instantly"):
+			// persist any settings change debounced, plus the folder/filter lists.
+			settingsSaveDebounce = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+			settingsSaveDebounce.Tick += (_, __) => {
+				settingsSaveDebounce!.Stop();
+				try {
+					SettingsFile.SaveSettings();
+				}
+				catch (Exception ex) {
+					Logger.Instance.Error($"Saving settings failed: {ex.Message}");
+				}
+			};
+			SettingsFile.Instance.PropertyChanged += (_, __) => RestartSettingsSaveDebounce();
+			SettingsFile.Instance.Includes.CollectionChanged += (_, __) => RestartSettingsSaveDebounce();
+			SettingsFile.Instance.Blacklists.CollectionChanged += (_, __) => RestartSettingsSaveDebounce();
+			SettingsFile.Instance.FilePathContainsTexts.CollectionChanged += (_, __) => RestartSettingsSaveDebounce();
+			SettingsFile.Instance.FilePathNotContainsTexts.CollectionChanged += (_, __) => RestartSettingsSaveDebounce();
+
+			ShowAlgoView();
+		}
+
+		async void ShowAlgoView() {
+
+			if (File.Exists(FileUtils.SafePathCombine(
+					CoreUtils.ResolveDatabaseFolder(SettingsFile.Instance.CustomDatabaseFolder),
+					"ScannedFiles.db")))
+				return;
+
+			while (!this.IsVisible) {
+				await Task.Delay(200);
+			}
+			var dlg = new Views.ChooseAlgoView();
+			await dlg.ShowDialog(this);
+			if (dlg.FindControl<RadioButton>("Cb16x16")?.IsChecked == true)
+				VDF.Core.Utils.DatabaseUtils.Create16x16Database();
+		}
+
+		void MainWindow_Opened(object? sender, EventArgs e) {
+			if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) {
+				/*
+				 * Due to Avalonia bug, window is bigger than screen size.
+				 * Status bar is hidden by MacOS launch bar,
+				 * see https://github.com/0x90d/videoduplicatefinder/issues/391
+				 */
+				Height = 750d;
+			}
+
+			ApplySavedWindowPlacement();
+
+			ApplyKeyboardShortcuts();
+			KeyboardShortcutManager.Instance.ShortcutsChanged += ApplyKeyboardShortcuts;
+
+			HideOwnTitleIfChromeDrawsOne();
+		}
+
+		/// <summary>
+		/// Avalonia draws managed window decorations — including a centered title —
+		/// whenever the client area is extended (always on Linux; on Windows since
+		/// Avalonia 12 removed PreferSystemChrome). The app's own title TextBlock then
+		/// duplicates it. Detect the drawn title instead of hardcoding platforms so
+		/// each OS keeps exactly one title. The decorations attach asynchronously
+		/// (after Opened — a single deferred check missed them), so probe on the
+		/// first layout passes and stop once found or after a few attempts.
+		/// </summary>
+		void HideOwnTitleIfChromeDrawsOne() {
+			// Windows: the system/managed chrome draws a left-aligned caption title even
+			// with the client area extended, and it never appears in this window's visual
+			// tree — the probe below can't see it, which left BOTH titles visible
+			// ("double window title" report). Just never draw our own copy here.
+			if (OperatingSystem.IsWindows()) {
+				this.FindControl<TextBlock>("TextBlockWindowTitle")!.IsVisible = false;
+				return;
+			}
+			int attempts = 0;
+			void Check(object? sender, EventArgs e) {
+				bool chromeTitleVisible = this.GetVisualDescendants()
+					.Any(c => c is Control { Name: "PART_TitleTextPanel", IsVisible: true });
+				if (chromeTitleVisible) {
+					this.FindControl<TextBlock>("TextBlockWindowTitle")!.IsVisible = false;
+					LayoutUpdated -= Check;
+				}
+				else if (++attempts >= 30) {
+					LayoutUpdated -= Check; // no managed chrome on this platform/config
+				}
+			}
+			LayoutUpdated += Check;
+			Check(null, EventArgs.Empty);
+		}
+
+		void ApplySavedWindowPlacement() {
+			var settings = SettingsFile.Instance;
+			if (settings.MainWindowWidth is double savedWidth && savedWidth > 0)
+				Width = savedWidth;
+			if (settings.MainWindowHeight is double savedHeight && savedHeight > 0)
+				Height = savedHeight;
+
+			if (settings.MainWindowPositionX.HasValue && settings.MainWindowPositionY.HasValue && Screens != null) {
+				// Only restore a position that is still on a connected screen — a saved
+				// position on a since-removed monitor would open the window off-screen.
+				var saved = new PixelPoint(settings.MainWindowPositionX.Value, settings.MainWindowPositionY.Value);
+				var screen = Screens.ScreenFromPoint(new PixelPoint(
+					saved.X + (int)Math.Round(Width / 2), saved.Y + (int)Math.Round(Height / 2)));
+				if (screen != null) {
+					var workingArea = screen.WorkingArea;
+					int maxX = Math.Max(workingArea.X, workingArea.Right - (int)Math.Ceiling(Width));
+					int maxY = Math.Max(workingArea.Y, workingArea.Bottom - (int)Math.Ceiling(Height));
+					Position = new PixelPoint(
+						Math.Clamp(saved.X, workingArea.X, maxX),
+						Math.Clamp(saved.Y, workingArea.Y, maxY));
+				}
+			}
+
+			if (settings.MainWindowMaximized)
+				WindowState = WindowState.Maximized;
+		}
+
+		void SaveWindowPlacement() {
+			var settings = SettingsFile.Instance;
+			settings.MainWindowMaximized = WindowState == WindowState.Maximized;
+			// Size/position are only meaningful in the normal state; keep the last
+			// normal-state values when closing maximized or minimized.
+			if (WindowState == WindowState.Normal) {
+				settings.MainWindowWidth = Width;
+				settings.MainWindowHeight = Height;
+				settings.MainWindowPositionX = Position.X;
+				settings.MainWindowPositionY = Position.Y;
+			}
+		}
+
+		void ApplyKeyboardShortcuts() {
+			var vm = ApplicationHelpers.MainWindowDataContext;
+			var commandMap = new Dictionary<string, ICommand> {
+				["RenameFile"] = vm.RenameFileCommand,
+				["ToggleCheckbox"] = vm.ToggleCheckboxCommand,
+				["OpenItemsByColId"] = vm.OpenItemsByColIdCommand,
+				["OpenItemInFolder"] = vm.OpenItemInFolderCommand,
+				["DeleteCheckedItemsWithPrompt"] = vm.DeleteCheckedItemsWithPromptCommand,
+				["DeleteCheckedItems"] = vm.DeleteCheckedItemsCommand,
+				["DeleteHighlighted"] = vm.DeleteHighlightedCommand,
+				["ShowGroupInThumbnailComparer"] = vm.ShowGroupInThumbnailComparerCommand,
+				["MarkGroupAsNotAMatch"] = vm.MarkGroupAsNotAMatchCommand,
+				["CopyCheckedItems"] = vm.CopyCheckedItemsCommand,
+				["MoveCheckedItems"] = vm.MoveCheckedItemsCommand,
+				["CheckLowestQuality"] = vm.CheckLowestQualityCommand,
+				["ClearCheckedItems"] = vm.ClearCheckedItemsCommand,
+				["InvertCheckedItems"] = vm.InvertCheckedItemsCommand,
+				["ExpandAllGroups"] = vm.ExpandAllGroupsCommand,
+				["CollapseAllGroups"] = vm.CollapseAllGroupsCommand,
+				["RemoveCheckedItemsFromList"] = vm.RemoveCheckedItemsFromListCommand,
+				["NavigateNextGroup"] = vm.NavigateNextGroupCommand,
+				["NavigatePreviousGroup"] = vm.NavigatePreviousGroupCommand,
+				["KeepHighlightedAndAdvance"] = vm.KeepHighlightedAndAdvanceCommand,
+				["UndoSelection"] = vm.UndoSelectionCommand,
+			};
+			var newResultsView = this.FindControl<DuplicateResultsView>("NewResultsView");
+			if (newResultsView != null)
+				KeyboardShortcutManager.Instance.ApplyBindings(newResultsView.ShortcutTarget, commandMap);
+		}
+
+		void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e) {
+			SaveWindowPlacement();
+			e.Cancel = true;
+			ConfirmClose();
+		}
+
+		async void ConfirmClose() {
+			try {
+				if (!keepBackupFile)
+					File.Delete(ApplicationHelpers.MainWindowDataContext.BackupScanResultsFile);
+			}
+			catch { }
+			if (keepBackupFile = await ApplicationHelpers.MainWindowDataContext.SaveScanResults()) {
+				Closing -= MainWindow_Closing;
+				ApplicationHelpers.CurrentApplicationLifetime.Shutdown();
+			}
+		}
+
+		void MainWindow_Exit(object? sender, ControlledApplicationLifetimeExitEventArgs e) {
+			if (hasExited) return;
+			hasExited = true;
+			SettingsFile.SaveSettings();
+		}
+
+		void MainWindow_Startup(object? sender, ControlledApplicationLifetimeStartupEventArgs e) {
+			var vm = ApplicationHelpers.MainWindowDataContext;
+			vm.NotifyStartupSettingsError();
+			vm.LoadDatabase();
+			vm.RestoreBackupScanResults();
+		}
+
+
+		void OnMetricPointerEntered(object? sender, PointerEventArgs e) {
+			if (sender is Control ctrl && ctrl.Tag is string metric && ctrl.DataContext is DuplicateItemVM item)
+				ApplicationHelpers.MainWindowDataContext.SetHoveredMetric(item, metric);
+		}
+
+		void OnMetricPointerExited(object? sender, PointerEventArgs e) {
+			if (sender is Control ctrl && ctrl.DataContext is DuplicateItemVM item)
+				ApplicationHelpers.MainWindowDataContext.ClearHoveredMetric(item);
+		}
+
+		void InitializeComponent() => AvaloniaXamlLoader.Load(this);
+	}
+}

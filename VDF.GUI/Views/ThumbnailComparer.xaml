@@ -1,0 +1,773 @@
+<Window
+    x:Class="VDF.GUI.Views.ThumbnailComparer"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:actipro="http://schemas.actiprosoftware.com/avaloniaui"
+    xmlns:controls="clr-namespace:Avalonia.Controls;assembly=Avalonia.Controls"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:data="using:VDF.GUI.Data"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:media="clr-namespace:Avalonia.Media;assembly=Avalonia.Base"
+    xmlns:mvvm="clr-namespace:VDF.GUI.Mvvm;assembly=VDF.GUI"
+    xmlns:app="clr-namespace:VDF.GUI"
+    xmlns:vm="clr-namespace:VDF.GUI.ViewModels"
+    x:Name="ThumbnailComparerWindow"
+    x:DataType="vm:ThumbnailComparerVM"
+    Title="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.Title]}"
+    Width="1200"
+    Height="760"
+    MinWidth="760"
+    MinHeight="520"
+    d:DesignHeight="450"
+    d:DesignWidth="800"
+    ExtendClientAreaToDecorationsHint="True"
+    FontSize="14"
+    Icon="/Assets/icon.ico"
+    WindowStartupLocation="CenterScreen"
+    mc:Ignorable="d">
+    <Window.KeyBindings>
+        <KeyBinding Gesture="Ctrl+Down" Command="{Binding NextGroupCommand}" />
+        <KeyBinding Gesture="Ctrl+Up" Command="{Binding PreviousGroupCommand}" />
+    </Window.KeyBindings>
+    <Window.Resources>
+        <mvvm:BoolToValueConverter x:Key="WinnerPaneBackgroundConverter" TrueValue="#143E9B6E" FalseValue="Transparent" />
+    </Window.Resources>
+    <Window.Styles>
+        <Style Selector="Button.tool-btn">
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="MinWidth" Value="32" />
+            <Setter Property="MinHeight" Value="28" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.offset-btn">
+            <Setter Property="Padding" Value="5,2" />
+            <Setter Property="MinWidth" Value="26" />
+            <Setter Property="MinHeight" Value="24" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <!-- keycap hint (mockup .kbd) -->
+        <Style Selector="Border.kbd">
+            <Setter Property="BorderBrush" Value="{actipro:ThemeResource Container4BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1,1,1,2" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="6,2" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border.kbd TextBlock">
+            <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,Menlo,monospace" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Opacity" Value="0.75" />
+        </Style>
+        <!-- metadata chips (mockup .mchip) -->
+        <Style Selector="Border.mchip">
+            <Setter Property="BorderBrush" Value="{actipro:ThemeResource Container4BorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="9,3" />
+            <Setter Property="Margin" Value="0,0,6,6" />
+        </Style>
+        <Style Selector="Border.mchip TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Opacity" Value="0.8" />
+        </Style>
+        <Style Selector="Border.mchip.hi">
+            <Setter Property="BorderBrush" Value="{DynamicResource VdfGoodBorderBrush}" />
+            <Setter Property="Background" Value="{DynamicResource VdfGoodSoftBrush}" />
+        </Style>
+        <Style Selector="Border.mchip.hi TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource VdfGoodBrush}" />
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Border.mchip.lo">
+            <Setter Property="BorderBrush" Value="{DynamicResource VdfDangerBorderBrush}" />
+            <Setter Property="Background" Value="{DynamicResource VdfDangerSoftBrush}" />
+        </Style>
+        <Style Selector="Border.mchip.lo TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource VdfDangerBrush}" />
+            <Setter Property="Opacity" Value="1" />
+        </Style>
+        <Style Selector="Border.bestbadge">
+            <Setter Property="Background" Value="{DynamicResource VdfGoodSoftBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource VdfGoodBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="6,1" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border.checkedtag">
+            <Setter Property="Background" Value="{DynamicResource VdfWarnSoftBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource VdfWarnBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="6,1" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Border.bestbadge TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource VdfGoodBrush}" />
+        </Style>
+        <Style Selector="Border.checkedtag TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource VdfWarnBrush}" />
+        </Style>
+        <Style Selector="Border.label-overlay-bg">
+            <Setter Property="Background" Value="#AA000000" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="Margin" Value="6" />
+        </Style>
+        <Style Selector="TextBlock.label-overlay">
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="11" />
+        </Style>
+        <Style Selector="Border.hint-bar">
+            <Setter Property="Background" Value="{actipro:ThemeResource Container2BackgroundBrush}" />
+            <Setter Property="CornerRadius" Value="4" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Bottom" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+            <Setter Property="Opacity" Value="0.85" />
+        </Style>
+        <Style Selector="Button.stripframe">
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+        </Style>
+        <!-- current strip position: theme-accent outline -->
+        <Style Selector="Border.stripframeborder">
+            <Setter Property="BorderBrush" Value="#55808080" />
+        </Style>
+        <Style Selector="Border.stripframeborder.current">
+            <Setter Property="BorderBrush" Value="{actipro:ThemeResource ControlBackgroundBrushEmphasizedAccent}" />
+        </Style>
+    </Window.Styles>
+    <Border BorderBrush="{DynamicResource SystemControlBackgroundChromeMediumBrush}" BorderThickness="2">
+        <Grid RowDefinitions="Auto,Auto,*,Auto">
+            <controls:ExperimentalAcrylicBorder
+                x:Name="ExperimentalAcrylicBorderBackgroundWhite"
+                Grid.RowSpan="4"
+                IsHitTestVisible="False"
+                IsVisible="False">
+                <controls:ExperimentalAcrylicBorder.Material>
+                    <media:ExperimentalAcrylicMaterial BackgroundSource="Digger" TintColor="White" />
+                </controls:ExperimentalAcrylicBorder.Material>
+            </controls:ExperimentalAcrylicBorder>
+            <controls:ExperimentalAcrylicBorder
+                x:Name="ExperimentalAcrylicBorderBackgroundBlack"
+                Grid.RowSpan="4"
+                IsHitTestVisible="False"
+                IsVisible="False">
+                <controls:ExperimentalAcrylicBorder.Material>
+                    <media:ExperimentalAcrylicMaterial BackgroundSource="Digger" TintColor="Black" />
+                </controls:ExperimentalAcrylicBorder.Material>
+            </controls:ExperimentalAcrylicBorder>
+            <TextBlock
+                x:Name="TextBlockWindowTitle"
+                Grid.Row="0"
+                Margin="0,4,0,6"
+                HorizontalAlignment="Center"
+                IsHitTestVisible="false"
+                Text="{Binding #ThumbnailComparerWindow.Title}" />
+            <!-- mockup: in-titlebar "✕ Close comparer", right-aligned before the caption buttons -->
+            <Button
+                Grid.Row="0"
+                Margin="0,0,190,0"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Top"
+                Height="28"
+                Background="Transparent"
+                BorderThickness="0"
+                CornerRadius="6"
+                Padding="10,3"
+                FontSize="13"
+                Click="OnCloseComparerClick">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="✕" FontSize="12" VerticalAlignment="Center" />
+                    <TextBlock VerticalAlignment="Center"
+                               Text="{Binding Source={x:Static app:App.Lang}, Path=[Shell.CloseComparer]}" />
+                </StackPanel>
+            </Button>
+
+            <!-- ===== header (mockup .cmp-head) ===== -->
+            <Border
+                Grid.Row="1"
+                Padding="20,10"
+                Background="{actipro:ThemeResource Container2BackgroundBrush}"
+                BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
+                BorderThickness="0,0,0,1">
+                <DockPanel LastChildFill="False">
+                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                        <TextBlock FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"
+                                   IsVisible="{Binding GroupInfoText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                   Text="{Binding GroupInfoText}" />
+                        <TextBlock FontSize="13.5" Opacity="0.7" VerticalAlignment="Center"
+                                   IsVisible="{Binding PairInfoText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                                   Text="{Binding PairInfoText}" />
+                        <Border CornerRadius="6" Padding="9,2" VerticalAlignment="Center"
+                                Background="{actipro:ThemeResource ControlBackgroundBrushSoftAccent}"
+                                IsVisible="{Binding HasSimilarity}">
+                            <TextBlock FontSize="12.5" FontWeight="SemiBold" Text="{Binding SimilarityText}" />
+                        </Border>
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <ToggleButton Classes="tool-btn" FontSize="12.5"
+                                      IsChecked="{Binding HighlightDifferences}"
+                                      Content="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.HighlightDifferences]}"
+                                      ToolTip.Tip="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.DiffHint]}" />
+                        <TextBlock VerticalAlignment="Center" FontSize="12.5" Opacity="0.7"
+                                   IsVisible="{Binding HighlightDifferences}"
+                                   Text="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.DiffSensitivity]}" />
+                        <Slider Width="110" VerticalAlignment="Center" Minimum="0" Maximum="1"
+                                IsVisible="{Binding HighlightDifferences}"
+                                Value="{Binding DiffSensitivity}" />
+                        <Border Width="1" Height="22" Margin="4,0" Background="{DynamicResource SystemControlHighlightBaseLowBrush}" />
+                        <TextBlock VerticalAlignment="Center" FontSize="12.5" Opacity="0.7"
+                                   Text="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.Mode]}" />
+                        <ComboBox MinWidth="120" FontSize="12.5"
+                                  ItemsSource="{Binding CompareModes}"
+                                  SelectedItem="{Binding SelectedCompareMode}" />
+                        <Border Width="1" Height="22" Margin="4,0" Background="{DynamicResource SystemControlHighlightBaseLowBrush}" />
+                        <Button Classes="tool-btn" Command="{Binding FitToViewCommand}" Content="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.Fit]}" ToolTip.Tip="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.FitTooltip]}" />
+                        <Button Classes="tool-btn" Command="{Binding ZoomOutCommand}" Content="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.ZoomOut]}" />
+                        <Button Classes="tool-btn" Command="{Binding ZoomInCommand}" Content="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.ZoomIn]}" />
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- ===== content ===== -->
+            <Grid Grid.Row="2">
+
+                <!-- side-by-side culling panes (mockup .cmp-grid) -->
+                <Grid ColumnDefinitions="*,1,*" IsVisible="{Binding IsSideBySide}">
+                    <!-- left pane: current keeper -->
+                    <Border Grid.Column="0" Padding="20,14"
+                            Background="{Binding IsLeftBest, Converter={StaticResource WinnerPaneBackgroundConverter}}">
+                        <Grid RowDefinitions="*,Auto,Auto,Auto,Auto">
+                            <Border Grid.Row="0" CornerRadius="8" ClipToBounds="True"
+                                    Background="{actipro:ThemeResource Container1BackgroundBrush}"
+                                    BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
+                                    BorderThickness="1">
+                                <Grid>
+                                    <data:ZoomPanPresenter
+                                        MaxZoom="8" MinZoom="0.1"
+                                        Zoom="{Binding Zoom, Mode=TwoWay}"
+                                        OffsetX="{Binding PanOffsetX, Mode=TwoWay}"
+                                        OffsetY="{Binding PanOffsetY, Mode=TwoWay}">
+                                        <Grid>
+                                            <Image Source="{Binding ImageA}" Stretch="Uniform" />
+                                            <Image Source="{Binding DiffOverlay}" Stretch="Uniform" IsVisible="{Binding HighlightDifferences}" />
+                                        </Grid>
+                                    </data:ZoomPanPresenter>
+                                    <Border Classes="label-overlay-bg">
+                                        <TextBlock Classes="label-overlay" Text="{Binding FrameLabelA}" />
+                                    </Border>
+                                </Grid>
+                            </Border>
+
+                            <!-- aligned frame strip + fine step -->
+                            <DockPanel Grid.Row="1" Margin="0,8,0,0" LastChildFill="True"
+                                       IsVisible="{Binding ShowFrameControls}">
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" Margin="8,0,0,0">
+                                    <Button Classes="offset-btn" Command="{Binding StepAMinusCommand}"
+                                            ToolTip.Tip="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.PrevFrame]}">
+                                        <TextBlock FontSize="10" Text="&#9664;" />
+                                    </Button>
+                                    <Border MinWidth="30" VerticalAlignment="Center" Background="{actipro:ThemeResource Container1BackgroundBrush}" BorderBrush="{actipro:ThemeResource Container1BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="4,2">
+                                        <TextBlock HorizontalAlignment="Center" FontSize="11" FontWeight="SemiBold" Text="{Binding StepA}" />
+                                    </Border>
+                                    <Button Classes="offset-btn" Command="{Binding StepAPlusCommand}"
+                                            ToolTip.Tip="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.NextFrame]}">
+                                        <TextBlock FontSize="10" Text="&#9654;" />
+                                    </Button>
+                                </StackPanel>
+                                <ItemsControl ItemsSource="{Binding StripA}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FrameStripEntry">
+                                            <Button Classes="stripframe"
+                                                    Command="{Binding $parent[Window].((vm:ThumbnailComparerVM)DataContext).SelectBasePositionCommand}"
+                                                    CommandParameter="{Binding}">
+                                                <Border Classes="stripframeborder" Classes.current="{Binding IsCurrent}"
+                                                        CornerRadius="4" ClipToBounds="True" BorderThickness="2">
+                                                    <Image Height="44" Source="{Binding Frame}" Stretch="UniformToFill" />
+                                                </Border>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </DockPanel>
+
+                            <!-- name + badges (mockup .cmp-name) -->
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,10,0,0">
+                                <ComboBox MinWidth="180" MaxWidth="340" FontSize="13.5" FontWeight="SemiBold"
+                                          ItemsSource="{Binding Items}"
+                                          SelectedItem="{Binding SelectedItemA}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:LargeThumbnailDuplicateItem">
+                                            <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Item.ItemInfo.Path}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Border Classes="bestbadge" IsVisible="{Binding IsLeftBest}">
+                                    <TextBlock FontSize="10.5" FontWeight="Bold"
+                                               Text="{Binding Source={x:Static app:App.Lang}, Path=[Results.Row.Best]}" />
+                                </Border>
+                                <Border Classes="checkedtag" IsVisible="{Binding SelectedItemA.Item.Checked, FallbackValue=False}">
+                                    <TextBlock FontSize="10.5" FontWeight="SemiBold"
+                                               Text="{Binding Source={x:Static app:App.Lang}, Path=[Comparer.CheckedTag]}" />
+                                </Border>
+                            </StackPanel>
+
+                            <!-- path (mockup .cmp-path) -->
+                            <TextBlock Grid.Row="3" Margin="0,3,0,10" FontSize="12" Opacity="0.55"
+                                       TextTrimming="CharacterEllipsis"
+                                       Text="{Binding SelectedItemA.Item.ItemInfo.Folder, FallbackValue=''}"
+                                       ToolTip.Tip="{Binding SelectedItemA.Item.ItemInfo.Path, FallbackValue=''}" />
+
+                            <!-- metadata chips (mockup .mchips) -->
+                            <ItemsControl Grid.Row="4" ItemsSource="{Binding LeftChips}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="data:MetaChip">
+                                        <Panel>
+                                            <Border Classes="mchip" IsVisible="{Binding IsNeutral}">
+                                                <TextBlock Text="{Binding Text}" />
+                                            </Border>
+                                            <Border Classes="mchip hi" IsVisible="{Binding IsBetter}">
+                                                <TextBlock Text="{Binding Text}" />
+                                            </Border>
+                                            <Border Classes="mchip lo" IsVisible="{Binding IsWorse}">
+                                                <TextBlock Text="{Binding Text}" />
+                                            </Border>
+                                        </Panel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Grid>
+                    </Border>
+
+                    <Border Grid.Column="1" Background="{actipro:ThemeResource Container3BorderBrush}" />
+
+                    <!-- right pane: challenger -->
+                    <Border Grid.Column="2" Padding="20,14"
+                            Background="{Binding IsRightBest, Converter={StaticResource WinnerPaneBackgroundConverter}}">
+                        <Grid RowDefinitions="*,Auto,Auto,Auto,Auto">
+                            <Border Grid.Row="0" CornerRadius="8" ClipToBounds="True"
+                                    Background="{actipro:ThemeResource Container1BackgroundBrush}"
+                                    BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
+                                    BorderThickness="1">
+                                <Grid>
+                                    <data:ZoomPanPresenter
+                                        MaxZoom="8" MinZoom="0.1"
+                                        Zoom="{Binding Zoom, Mode=TwoWay}"
+                                        OffsetX="{Binding PanOffsetX, Mode=TwoWay}"
+                                        OffsetY="{Binding PanOffsetY, Mode=TwoWay}">
+                                        <Grid>
+                                            <Image Source="{Binding ImageB}" Stretch="Uniform" />
+                                            <Image Source="{Binding DiffOverlay}" Stretch="Uniform" IsVisible="{Binding HighlightDifferences}" />
+                                        </Grid>
+                                    </data:ZoomPanPresenter>
+                                    <Border Classes="label-overlay-bg">
+                                        <TextBlock Classes="label-overlay" Text="{Binding FrameLabelB}" />
+                                    </Border>
+                                </Grid>
+                            </Border>
+
+                            <DockPanel Grid.Row="1" Margin="0,8,0,0" LastChildFill="True"
+                                       IsVisible="{Binding ShowFrameControls}">
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center" Margin="8,0,0,0">
+                                    <Button Classes="offset-btn" Command="{Binding StepBMinusCommand}"
+                                            ToolTip.Tip="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.PrevFrame]}">
+                                        <TextBlock FontSize="10" Text="&#9664;" />
+                                    </Button>
+                                    <Border MinWidth="30" VerticalAlignment="Center" Background="{actipro:ThemeResource Container1BackgroundBrush}" BorderBrush="{actipro:ThemeResource Container1BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="4,2">
+                                        <TextBlock HorizontalAlignment="Center" FontSize="11" FontWeight="SemiBold" Text="{Binding StepB}" />
+                                    </Border>
+                                    <Button Classes="offset-btn" Command="{Binding StepBPlusCommand}"
+                                            ToolTip.Tip="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.NextFrame]}">
+                                        <TextBlock FontSize="10" Text="&#9654;" />
+                                    </Button>
+                                </StackPanel>
+                                <ItemsControl ItemsSource="{Binding StripB}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:FrameStripEntry">
+                                            <Button Classes="stripframe"
+                                                    Command="{Binding $parent[Window].((vm:ThumbnailComparerVM)DataContext).SelectBasePositionCommand}"
+                                                    CommandParameter="{Binding}">
+                                                <Border Classes="stripframeborder" Classes.current="{Binding IsCurrent}"
+                                                        CornerRadius="4" ClipToBounds="True" BorderThickness="2">
+                                                    <Image Height="44" Source="{Binding Frame}" Stretch="UniformToFill" />
+                                                </Border>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </DockPanel>
+
+                            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,10,0,0">
+                                <ComboBox MinWidth="180" MaxWidth="340" FontSize="13.5" FontWeight="SemiBold"
+                                          ItemsSource="{Binding Items}"
+                                          SelectedItem="{Binding SelectedItemB}">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:LargeThumbnailDuplicateItem">
+                                            <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Item.ItemInfo.Path}" />
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                                <Border Classes="bestbadge" IsVisible="{Binding IsRightBest}">
+                                    <TextBlock FontSize="10.5" FontWeight="Bold"
+                                               Text="{Binding Source={x:Static app:App.Lang}, Path=[Results.Row.Best]}" />
+                                </Border>
+                                <Border Classes="checkedtag" IsVisible="{Binding SelectedItemB.Item.Checked, FallbackValue=False}">
+                                    <TextBlock FontSize="10.5" FontWeight="SemiBold"
+                                               Text="{Binding Source={x:Static app:App.Lang}, Path=[Comparer.CheckedTag]}" />
+                                </Border>
+                            </StackPanel>
+
+                            <TextBlock Grid.Row="3" Margin="0,3,0,10" FontSize="12" Opacity="0.55"
+                                       TextTrimming="CharacterEllipsis"
+                                       Text="{Binding SelectedItemB.Item.ItemInfo.Folder, FallbackValue=''}"
+                                       ToolTip.Tip="{Binding SelectedItemB.Item.ItemInfo.Path, FallbackValue=''}" />
+
+                            <ItemsControl Grid.Row="4" ItemsSource="{Binding RightChips}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="data:MetaChip">
+                                        <Panel>
+                                            <Border Classes="mchip" IsVisible="{Binding IsNeutral}">
+                                                <TextBlock Text="{Binding Text}" />
+                                            </Border>
+                                            <Border Classes="mchip hi" IsVisible="{Binding IsBetter}">
+                                                <TextBlock Text="{Binding Text}" />
+                                            </Border>
+                                            <Border Classes="mchip lo" IsVisible="{Binding IsWorse}">
+                                                <TextBlock Text="{Binding Text}" />
+                                            </Border>
+                                        </Panel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- legacy single/swipe/stacked viewer -->
+                <Grid RowDefinitions="Auto,*" Margin="12,8" IsVisible="{Binding !IsSideBySide}">
+                    <!-- frame controls for the overlay modes -->
+                    <Border
+                        Grid.Row="0"
+                        Margin="0,0,0,6"
+                        Padding="10,6"
+                        Background="{actipro:ThemeResource Container2BackgroundBrush}"
+                        BorderBrush="{actipro:ThemeResource Container2BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        IsVisible="{Binding ShowFrameControls}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <StackPanel Orientation="Horizontal" Spacing="8" IsVisible="{Binding ShowPositionControls}">
+                                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" FontSize="12" Text="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.BasePosition]}" />
+                                <Button Classes="offset-btn" Command="{Binding PrevBaseCommand}">
+                                    <TextBlock FontSize="10" Text="&#9664;" />
+                                </Button>
+                                <Slider
+                                    Width="100"
+                                    VerticalAlignment="Center"
+                                    IsSnapToTickEnabled="True"
+                                    TickFrequency="1"
+                                    Minimum="0"
+                                    Maximum="{Binding BaseThumbnailIndexMax}"
+                                    Value="{Binding BaseThumbnailIndex}" />
+                                <Button Classes="offset-btn" Command="{Binding NextBaseCommand}">
+                                    <TextBlock FontSize="10" Text="&#9654;" />
+                                </Button>
+                                <Border Width="1" Height="22" Background="{DynamicResource SystemControlHighlightBaseLowBrush}" />
+                            </StackPanel>
+                            <TextBlock VerticalAlignment="Center" FontSize="12" Text="A" FontWeight="Bold" />
+                            <Button Classes="offset-btn" Command="{Binding StepAMinusCommand}">
+                                <TextBlock FontSize="10" Text="&#9664;" />
+                            </Button>
+                            <Border MinWidth="36" Background="{actipro:ThemeResource Container1BackgroundBrush}" BorderBrush="{actipro:ThemeResource Container1BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="4,2">
+                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Text="{Binding StepA}" />
+                            </Border>
+                            <Button Classes="offset-btn" Command="{Binding StepAPlusCommand}">
+                                <TextBlock FontSize="10" Text="&#9654;" />
+                            </Button>
+                            <Border Width="1" Height="22" Background="{DynamicResource SystemControlHighlightBaseLowBrush}" />
+                            <TextBlock VerticalAlignment="Center" FontSize="12" Text="B" FontWeight="Bold" />
+                            <Button Classes="offset-btn" Command="{Binding StepBMinusCommand}">
+                                <TextBlock FontSize="10" Text="&#9664;" />
+                            </Button>
+                            <Border MinWidth="36" Background="{actipro:ThemeResource Container1BackgroundBrush}" BorderBrush="{actipro:ThemeResource Container1BorderBrush}" BorderThickness="1" CornerRadius="3" Padding="4,2">
+                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Text="{Binding StepB}" />
+                            </Border>
+                            <Button Classes="offset-btn" Command="{Binding StepBPlusCommand}">
+                                <TextBlock FontSize="10" Text="&#9654;" />
+                            </Button>
+                            <Border Width="1" Height="22" Background="{DynamicResource SystemControlHighlightBaseLowBrush}" />
+                            <Button Classes="offset-btn" Command="{Binding ResetStepsCommand}" Content="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.ResetOffsets]}" FontSize="11" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        Grid.Row="1"
+                        Background="{actipro:ThemeResource Container1BackgroundBrush}"
+                        BorderBrush="{actipro:ThemeResource Container1BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        ClipToBounds="True">
+                        <Grid>
+                            <data:ZoomPanPresenter
+                                x:Name="ZoomHost"
+                                MaxZoom="8"
+                                MinZoom="0.1"
+                                Zoom="{Binding Zoom, Mode=TwoWay}"
+                                OffsetX="{Binding PanOffsetX, Mode=TwoWay}"
+                                OffsetY="{Binding PanOffsetY, Mode=TwoWay}"
+                                SwipeMode="{Binding IsSwipe}"
+                                SwipeVertical="{Binding IsStacked}"
+                                SwipeRatio="{Binding ModeSliderValue, Mode=TwoWay}"
+                                SwipeLeftOffset="{Binding LeftOffset}"
+                                SwipeDisplayWidth="{Binding DisplayWidth}"
+                                SwipeTopOffset="{Binding TopOffset}"
+                                SwipeDisplayHeight="{Binding DisplayHeight}">
+                                <Grid>
+                                    <!-- Stacked (vertical swipe) -->
+                                    <Grid x:Name="StackedCanvas" IsVisible="{Binding IsStacked}">
+                                        <Image Source="{Binding ImageB}" Stretch="Uniform" />
+                                        <Image
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Clip="{Binding SwipeClip}"
+                                            Source="{Binding ImageA}"
+                                            Stretch="Uniform" />
+                                        <Image Source="{Binding DiffOverlay}" Stretch="Uniform" IsVisible="{Binding HighlightDifferences}" />
+                                        <Border
+                                            Height="2"
+                                            Width="{Binding DisplayWidth}"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Top"
+                                            Background="Red"
+                                            Opacity="0.8"
+                                            IsHitTestVisible="False">
+                                            <Border.RenderTransform>
+                                                <TranslateTransform X="{Binding LeftOffset}" Y="{Binding SeparatorY}" />
+                                            </Border.RenderTransform>
+                                        </Border>
+                                        <Border Classes="label-overlay-bg" VerticalAlignment="Top" Margin="6,6,6,0">
+                                            <TextBlock Classes="label-overlay" Text="{Binding FrameLabelA}" />
+                                        </Border>
+                                        <Border Classes="label-overlay-bg" Margin="6,0,6,6">
+                                            <TextBlock Classes="label-overlay" Text="{Binding FrameLabelB}" />
+                                        </Border>
+                                    </Grid>
+                                    <!-- Swipe -->
+                                    <Grid x:Name="CompareCanvas" IsVisible="{Binding IsSwipe}">
+                                        <Image Source="{Binding ImageB}" Stretch="Uniform" />
+                                        <Image
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            Clip="{Binding SwipeClip}"
+                                            Source="{Binding ImageA}"
+                                            Stretch="Uniform" />
+                                        <Image Source="{Binding DiffOverlay}" Stretch="Uniform" IsVisible="{Binding HighlightDifferences}" />
+                                        <Border
+                                            Width="2"
+                                            Height="{Binding DisplayHeight}"
+                                            HorizontalAlignment="Left"
+                                            VerticalAlignment="Top"
+                                            Background="Red"
+                                            Opacity="0.8"
+                                            IsHitTestVisible="False">
+                                            <Border.RenderTransform>
+                                                <TranslateTransform X="{Binding SeparatorX}" Y="{Binding TopOffset}" />
+                                            </Border.RenderTransform>
+                                        </Border>
+                                        <Border Classes="label-overlay-bg" HorizontalAlignment="Left" VerticalAlignment="Bottom">
+                                            <TextBlock Classes="label-overlay" Text="{Binding FrameLabelA}" />
+                                        </Border>
+                                        <Border Classes="label-overlay-bg" HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                                            <TextBlock Classes="label-overlay" Text="{Binding FrameLabelB}" />
+                                        </Border>
+                                    </Grid>
+                                    <!-- Single -->
+                                    <Grid IsVisible="{Binding IsSingle}">
+                                        <Image Source="{Binding ImageSingle}" Stretch="Uniform" />
+                                        <Image Source="{Binding DiffOverlay}" Stretch="Uniform" IsVisible="{Binding HighlightDifferences}" />
+                                        <Border Classes="label-overlay-bg">
+                                            <TextBlock Classes="label-overlay" Text="{Binding FrameLabelA}" />
+                                        </Border>
+                                    </Grid>
+                                </Grid>
+                            </data:ZoomPanPresenter>
+                            <Border Classes="hint-bar" IsHitTestVisible="False" IsVisible="{Binding SwipeHintVisible}">
+                                <TextBlock FontSize="11" Opacity="0.8"
+                                           Text="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.SwipeHint]}" />
+                            </Border>
+                        </Grid>
+                    </Border>
+                </Grid>
+
+                <!-- message bar -->
+                <Border
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    Margin="0,10,0,0"
+                    Padding="12,6"
+                    Background="{actipro:ThemeResource ControlBackgroundBrushEmphasizedDanger}"
+                    BorderBrush="{actipro:ThemeResource Container1BorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    IsHitTestVisible="False"
+                    IsVisible="{Binding IsMessageVisible}">
+                    <TextBlock Text="{Binding UserMessage}" />
+                </Border>
+
+                <!-- extracting frame indicator -->
+                <Border
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,0,10"
+                    Background="#CC000000"
+                    CornerRadius="4"
+                    Padding="12,4"
+                    IsHitTestVisible="False"
+                    IsVisible="{Binding IsExtractingFrame}">
+                    <TextBlock
+                        Foreground="White"
+                        FontSize="11"
+                        Text="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.ExtractingFrame]}" />
+                </Border>
+
+                <!-- computing differences indicator (sits above the extracting pill; both can run after a frame step) -->
+                <Border
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Bottom"
+                    Margin="0,0,0,38"
+                    Background="#CC000000"
+                    CornerRadius="4"
+                    Padding="12,4"
+                    IsHitTestVisible="False"
+                    IsVisible="{Binding IsComputingDiff}">
+                    <TextBlock
+                        Foreground="White"
+                        FontSize="11"
+                        Text="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.ComputingDiff]}" />
+                </Border>
+            </Grid>
+
+            <!-- ===== actions bar (mockup .cmp-actions) ===== -->
+            <Border
+                Grid.Row="3"
+                Padding="20,10"
+                Background="{actipro:ThemeResource Container2BackgroundBrush}"
+                BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
+                BorderThickness="0,1,0,0">
+                <DockPanel LastChildFill="False">
+                    <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="10">
+                        <Button Command="{Binding KeepLeftCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock VerticalAlignment="Center" FontSize="13"
+                                           Text="{Binding Source={x:Static app:App.Lang}, Path=[Comparer.KeepLeft]}" />
+                                <Border Classes="kbd"><TextBlock Text="A" /></Border>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding KeepRightCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock VerticalAlignment="Center" FontSize="13"
+                                           Text="{Binding Source={x:Static app:App.Lang}, Path=[Comparer.KeepRight]}" />
+                                <Border Classes="kbd"><TextBlock Text="D" /></Border>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding NotAMatchCommand}" IsEnabled="{Binding CanNavigateGroups}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock VerticalAlignment="Center" FontSize="13"
+                                           Text="{Binding Source={x:Static app:App.Lang}, Path=[Comparer.NotAMatch]}" />
+                                <Border Classes="kbd"><TextBlock Text="N" /></Border>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal" Spacing="5" VerticalAlignment="Center">
+                            <TextBlock FontSize="12.5" Opacity="0.6" VerticalAlignment="Center"
+                                       Text="{Binding Source={x:Static app:App.Lang}, Path=[Comparer.HintFrame]}" />
+                            <Border Classes="kbd"><TextBlock Text="&#8592;" /></Border>
+                            <Border Classes="kbd"><TextBlock Text="&#8594;" /></Border>
+                            <TextBlock FontSize="12.5" Opacity="0.6" VerticalAlignment="Center" Text="·" />
+                            <TextBlock FontSize="12.5" Opacity="0.6" VerticalAlignment="Center"
+                                       Text="{Binding Source={x:Static app:App.Lang}, Path=[Comparer.HintZoom]}" />
+                            <Border Classes="kbd"><TextBlock Text="Z" /></Border>
+                            <TextBlock FontSize="12.5" Opacity="0.6" VerticalAlignment="Center" Text="·" />
+                            <TextBlock FontSize="12.5" Opacity="0.6" VerticalAlignment="Center"
+                                       Text="{Binding Source={x:Static app:App.Lang}, Path=[Comparer.HintNextPair]}" />
+                            <Border Classes="kbd"><TextBlock Text="Space" /></Border>
+                        </StackPanel>
+                        <Button Padding="18,8" FontSize="13.5" FontWeight="SemiBold"
+                                Background="{actipro:ThemeResource ControlBackgroundBrushSolidAccent}"
+                                Command="{Binding NextGroupCommand}"
+                                IsVisible="{Binding CanNavigateGroups}">
+                            <StackPanel Orientation="Horizontal" Spacing="6">
+                                <TextBlock Text="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.NextGroup]}" />
+                                <TextBlock Text="&#9654;" FontSize="11" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <!-- loading overlay. Starts BELOW the titlebar row: covering it made the
+                 window uncloseable while a slow load ran (the "✕ Close comparer"
+                 button and caption area sat under the hit-testable dim layer). -->
+            <Border
+                Grid.Row="1"
+                Grid.RowSpan="3"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                Background="#80000000"
+                IsVisible="{Binding IsLoadingThumbnails}">
+                <StackPanel
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="8">
+                    <TextBlock HorizontalAlignment="Center" Text="{Binding Source={x:Static app:App.Lang}, Path=[ThumbnailComparerDialog.LoadingThumbnails]}" />
+                    <ProgressBar
+                        Width="300"
+                        Height="12"
+                        Maximum="1"
+                        Minimum="0"
+                        Value="{Binding LoadProgress}" />
+                    <TextBlock HorizontalAlignment="Center" Text="{Binding LoadProgressText}" />
+                    <Button
+                        Margin="0,8,0,0"
+                        HorizontalAlignment="Center"
+                        Padding="18,5"
+                        Command="{Binding CancelThumbnailLoadingCommand}"
+                        Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.Cancel]}" />
+                </StackPanel>
+            </Border>
+        </Grid>
+    </Border>
+</Window>

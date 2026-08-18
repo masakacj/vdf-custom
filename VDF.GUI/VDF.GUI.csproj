@@ -1,0 +1,96 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ApplicationIcon>Assets\icon.ico</ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Avalonia 12 compiles bindings by default; our views use reflection bindings
+         without x:DataType. Keep the v11 behavior until views are annotated. -->
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+    <!-- Native AOT publish: IL2104/IL3053 are per-assembly rollups for third-party
+         libraries (MemoryPack, ReactiveUI, ActiPro, DynamicExpresso, Microsoft.CSharp,
+         System.Linq.Expressions) saying they contain members the trimmer can't prove
+         safe. Triaged 2026-06: our usage of all of them is covered (MemoryPack
+         formatters registered statically; DynamicExpresso needs the reflection roots
+         declared on Utils/SelectionExpression.Compile - see #844).
+         Our own code publishes without IL warnings. -->
+    <NoWarn>$(NoWarn);IL2104;IL3053</NoWarn>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <PlatformTargets>x64;arm64</PlatformTargets>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <PlatformTargets>x64;arm64</PlatformTargets>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Update="**\*.xaml.cs">
+      <DependentUpon>%(Filename)</DependentUpon>
+    </Compile>
+    <AvaloniaResource Include="**\*.xaml">
+      <SubType>Designer</SubType>
+    </AvaloniaResource>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <AvaloniaResource Remove="Properties\**" />
+    <AvaloniaXaml Remove="Properties\**" />
+    <Compile Remove="Properties\**" />
+    <EmbeddedResource Remove="Properties\**" />
+    <None Remove="Properties\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="VDF.GUI.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="ActiproSoftware.Controls.Avalonia" Version="26.1.1" />
+    <PackageReference Include="Avalonia" Version="12.0.5" />
+<PackageReference Include="Avalonia.Desktop" Version="12.0.5" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.0.5" />
+    <PackageReference Include="DynamicExpresso.Core" Version="2.19.3" />
+    <PackageReference Include="ReactiveUI.Avalonia" Version="12.0.3" />
+    <PackageReference Include="System.CommandLine" Version="2.0.9" />
+    <PackageReference Include="System.IO.Hashing" Version="10.0.9" />
+    <PackageReference Include="Xaml.Behaviors.Avalonia" Version="12.0.5" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\VDF.Core\VDF.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AvaloniaResource Update="Assets\Locales\en.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </AvaloniaResource>
+    <AvaloniaResource Update="Assets\Locales\de.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </AvaloniaResource>
+    <AvaloniaResource Update="Assets\Locales\es.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </AvaloniaResource>
+    <AvaloniaResource Update="Assets\Locales\fr.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </AvaloniaResource>
+    <AvaloniaResource Update="Assets\Locales\ko.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </AvaloniaResource>
+    <AvaloniaResource Update="Assets\Locales\pt.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </AvaloniaResource>
+    <AvaloniaResource Update="Assets\Locales\zh-Hans.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </AvaloniaResource>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Update="Views\QualityOrderDialog.xaml.cs">
+      <DependentUpon>QualityOrderDialog.xaml</DependentUpon>
+    </Compile>
+    <Compile Update="Views\DatabaseViewer.xaml.cs">
+      <DependentUpon>DatabaseViewer.xaml</DependentUpon>
+    </Compile>
+    <Compile Update="Views\CustomSelectionView.xaml.cs">
+      <DependentUpon>CustomSelectionView.xaml</DependentUpon>
+    </Compile>
+    <Compile Update="Views\ThumbnailComparer.xaml.cs">
+      <DependentUpon>ThumbnailComparer.xaml</DependentUpon>
+    </Compile>
+  </ItemGroup>
+</Project>
