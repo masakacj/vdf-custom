@@ -1,0 +1,78 @@
+name: Sync VDF upstream
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/sync-upstream.yml
+  workflow_dispatch:
+  schedule:
+    - cron: '23 18 * * 0'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vdf-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout private repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Mirror upstream and bootstrap custom main
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          BOOTSTRAP=0
+          if [ ! -f VideoDuplicateFinder.sln ]; then
+            BOOTSTRAP=1
+          fi
+
+          cp .github/workflows/sync-upstream.yml /tmp/sync-upstream.yml
+          if [ -f CUSTOMIZATION.md ]; then
+            cp CUSTOMIZATION.md /tmp/CUSTOMIZATION.md
+          fi
+
+          git remote remove upstream 2>/dev/null || true
+          git remote add upstream https://github.com/0x90d/videoduplicatefinder.git
+          git fetch --prune upstream master
+
+          # Keep an exact upstream mirror branch for comparisons and future merges.
+          git push origin +refs/remotes/upstream/master:refs/heads/upstream-master
+
+          if [ "$BOOTSTRAP" = "1" ]; then
+            echo "Bootstrapping main from upstream/master"
+            git reset --hard upstream/master
+
+            # Upstream workflows are retained for reference but disabled on the custom
+            # branch so this private fork cannot accidentally publish upstream releases.
+            if [ -d .github/workflows ]; then
+              mkdir -p .github/upstream-workflows-disabled
+              for f in .github/workflows/*; do
+                [ -f "$f" ] || continue
+                mv "$f" ".github/upstream-workflows-disabled/$(basename "$f").disabled"
+              done
+            fi
+
+            mkdir -p .github/workflows
+            cp /tmp/sync-upstream.yml .github/workflows/sync-upstream.yml
+            if [ -f /tmp/CUSTOMIZATION.md ]; then
+              cp /tmp/CUSTOMIZATION.md CUSTOMIZATION.md
+            fi
+
+            git add -A
+            git commit -m "chore: bootstrap custom main from upstream master"
+            git push origin HEAD:main --force
+          else
+            echo "upstream-master updated. main was left unchanged for safe manual integration."
+          fi
