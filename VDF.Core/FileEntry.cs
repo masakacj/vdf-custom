@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -35,14 +35,53 @@ namespace VDF.Core {
 			Folder = fileInfo.Directory?.FullName ?? string.Empty;
 			var extension = fileInfo.Extension;
 			IsImage = FileUtils.ImageExtensions.Any(x => extension.EndsWith(x, StringComparison.OrdinalIgnoreCase));
+
+			if (EverythingIpcEnumerator.TryGetIndexedMetadata(fileInfo, out EverythingIndexedFileMetadata indexed) &&
+				indexed.HasFastIdentity) {
+				// Everything indexes size + modified time by default, so unchanged database
+				// entries can be refreshed without a per-file metadata syscall. Date-created is
+				// deliberately not requested from Everything because it is optional and asking
+				// for an unindexed property makes Everything gather it from the filesystem.
+				DateModified = indexed.LastWriteTimeUtc!.Value;
+				FileSize = indexed.Length!.Value;
+
+				// DatabaseUtils is already loaded before BuildFileList enumerates includes. A
+				// temporary path-only key gives O(1) access to the old creation time without
+				// touching disk. A genuinely new/moved path pays one normal metadata read.
+				var lookup = new FileEntry { _Path = _Path, Folder = Folder };
+				if (DatabaseUtils.Database.TryGetValue(lookup, out FileEntry? existing)) {
+					DateCreated = indexed.CreationTimeUtc ?? existing.DateCreated;
+					if (indexed.Attributes is FileAttributes indexedAttributes) {
+						Flags.Set(EntryFlags.ReparsePoint, (indexedAttributes & FileAttributes.ReparsePoint) != 0);
+						Flags.Set(EntryFlags.ReparsePointChecked);
+					}
+					else if (existing.Flags.Has(EntryFlags.ReparsePointChecked)) {
+						Flags.Set(EntryFlags.ReparsePoint, existing.Flags.Has(EntryFlags.ReparsePoint));
+						Flags.Set(EntryFlags.ReparsePointChecked);
+					}
+				}
+				else {
+					// New/renamed files must enter the DB with an accurate creation time. This is
+					// the only normal Everything path that stats the media entry, so incremental
+					// rescans touch only genuinely new/moved files rather than the whole library.
+					DateCreated = indexed.CreationTimeUtc ?? fileInfo.CreationTimeUtc;
+					FileAttributes attributes = indexed.Attributes ?? fileInfo.Attributes;
+					if (attributes != (FileAttributes)(-1)) {
+						Flags.Set(EntryFlags.ReparsePoint, (attributes & FileAttributes.ReparsePoint) != 0);
+						Flags.Set(EntryFlags.ReparsePointChecked);
+					}
+				}
+				return;
+			}
+
+			// Native enumeration / incomplete Everything metadata: preserve the original
+			// FileInfo behavior exactly.
 			DateCreated = fileInfo.CreationTimeUtc;
 			DateModified = fileInfo.LastWriteTimeUtc;
 			FileSize = fileInfo.Length;
-			// Attributes are already populated on enumerated FileInfos, so stamping the
-			// reparse flag here is free and spares the scan a per-file syscall later.
-			FileAttributes attributes = fileInfo.Attributes;
-			if (attributes != (FileAttributes)(-1)) {
-				Flags.Set(EntryFlags.ReparsePoint, (attributes & FileAttributes.ReparsePoint) != 0);
+			FileAttributes nativeAttributes = fileInfo.Attributes;
+			if (nativeAttributes != (FileAttributes)(-1)) {
+				Flags.Set(EntryFlags.ReparsePoint, (nativeAttributes & FileAttributes.ReparsePoint) != 0);
 				Flags.Set(EntryFlags.ReparsePointChecked);
 			}
 		}
