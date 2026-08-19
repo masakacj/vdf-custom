@@ -51,7 +51,7 @@ namespace VDF.GUI.ViewModels {
 			var selected = SelectedHeaders();
 			if (selected.Count == 0)
 				return;
-			await ApplicationHelpers.MainWindowDataContext.ConsolidateSelectedResourceSeriesAsync(selected);
+			await ApplicationHelpers.MainWindowDataContext.ConsolidateSelectedResourceSeriesInteractiveAsync(selected);
 		}
 
 		static void RefreshSwitcher() {
