@@ -1,0 +1,30 @@
+name: Wire v4.1.3 folder target candidates
+on:
+  push:
+    branches: [feature/intuitive-folder-merge-decisive-best-zh]
+    paths: ['.github/workflows/v413-wire-target-candidates.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('VDF.GUI/ViewModels/MainWindowVM_SeriesConsolidation.cs')
+          s = p.read_text(encoding='utf-8')
+          old = '''\t\t\tvar dialog = new ResourceConsolidationDialog(\n\t\t\t\theaders.Count == 1\n\t\t\t\t\t? $"已选择系列：{headers[0].TargetFolder}"\n\t\t\t\t\t: $"已选择 {headers.Count:N0} 个系列。",\n\t\t\t\tinitial,\n\t\t\t\theaders.Count > 1);'''
+          new = '''\t\t\tvar dialog = new ResourceConsolidationDialog(\n\t\t\t\theaders.Count == 1\n\t\t\t\t\t? $"已选择系列：{headers[0].TargetFolder}"\n\t\t\t\t\t: $"已选择 {headers.Count:N0} 个系列。",\n\t\t\t\tinitial,\n\t\t\t\theaders.Count > 1,\n\t\t\t\theaders.Count == 1\n\t\t\t\t\t? new[] { headers[0].TargetFolder }.Concat(headers[0].SourceFolders).ToList()\n\t\t\t\t\t: null);'''
+          if s.count(old) != 1:
+              raise SystemExit('constructor call not found exactly once')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8', newline='')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v413-wire-target-candidates.yml
+          git add VDF.GUI/ViewModels/MainWindowVM_SeriesConsolidation.cs
+          git commit -m "ux: offer both folder roots as merge targets"
+          git push origin HEAD:feature/intuitive-folder-merge-decisive-best-zh
