@@ -22,7 +22,6 @@ namespace VDF.GUI.ViewModels {
 			var comparer = CoreUtils.IsWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 			var original = new Dictionary<string, long>(comparer);
 			var final = new Dictionary<string, (long Bytes, string Marker)>(comparer);
-			var existingAtDestination = new HashSet<string>(comparer);
 			var loserPaths = new HashSet<string>(comparer);
 			var relationLines = new List<string>();
 			var treeSections = new List<string>();
@@ -42,7 +41,6 @@ namespace VDF.GUI.ViewModels {
 				var section = new Dictionary<string, (long Bytes, string Marker)>(comparer);
 				foreach (var file in Scanner.GetRecursiveFolderMediaFiles(plan.DestinationRoot)) {
 					string full = FullPreviewPath(file.Path);
-					existingAtDestination.Add(full);
 					section[full] = (Math.Max(0, file.SizeBytes), "＝");
 				}
 
@@ -69,12 +67,17 @@ namespace VDF.GUI.ViewModels {
 					final[entry.Key] = entry.Value;
 
 				relationLines.Add(
-					$"【目标】{plan.Header.TargetFolder}\n" +
-					$"  {plan.Header.TargetFiles:N0} 文件 · {plan.Header.TargetBytes.BytesToString()}\n" +
-					$"【来源】{plan.Header.SourceFolder}\n" +
-					$"  {plan.Header.SourceFiles:N0} 文件 · {plan.Header.SourceBytes.BytesToString()}\n" +
+					$"【目标】{plan.Header.TargetFolder}
+" +
+					$"  {plan.Header.TargetFiles:N0} 文件 · {plan.Header.TargetBytes.BytesToString()}
+" +
+					$"【来源】{plan.Header.SourceFolder}
+" +
+					$"  {plan.Header.SourceFiles:N0} 文件 · {plan.Header.SourceBytes.BytesToString()}
+" +
 					$"重叠率 {plan.Header.MinimumFolderMatchPercent:0.#}% · 资源组 {plan.Header.DisplayedResourceGroups:N0} · " +
-					$"明确 BEST {plan.Header.ConfirmedMatches:N0} · 人工复核 {plan.Header.ReviewOnlyMatches:N0}\n" +
+					$"明确 BEST {plan.Header.ConfirmedMatches:N0} · 人工复核 {plan.Header.ReviewOnlyMatches:N0}
+" +
 					$"最终目标：{plan.DestinationRoot}");
 				treeSections.Add(BuildOneTreeSection(plan.DestinationRoot, section));
 			}
@@ -90,29 +93,43 @@ namespace VDF.GUI.ViewModels {
 			int conflicts = plans.Sum(plan => plan.PathConflictCount);
 			int skipped = plans.Sum(plan => plan.UniqueFilesSkippedByCoverage);
 			long loserBytes = loserPaths.Sum(path => original.TryGetValue(path, out long size) ? size : 0);
-			long reclaim = Math.Max(0, originalBytes - finalBytes);
+			// Moving a keeper does not free space; only confirmed loser copies do.
+			long reclaim = loserBytes;
 
 			string before =
-				$"涉及 {original.Count:N0} 个已索引文件\n" +
-				$"合计 {originalBytes.BytesToString()}\n" +
+				$"涉及 {original.Count:N0} 个已索引文件
+" +
+				$"合计 {originalBytes.BytesToString()}
+" +
 				$"系列 {plans.Count:N0} 个";
 			string changes =
-				$"＋ 独有资源迁入 {uniqueMoves:N0}\n" +
-				$"↑ BEST 移动 {keeperMoves:N0}（替换 {replacements:N0}）\n" +
-				$"－ 重复副本待安全清理 {loserPaths.Count:N0} · {loserBytes.BytesToString()}\n" +
+				$"＋ 独有资源迁入 {uniqueMoves:N0}
+" +
+				$"↑ BEST 移动 {keeperMoves:N0}（替换 {replacements:N0}）
+" +
+				$"－ 重复副本待安全清理 {loserPaths.Count:N0} · {loserBytes.BytesToString()}
+" +
 				$"⚠ 人工 {manual:N0} · 冲突 {conflicts:N0} · 覆盖不足跳过 {skipped:N0}";
 			string after =
-				$"目标树约 {final.Count:N0} 个文件\n" +
-				$"约 {finalBytes.BytesToString()}\n" +
+				$"目标树约 {final.Count:N0} 个文件
+" +
+				$"约 {finalBytes.BytesToString()}
+" +
 				$"完成重复副本清理后预计释放 {reclaim.BytesToString()}";
 			string scope = plans.Count == 1
 				? $"1 个系列 · {plans[0].Header.MinimumFolderMatchPercent:0.#}% 文件夹重叠 · 目标 {plans[0].DestinationRoot}"
 				: $"{plans.Count:N0} 个系列 · 按各自系列根目录保留相对结构";
-			string tree = string.Join("\n\n", treeSections);
+			string tree = string.Join("
+
+", treeSections);
 			if (manual + conflicts + skipped > 0)
-				tree += $"\n\n⚠ {manual + conflicts + skipped:N0} 项未纳入自动目标树，保持原位置供人工处理。";
+				tree += $"
+
+⚠ {manual + conflicts + skipped:N0} 项未纳入自动目标树，保持原位置供人工处理。";
 			return new ResourceSeriesConsolidationPreview(
-				scope, before, changes, after, string.Join("\n\n", relationLines), tree);
+				scope, before, changes, after, string.Join("
+
+", relationLines), tree);
 		}
 
 		internal static string BuildOneTreeSection(
