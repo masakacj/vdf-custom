@@ -38,15 +38,21 @@ public class DecisiveBestAndMergePreviewTests {
     };
 
     [Fact]
-    public void DifferentFileSizeAlone_DoesNotCreateBestBadge() {
+    public void DifferentFileSizeAlone_GetsRecommendationButNotConfirmedBest() {
         string root = Path.Combine(Path.GetTempPath(), "vdf-best-size-neutral");
         var small = Video(Path.Combine(root, "small.mkv"), size: 500_000);
         var large = Video(Path.Combine(root, "large.mkv"), size: 2_000_000);
 
+        BestRecommendation recommendation = MainWindowVM.RecommendBest(new[] { small, large });
         var (best, tooltip) = MainWindowVM.PickDecisiveBestForResults(new[] { small, large });
 
-        Assert.Null(best);
-        Assert.Null(tooltip);
+        // Every group now gets a likely BEST recommendation. Physical size is only the
+        // last, tiny tie-breaker and can never make an ambiguous group safe for automation.
+        Assert.Same(large, recommendation.Winner);
+        Assert.False(recommendation.IsConfirmed);
+        Assert.Contains("弱参考", recommendation.Reason);
+        Assert.Same(large, best);
+        Assert.NotNull(tooltip);
         Assert.False(MainWindowVM.TryPickDecisiveQualityWinner(new[] { small, large }, out _));
     }
 
@@ -58,12 +64,18 @@ public class DecisiveBestAndMergePreviewTests {
         var higherQualitySmallFile = Video(
             Path.Combine(root, "small-high-bitrate.mkv"), size: 2_000_000, bitrate: 12_000);
 
+        BestRecommendation recommendation = MainWindowVM.RecommendBest(
+            new[] { lowerQualityLargeFile, higherQualitySmallFile });
         var (best, tooltip) = MainWindowVM.PickDecisiveBestForResults(
             new[] { lowerQualityLargeFile, higherQualitySmallFile });
 
+        Assert.True(recommendation.IsConfirmed);
+        Assert.Same(higherQualitySmallFile, recommendation.Winner);
         Assert.Same(higherQualitySmallFile, best);
         Assert.NotNull(tooltip);
-        Assert.Contains("文件大小不参与 BEST 判定", tooltip!);
+        Assert.Contains("视频码率更高", tooltip!);
+        // The smaller physical file still wins because actual quality evidence outranks size.
+        Assert.True(higherQualitySmallFile.ItemInfo.SizeLong < lowerQualityLargeFile.ItemInfo.SizeLong);
     }
 
     [Fact]
