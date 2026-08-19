@@ -1,0 +1,155 @@
+name: Apply v4.1.3 merge UX refactor
+
+on:
+  push:
+    branches: [feature/intuitive-folder-merge-decisive-best-zh]
+    paths:
+      - '.github/workflows/v413-apply-refactor.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Apply targeted refactor
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def read(path):
+              return Path(path).read_text(encoding='utf-8')
+
+          def write(path, text):
+              Path(path).write_text(text, encoding='utf-8', newline='')
+
+          def replace_once(path, old, new):
+              text = read(path)
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one match, got {count}\n--- needle ---\n{old[:500]}')
+              write(path, text.replace(old, new, 1))
+
+          # 1. Normal results MUST use the same conservative BEST gate as consolidation.
+          replace_once(
+              'VDF.GUI/ViewModels/MainWindowVM_Results.cs',
+              '''\t\t\t\tPickBest = members => {\n\t\t\t\t\tvar (keep, decidedBy) = VDF.Core.Utils.QualityRanker.PickKeeperWithReason(\n\t\t\t\t\t\tmembers.ToList(), ResolveCriteria(QualityCriteriaOrder), d => d.ItemInfo.IsImage);\n\t\t\t\t\treturn (keep, BestBadgeTooltip(decidedBy));\n\t\t\t\t},''',
+              '''\t\t\t\t// The visible BEST badge uses the same conservative gate as destructive\n\t\t\t\t// consolidation. File size and the legacy configurable quality order do not\n\t\t\t\t// participate: ties/trade-offs simply show no BEST badge.\n\t\t\t\tPickBest = members => PickDecisiveBestForResults(members),''')
+
+          replace_once(
+              'VDF.GUI/ViewModels/MainWindowVM_Results.cs',
+              '''\t\tpublic ReactiveCommand<ResultsGroupHeader, Unit> KeepBestInGroupHeaderCommand => ReactiveCommand.Create<ResultsGroupHeader>(header => {\n\t\t\tif (header != null) KeepBestInGroup(header.GroupId);\n\t\t});''',
+              '''\t\tpublic ReactiveCommand<ResultsGroupHeader, Unit> KeepBestInGroupHeaderCommand => ReactiveCommand.Create<ResultsGroupHeader>(header => {\n\t\t\tif (header == null) return;\n\t\t\tvar members = header.Rows.Select(row => row.Item).ToList();\n\t\t\tif (!TryPickDecisiveQualityWinner(members, out DuplicateItemVM winner))\n\t\t\t\treturn;\n\t\t\tusing (BeginSelectionUndoBatch()) {\n\t\t\t\tforeach (DuplicateItemVM item in members)\n\t\t\t\t\titem.Checked = !ReferenceEquals(item, winner);\n\t\t\t}\n\t\t\tRefreshGroupStats();\n\t\t});''')
+
+          replace_once(
+              'VDF.GUI/ViewModels/MainWindowVM_PikPakFolderCoverageSafety.cs',
+              '''\t\tstatic bool QualityDominates(\n''',
+              '''\t\t/// <summary>BEST presentation for the ordinary result list. No decisive winner means no badge.</summary>\n\t\tinternal static (DuplicateItemVM? Best, string? Tooltip) PickDecisiveBestForResults(\n\t\t\tIReadOnlyList<DuplicateItemVM> candidates) {\n\t\t\tif (!TryPickDecisiveQualityWinner(candidates, out DuplicateItemVM winner))\n\t\t\t\treturn (null, null);\n\t\t\treturn (winner,\n\t\t\t\t"BEST：该副本对同组其他副本存在唯一且无冲突的质量优势。" +\n\t\t\t\t"文件大小不参与 BEST 判定；质量打平、关键元数据不足或指标互有胜负时不会显示 BEST。");\n\t\t}\n\n\t\tstatic bool QualityDominates(\n''')
+
+          # Size remains useful information, but never receives quality win/lose colors.
+          replace_once(
+              'VDF.GUI/Views/DuplicateResultsView.xaml',
+              '''                  <TextBlock FontSize="12" Classes="metric-diff"\n                             Classes.hi="{Binding Item.ItemInfo.IsBestSize}"\n                             Classes.lo="{Binding !Item.ItemInfo.IsBestSize}"\n                             Classes.eq="{Binding Item.SizeDiff, Converter={StaticResource EqualDiffConverter}}"\n                             Classes.diffing="{Binding Item.SizeDiff, Converter={x:Static ObjectConverters.IsNotNull}}">''',
+              '''                  <TextBlock FontSize="12" Classes="metric-diff"\n                             Classes.eq="{Binding Item.SizeDiff, Converter={StaticResource EqualDiffConverter}}"\n                             Classes.diffing="{Binding Item.SizeDiff, Converter={x:Static ObjectConverters.IsNotNull}}"\n                             ToolTip.Tip="文件大小仅供参考，不参与 BEST 画质判定。">''')
+
+          # 2. Enrich the folder relation model for a visual left/overlap/right card.
+          replace_once(
+              'VDF.GUI/ViewModels/Results/ResourceResultsBuilder.cs',
+              '''\t\tinternal double SourceCoverage => TargetIsA ? Option.CoverageB : Option.CoverageA;\n\t\tinternal double MatchPercent => Option.FolderMatchPercent;''',
+              '''\t\tinternal double TargetCoverage => TargetIsA ? Option.CoverageA : Option.CoverageB;\n\t\tinternal double SourceCoverage => TargetIsA ? Option.CoverageB : Option.CoverageA;\n\t\tinternal double MatchPercent => Option.FolderMatchPercent;''')
+
+          replace_once(
+              'VDF.GUI/ViewModels/Results/ResourceResultsBuilder.cs',
+              '''\t\t\tSourceCoverage = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.SourceCoverage);\n\t\t\tMinimumFolderMatchPercent = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.MatchPercent);''',
+              '''\t\t\tTargetCoverage = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.TargetCoverage);\n\t\t\tSourceCoverage = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.SourceCoverage);\n\t\t\tMinimumFolderMatchPercent = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.MatchPercent);''')
+
+          replace_once(
+              'VDF.GUI/ViewModels/Results/ResourceResultsBuilder.cs',
+              '''\t\tpublic int SourceResources { get; }\n\t\tpublic double SourceCoverage { get; }\n\t\tpublic double MinimumFolderMatchPercent { get; }''',
+              '''\t\tpublic int SourceResources { get; }\n\t\tpublic double TargetCoverage { get; }\n\t\tpublic double SourceCoverage { get; }\n\t\tpublic double MinimumFolderMatchPercent { get; }''')
+
+          replace_once(
+              'VDF.GUI/ViewModels/Results/ResourceResultsBuilder.cs',
+              '''\t\tpublic string DirectionLine => SourceFolderCount == 1\n''',
+              '''\t\tpublic string TargetRoleLabel => "建议目标";\n\t\tpublic string SourceRoleLabel => SourceFolderCount == 1 ? "来源副本" : $"{SourceFolderCount:N0} 个来源副本";\n\t\tpublic string TargetMeta => $"{TargetFiles:N0} 文件 · {TargetBytes.BytesToString()} · 约 {TargetResources:N0} 资源";\n\t\tpublic string SourceMeta => $"{SourceFiles:N0} 文件 · {SourceBytes.BytesToString()} · 约 {SourceResources:N0} 资源";\n\t\tpublic string OverlapText => $"{MinimumFolderMatchPercent:0.#}%";\n\t\tpublic string OverlapCaption => $"重叠率 · {DisplayedResourceGroups:N0} 个资源组";\n\t\tpublic string CoverageText => $"目标覆盖 {TargetCoverage:0.#}% · 来源覆盖 {SourceCoverage:0.#}%";\n\t\tpublic string BestReadinessText => $"明确 BEST {ConfirmedMatches:N0} · 人工复核 {ReviewOnlyMatches:N0}";\n\t\tpublic ReactiveCommand<Unit, Unit> PreviewConsolidationCommand =>\n\t\t\tReactiveCommand.CreateFromTask(() => ApplicationHelpers.MainWindowDataContext\n\t\t\t\t.ConsolidateSelectedResourceSeriesAsync(new[] { this }));\n\n\t\tpublic string DirectionLine => SourceFolderCount == 1\n''')
+
+          # Replace the long green text strip with a real folder comparison card.
+          app = read('VDF.GUI/App.xaml')
+          pattern = re.compile(r'        <DataTemplate DataType="vm:ResourceRelationHeader">.*?        </DataTemplate>\n\n        <DataTemplate DataType="vm:ResourceUnassignedHeader">', re.S)
+          replacement = '''        <DataTemplate DataType="vm:ResourceRelationHeader">\n            <Border\n                Margin="8,10,8,2"\n                Padding="14,12"\n                CornerRadius="9"\n                Background="{actipro:ThemeResource Container2BackgroundBrush}"\n                BorderBrush="{actipro:ThemeResource Container3BorderBrush}"\n                BorderThickness="1">\n                <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="10">\n                    <DockPanel LastChildFill="True">\n                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="7">\n                            <Border Padding="7,2" CornerRadius="5" BorderThickness="1" BorderBrush="{DynamicResource VdfGoodBorderBrush}" Background="{DynamicResource VdfGoodSoftBrush}">\n                                <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource VdfGoodBrush}" Text="{Binding ActionLabel}" />\n                            </Border>\n                            <Button Padding="10,3" FontSize="11.5" Command="{Binding PreviewConsolidationCommand}" Content="预览合并" />\n                        </StackPanel>\n                        <CheckBox DockPanel.Dock="Left" Margin="0,0,9,0" VerticalAlignment="Center" IsChecked="{Binding IsSelected, Mode=TwoWay}" ToolTip.Tip="选择此文件夹关系参加批量合并；不会改变普通文件删除勾选" />\n                        <StackPanel>\n                            <TextBlock FontSize="13.5" FontWeight="SemiBold" Text="文件夹合并候选" />\n                            <TextBlock FontSize="10.8" Opacity="0.58" Text="比较整棵系列目录，不把日期/主题子目录拆成独立关系" />\n                        </StackPanel>\n                    </DockPanel>\n\n                    <Grid Grid.Row="1" ColumnDefinitions="*,126,*" ColumnSpacing="10">\n                        <Border Padding="11" CornerRadius="7" BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">\n                            <StackPanel Spacing="5">\n                                <TextBlock FontSize="10.5" Opacity="0.58" Text="{Binding TargetRoleLabel}" />\n                                <TextBlock FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding TargetFolder}" />\n                                <TextBlock FontSize="11.3" Opacity="0.74" TextWrapping="Wrap" Text="{Binding TargetMeta}" />\n                            </StackPanel>\n                        </Border>\n                        <StackPanel Grid.Column="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="3">\n                            <TextBlock HorizontalAlignment="Center" FontSize="22" FontWeight="Bold" Foreground="{DynamicResource VdfGoodBrush}" Text="{Binding OverlapText}" />\n                            <TextBlock HorizontalAlignment="Center" FontSize="10.5" Opacity="0.62" Text="{Binding OverlapCaption}" />\n                            <TextBlock HorizontalAlignment="Center" FontSize="15" Opacity="0.55" Text="⇄" />\n                        </StackPanel>\n                        <Border Grid.Column="2" Padding="11" CornerRadius="7" BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">\n                            <StackPanel Spacing="5">\n                                <TextBlock FontSize="10.5" Opacity="0.58" Text="{Binding SourceRoleLabel}" />\n                                <TextBlock FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding SourceFolder}" />\n                                <TextBlock FontSize="11.3" Opacity="0.74" TextWrapping="Wrap" Text="{Binding SourceMeta}" />\n                            </StackPanel>\n                        </Border>\n                    </Grid>\n\n                    <DockPanel Grid.Row="2" LastChildFill="True">\n                        <TextBlock DockPanel.Dock="Right" Margin="14,0,0,0" FontSize="11" Opacity="0.68" Text="{Binding BestReadinessText}" />\n                        <TextBlock FontSize="11" FontWeight="SemiBold" Text="{Binding CoverageText}" />\n                        <TextBlock Margin="12,0,0,0" FontSize="10.8" Opacity="0.58" TextWrapping="Wrap" Text="{Binding ActionHint}" />\n                    </DockPanel>\n                </Grid>\n            </Border>\n        </DataTemplate>\n\n        <DataTemplate DataType="vm:ResourceUnassignedHeader">'''
+          app2, count = pattern.subn(replacement, app, count=1)
+          if count != 1:
+              raise SystemExit(f'VDF.GUI/App.xaml: relation template replacement count {count}')
+          write('VDF.GUI/App.xaml', app2)
+
+          # 3. Series consolidation preview + allow verified replacement of a same-group target copy.
+          replace_once(
+              'VDF.GUI/ViewModels/MainWindowVM_SeriesConsolidation.cs',
+              '''\t\tinternal required bool KeeperNeedsMove { get; init; }\n\t}\n''',
+              '''\t\tinternal required bool KeeperNeedsMove { get; init; }\n\t\tinternal DuplicateItemVM? DestinationMember { get; init; }\n\t}\n''')
+
+          series = read('VDF.GUI/ViewModels/MainWindowVM_SeriesConsolidation.cs')
+          preview_pattern = re.compile(r'\n\t\t\tstring preview =\n.*?\n\t\t\tif \(confirm != MessageBoxButtons\.Yes\)\n\t\t\t\treturn;\n', re.S)
+          preview_replacement = '''\n\t\t\tResourceSeriesConsolidationPreview visualPreview = BuildResourceSeriesConsolidationPreview(plans);\n\t\t\tvar previewDialog = new ResourceConsolidationPreviewDialog(\n\t\t\t\tvisualPreview.Scope, visualPreview.Before, visualPreview.Changes, visualPreview.After,\n\t\t\t\tvisualPreview.Relations, visualPreview.Tree);\n\t\t\tbool? confirmed = await previewDialog.ShowDialog<bool?>(ApplicationHelpers.MainWindow);\n\t\t\tif (confirmed != true)\n\t\t\t\treturn;\n'''
+          series2, count = preview_pattern.subn(preview_replacement, series, count=1)
+          if count != 1:
+              raise SystemExit(f'Series preview replacement count {count}')
+          write('VDF.GUI/ViewModels/MainWindowVM_SeriesConsolidation.cs', series2)
+
+          replace_once(
+              'VDF.GUI/ViewModels/MainWindowVM_SeriesConsolidation.cs',
+              '''\t\t\t\tstring source = Path.GetFullPath(keeper.ItemInfo.Path);\n\t\t\t\tbool samePath = source.Equals(destination, comparison);\n\t\t\t\tif ((!samePath && (File.Exists(destination) || Directory.Exists(destination))) || !plannedDestinations.Add(destination)) {\n\t\t\t\t\tplan.PathConflictCount++;\n\t\t\t\t\tplan.ManualReviewGroupIds.Add(matchGroup.Key);\n\t\t\t\t\tcontinue;\n\t\t\t\t}\n\n\t\t\t\tplan.Groups.Add(new ResourceSeriesGroupPlan {\n\t\t\t\t\tGroupId = matchGroup.Key,\n\t\t\t\t\tKeeper = keeper,\n\t\t\t\t\tLosers = candidates.Where(item => !ReferenceEquals(item, keeper)).ToList(),\n\t\t\t\t\tSourceRoot = sourceRoot,\n\t\t\t\t\tDestinationPath = destination,\n\t\t\t\t\tKeeperNeedsMove = !samePath,\n\t\t\t\t});''',
+              '''\t\t\t\tstring source = Path.GetFullPath(keeper.ItemInfo.Path);\n\t\t\t\tbool samePath = source.Equals(destination, comparison);\n\t\t\t\tDuplicateItemVM? destinationMember = candidates.FirstOrDefault(item =>\n\t\t\t\t\t!ReferenceEquals(item, keeper) && Path.GetFullPath(item.ItemInfo.Path).Equals(destination, comparison));\n\t\t\t\tbool destinationIsGroupDuplicate = destinationMember != null;\n\t\t\t\tif ((!samePath && (Directory.Exists(destination) || (File.Exists(destination) && !destinationIsGroupDuplicate))) ||\n\t\t\t\t\t!plannedDestinations.Add(destination)) {\n\t\t\t\t\tplan.PathConflictCount++;\n\t\t\t\t\tplan.ManualReviewGroupIds.Add(matchGroup.Key);\n\t\t\t\t\tcontinue;\n\t\t\t\t}\n\n\t\t\t\tplan.Groups.Add(new ResourceSeriesGroupPlan {\n\t\t\t\t\tGroupId = matchGroup.Key,\n\t\t\t\t\tKeeper = keeper,\n\t\t\t\t\tLosers = candidates.Where(item => !ReferenceEquals(item, keeper)).ToList(),\n\t\t\t\t\tSourceRoot = sourceRoot,\n\t\t\t\t\tDestinationPath = destination,\n\t\t\t\t\tKeeperNeedsMove = !samePath,\n\t\t\t\t\tDestinationMember = destinationMember,\n\t\t\t\t});''')
+
+          replace_once(
+              'VDF.GUI/ViewModels/MainWindowVM_SeriesConsolidation.cs',
+              '''\t\t\tvar successfulLosers = new List<DuplicateItemVM>();\n\t\t\tvar keeperPathUpdates = new List<(DuplicateItemVM Item, string Path)>();''',
+              '''\t\t\tvar successfulLosers = new List<DuplicateItemVM>();\n\t\t\tvar replacedDestinationMembers = new List<DuplicateItemVM>();\n\t\t\tvar keeperPathUpdates = new List<(DuplicateItemVM Item, string Path)>();''')
+
+          replace_once(
+              'VDF.GUI/ViewModels/MainWindowVM_SeriesConsolidation.cs',
+              '''\t\t\t\t\t\tSafeMoveResult move = SafeFileTransfer.MoveVerifiedExact(oldPath, group.DestinationPath);\n\t\t\t\t\t\tif (!move.Success) {''',
+              '''\t\t\t\t\t\tbool replacingGroupDuplicate = group.DestinationMember != null && File.Exists(group.DestinationPath);\n\t\t\t\t\t\tSafeMoveResult move = replacingGroupDuplicate\n\t\t\t\t\t\t\t? SafeFileTransfer.ReplaceVerifiedExact(oldPath, group.DestinationPath)\n\t\t\t\t\t\t\t: SafeFileTransfer.MoveVerifiedExact(oldPath, group.DestinationPath);\n\t\t\t\t\t\tif (!move.Success) {''')
+
+          replace_once(
+              'VDF.GUI/ViewModels/MainWindowVM_SeriesConsolidation.cs',
+              '''\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tresult.KeeperMovesSucceeded++;\n\t\t\t\t\t\t\tif (dbEntry != null)\n\t\t\t\t\t\t\t\tScanEngine.UpdateFilePathInDatabase(move.NewPath, dbEntry);\n\t\t\t\t\t\t\tkeeperPathUpdates.Add((group.Keeper, move.NewPath));\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\tif (safe) {\n\t\t\t\t\t\tresult.GroupsPrepared++;\n\t\t\t\t\t\tsuccessfulLosers.AddRange(group.Losers);\n\t\t\t\t\t}\n''',
+              '''\t\t\t\t\t\telse {\n\t\t\t\t\t\t\tresult.KeeperMovesSucceeded++;\n\t\t\t\t\t\t\tif (replacingGroupDuplicate && group.DestinationMember != null) {\n\t\t\t\t\t\t\t\tif (!ScanEngine.CommitConsolidationDatabaseChange(\n\t\t\t\t\t\t\t\t\toldPath, move.NewPath, new[] { group.DestinationMember.ItemInfo.Path }, out string dbError))\n\t\t\t\t\t\t\t\t\tLogger.Instance.Warn($"Series consolidation installed BEST but database replacement needs rescan: {dbError}");\n\t\t\t\t\t\t\t\treplacedDestinationMembers.Add(group.DestinationMember);\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t\telse if (dbEntry != null)\n\t\t\t\t\t\t\t\tScanEngine.UpdateFilePathInDatabase(move.NewPath, dbEntry);\n\t\t\t\t\t\t\tkeeperPathUpdates.Add((group.Keeper, move.NewPath));\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\tif (safe) {\n\t\t\t\t\t\tresult.GroupsPrepared++;\n\t\t\t\t\t\tsuccessfulLosers.AddRange(group.Losers.Where(loser =>\n\t\t\t\t\t\t\t!ReferenceEquals(loser, group.DestinationMember)));\n\t\t\t\t\t}\n''')
+
+          replace_once(
+              'VDF.GUI/ViewModels/MainWindowVM_SeriesConsolidation.cs',
+              '''\t\t\tforeach (var update in keeperPathUpdates)\n\t\t\t\tupdate.Item.ItemInfo.Path = update.Path;\n\n\t\t\tusing (var undoBatch = BeginSelectionUndoBatch()) {''',
+              '''\t\t\tforeach (var update in keeperPathUpdates)\n\t\t\t\tupdate.Item.ItemInfo.Path = update.Path;\n\t\t\tforeach (DuplicateItemVM replaced in replacedDestinationMembers\n\t\t\t\t.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance))\n\t\t\t\tDuplicates.Remove(replaced);\n\n\t\t\tusing (var undoBatch = BeginSelectionUndoBatch()) {''')
+
+          # 4. Make Simplified Chinese the explicit product default while retaining language selection.
+          replace_once(
+              'VDF.GUI/Data/SettingsFile.cs',
+              '''\tpublic class SettingsFile : ReactiveObject {\n\t\tstatic SettingsFile? instance;''',
+              '''\tpublic class SettingsFile : ReactiveObject {\n\t\tpublic const string DefaultLanguageCode = "zh-Hans";\n\t\tstatic SettingsFile? instance;''')
+          replace_once(
+              'VDF.GUI/Data/SettingsFile.cs',
+              '''\t\tstatic string ResolveDefaultLanguageCode() => "zh-Hans";\n\n\t\tstatic string ResolveLanguageCode(string? languageCode) {\n\t\t\tif (string.IsNullOrWhiteSpace(languageCode))\n\t\t\t\treturn "zh-Hans";''',
+              '''\t\tstatic string ResolveDefaultLanguageCode() => DefaultLanguageCode;\n\n\t\tstatic string ResolveLanguageCode(string? languageCode) {\n\t\t\tif (string.IsNullOrWhiteSpace(languageCode))\n\t\t\t\treturn DefaultLanguageCode;''')
+          replace_once(
+              'VDF.GUI/App.xaml.cs',
+              '''\t\t\tLang.LoadLanguage("zh-Hans");''',
+              '''\t\t\t// Product default is Simplified Chinese. A user-selected language can still\n\t\t\t// replace CurrentLanguage later through Settings; fresh installs start here.\n\t\t\tLang.LoadLanguage(SettingsFile.DefaultLanguageCode);''')
+
+          print('v4.1.3 targeted refactor applied successfully')
+          PY
+
+      - name: Remove one-shot workflow and commit
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v413-apply-refactor.yml
+          git add VDF.GUI
+          git commit -m "feat: unify decisive BEST and redesign folder merge preview"
+          git push origin HEAD:feature/intuitive-folder-merge-decisive-best-zh
