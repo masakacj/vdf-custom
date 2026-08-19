@@ -133,14 +133,14 @@ namespace VDF.GUI.Views {
 				}
 
 				combo.SelectionChanged += (_, _) => {
-					// Changing away from the pre-selected recommendation is an explicit review action.
+					// Changing the candidate is an explicit review action: select it and include
+					// this group. The IsCheckedChanged handler performs the actual refresh.
 					if (accept.IsChecked != true)
 						accept.IsChecked = true;
 					else
 						ApplyChoice();
 				};
-				accept.Checked += (_, _) => ApplyChoice();
-				accept.Unchecked += (_, _) => ApplyChoice();
+				accept.IsCheckedChanged += (_, _) => ApplyChoice();
 
 				var body = new StackPanel { Spacing = 7 };
 				body.Children.Add(new TextBlock {
