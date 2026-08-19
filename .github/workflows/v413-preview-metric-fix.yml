@@ -1,0 +1,33 @@
+name: Refine v4.1.3 merge preview metric
+on:
+  push:
+    branches: [feature/intuitive-folder-merge-decisive-best-zh]
+    paths: ['.github/workflows/v413-preview-metric-fix.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('VDF.GUI/ViewModels/MainWindowVM_ResourceSeriesPreview.cs')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('\n\t\t\tvar existingAtDestination = new HashSet<string>(comparer);', '')
+          s = s.replace('\n\t\t\t\t\texistingAtDestination.Add(full);', '')
+          old = '\t\t\tlong reclaim = Math.Max(0, originalBytes - finalBytes);'
+          new = '\t\t\t// Moving a keeper does not free space; only confirmed loser copies do.\\n\t\t\tlong reclaim = loserBytes;'
+          if old not in s:
+              raise SystemExit('reclaim line not found')
+          s = s.replace(old, new, 1).replace('\\n', '\n')
+          p.write_text(s, encoding='utf-8', newline='')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v413-preview-metric-fix.yml
+          git add VDF.GUI/ViewModels/MainWindowVM_ResourceSeriesPreview.cs
+          git commit -m "fix: count only removable duplicates as reclaimable space"
+          git push origin HEAD:feature/intuitive-folder-merge-decisive-best-zh
