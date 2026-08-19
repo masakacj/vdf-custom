@@ -31,15 +31,11 @@ namespace VDF.GUI.ViewModels {
 			ReactiveCommand.CreateFromTask<ResultsGroupHeader>(ConsolidateGroupToSeriesAsync);
 
 		async Task ConsolidateGroupToSeriesAsync(ResultsGroupHeader header) {
-			if (header == null || IsBusy || IsScanning)
-				return;
+			if (header == null || IsBusy || IsScanning) return;
 
-			var members = header.Rows
-				.Select(row => row.Item)
-				.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
-				.ToList();
-			if (members.Count < 2)
-				return;
+			var members = header.Rows.Select(row => row.Item)
+				.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance).ToList();
+			if (members.Count < 2) return;
 
 			if (!TryPickDecisiveQualityWinner(members, out DuplicateItemVM best)) {
 				await MessageBoxService.Show(
@@ -53,11 +49,9 @@ namespace VDF.GUI.ViewModels {
 			}
 
 			var originalPaths = members.ToDictionary(
-				item => item,
-				item => item.ItemInfo.Path,
+				item => item, item => item.ItemInfo.Path,
 				ReferenceEqualityComparer<DuplicateItemVM>.Instance);
-			var anchors = members
-				.Where(item => !ReferenceEquals(item, best))
+			var anchors = members.Where(item => !ReferenceEquals(item, best))
 				.Select(item => item.ItemInfo.Path)
 				.OrderByDescending(File.Exists)
 				.ThenBy(path => path, StringComparer.OrdinalIgnoreCase)
@@ -65,20 +59,16 @@ namespace VDF.GUI.ViewModels {
 
 			var suggestion = FindSingleResourceSeriesSuggestion(header.GroupId, members, best);
 			var dialog = new SingleResourceConsolidationDialog(
-				best.ItemInfo.Path,
-				anchors,
-				suggestion.AnchorPath,
-				suggestion.DestinationPath);
+				best.ItemInfo.Path, anchors, suggestion.AnchorPath, suggestion.DestinationPath);
 			SingleResourceConsolidationDialogResult? dialogResult =
 				await dialog.ShowDialog<SingleResourceConsolidationDialogResult?>(ApplicationHelpers.MainWindow);
-			if (dialogResult == null)
-				return;
+			if (dialogResult == null) return;
 
 			string destination = Path.GetFullPath(dialogResult.DestinationPath);
 			string bestOriginalPath = originalPaths[best];
 			DuplicateItemVM? destinationMember = members.FirstOrDefault(item =>
-				!ReferenceEquals(item, best) && PathsEqual(originalPaths[item], destination));
-			bool bestAlreadyAtDestination = PathsEqual(bestOriginalPath, destination);
+				!ReferenceEquals(item, best) && ConsolidationPathsEqual(originalPaths[item], destination));
+			bool bestAlreadyAtDestination = ConsolidationPathsEqual(bestOriginalPath, destination);
 
 			if (Directory.Exists(destination)) {
 				await MessageBoxService.Show("最终文件路径当前是一个目录，不能执行整合。", title: "整合到系列");
@@ -90,33 +80,25 @@ namespace VDF.GUI.ViewModels {
 					title: "整合到系列");
 				return;
 			}
-
 			if (!ScanEngine.ValidateConsolidationDatabaseChange(
-				bestOriginalPath,
-				destination,
-				originalPaths.Values,
-				out string databaseValidationError)) {
+				bestOriginalPath, destination, originalPaths.Values, out string dbValidationError)) {
 				await MessageBoxService.Show(
-					$"无法安全更新 VDF 数据库，因此没有开始移动文件。\n\n{databaseValidationError}",
+					$"无法安全更新 VDF 数据库，因此没有开始移动文件。\n\n{dbValidationError}",
 					title: "整合到系列");
 				return;
 			}
 
 			string anchorLine = string.IsNullOrWhiteSpace(dialogResult.AnchorPath)
-				? "自定义目标位置"
-				: dialogResult.AnchorPath;
+				? "自定义目标位置" : dialogResult.AnchorPath;
 			string replacementLine = destinationMember != null && !bestAlreadyAtDestination
-				? "\n目标处的低质量副本会在 BEST 校验完成后被替换。"
-				: string.Empty;
+				? "\n目标处的低质量副本会在 BEST 校验完成后被替换。" : string.Empty;
 			var confirm = await MessageBoxService.Show(
 				$"明确 BEST：\n{bestOriginalPath}\n\n位置锚点：\n{anchorLine}\n\n最终保留：\n{destination}\n\n" +
 				$"计划移除其他副本：{members.Count - 1:N0} 个。{replacementLine}\n\n" +
 				"会先完整校验最终 BEST，再移除其他副本。确认开始整合？",
 				MessageBoxButtons.Yes | MessageBoxButtons.No,
-				"整合到系列",
-				MessageBoxButtons.No);
-			if (confirm != MessageBoxButtons.Yes)
-				return;
+				"整合到系列", MessageBoxButtons.No);
+			if (confirm != MessageBoxButtons.Yes) return;
 
 			IsBusy = true;
 			IsBusyOverlayText = "正在安全整合资源…";
@@ -125,9 +107,7 @@ namespace VDF.GUI.ViewModels {
 				execution = await Task.Run(() => ExecuteSingleResourceConsolidation(
 					members, best, originalPaths, destination, destinationMember));
 			}
-			finally {
-				IsBusy = false;
-			}
+			finally { IsBusy = false; }
 
 			if (!execution.TransferSucceeded) {
 				await MessageBoxService.Show(
@@ -137,83 +117,67 @@ namespace VDF.GUI.ViewModels {
 			}
 
 			best.ItemInfo.Path = destination;
-			var removed = new HashSet<string>(execution.RemovedPaths.Select(NormalizePathForSet), PathComparer());
+			var removed = new HashSet<string>(
+				execution.RemovedPaths.Select(NormalizeConsolidationSetPath), ConsolidationPathComparer());
 			foreach (DuplicateItemVM item in members) {
 				if (ReferenceEquals(item, best)) continue;
-				if (removed.Contains(NormalizePathForSet(originalPaths[item])))
+				if (removed.Contains(NormalizeConsolidationSetPath(originalPaths[item])))
 					Duplicates.Remove(item);
 			}
-
 			int remainingLosers = members.Count(item =>
 				!ReferenceEquals(item, best) && Duplicates.Contains(item));
 			if (remainingLosers == 0)
-				Duplicates.Remove(best); // no longer a duplicate result; the DB keeper remains intact
+				Duplicates.Remove(best);
 			else
 				best.Checked = false;
 
 			RefreshResultsView();
 			RefreshGroupStats();
 
-			string dbWarning = execution.DatabaseCommitted
-				? string.Empty
+			string dbWarning = execution.DatabaseCommitted ? string.Empty
 				: $"\n\n⚠ 文件整合已经完成，但 VDF 数据库更新失败：{execution.Error}\n请重新扫描该目录以刷新数据库。";
-			string cleanupWarning = string.IsNullOrWhiteSpace(execution.TransferWarning)
-				? string.Empty
+			string cleanupWarning = string.IsNullOrWhiteSpace(execution.TransferWarning) ? string.Empty
 				: $"\n\n提示：{execution.TransferWarning}";
-			string failedDeletes = execution.DeleteFailures.Count == 0
-				? string.Empty
+			string failedDeletes = execution.DeleteFailures.Count == 0 ? string.Empty
 				: $"\n\n仍有 {execution.DeleteFailures.Count:N0} 个副本未能移除，已保留在结果中供手动处理：\n" +
 					string.Join("\n", execution.DeleteFailures.Take(8));
-
 			await MessageBoxService.Show(
-				$"整合完成。\n\n最终 BEST：\n{destination}\n\n" +
-				$"已移除副本：{execution.RemovedPaths.Count:N0} 个" +
+				$"整合完成。\n\n最终 BEST：\n{destination}\n\n已移除副本：{execution.RemovedPaths.Count:N0} 个" +
 				failedDeletes + dbWarning + cleanupWarning,
 				title: "整合到系列");
 		}
 
 		(string? AnchorPath, string? DestinationPath) FindSingleResourceSeriesSuggestion(
-			Guid groupId,
-			IReadOnlyList<DuplicateItemVM> members,
-			DuplicateItemVM best) {
+			Guid groupId, IReadOnlyList<DuplicateItemVM> members, DuplicateItemVM best) {
 			try {
 				var options = BuildResourceCoverageOptions(resultsGroups);
 				double minimum = Math.Max(50d, ResourceFolderMatchPreference.MinimumPercent);
 				var suggestions = new List<(string? Anchor, string Destination)>();
 				foreach (PikPakFolderCoverageOption option in options) {
 					if (option.FolderMatchPercent + 0.0001d < minimum ||
-						!option.Matches.Any(match => match.GroupId == groupId))
-						continue;
-
+						!option.Matches.Any(match => match.GroupId == groupId)) continue;
 					bool targetIsA = ResourceRelationHeader.ChooseTargetIsA(option);
-					string targetRoot = targetIsA ? option.FolderA : option.FolderB;
-					string normalizedRoot = NormalizePikPakPath(targetRoot);
+					string normalizedRoot = NormalizePikPakPath(targetIsA ? option.FolderA : option.FolderB);
 					if (PikPakPathIsInScope(best.ItemInfo.Path, new[] { normalizedRoot })) {
 						suggestions.Add((null, best.ItemInfo.Path));
 						continue;
 					}
-
-					var inside = members
-						.Where(item => !ReferenceEquals(item, best) &&
-							PikPakPathIsInScope(item.ItemInfo.Path, new[] { normalizedRoot }))
-						.ToList();
+					var inside = members.Where(item => !ReferenceEquals(item, best) &&
+						PikPakPathIsInScope(item.ItemInfo.Path, new[] { normalizedRoot })).ToList();
 					if (inside.Count == 1) {
 						string anchor = inside[0].ItemInfo.Path;
 						suggestions.Add((anchor,
 							SingleResourceConsolidationDialog.BuildAnchoredDestination(anchor, best.ItemInfo.Path)));
 					}
 				}
-
-				if (suggestions.Count == 0)
+				if (suggestions.Count == 0) return (null, null);
+				string first = NormalizeConsolidationSetPath(suggestions[0].Destination);
+				StringComparer comparer = ConsolidationPathComparer();
+				if (suggestions.Any(s => !comparer.Equals(NormalizeConsolidationSetPath(s.Destination), first)))
 					return (null, null);
-				string firstDestination = NormalizePathForSet(suggestions[0].Destination);
-				if (suggestions.Any(s => !PathComparer().Equals(NormalizePathForSet(s.Destination), firstDestination)))
-					return (null, null); // conflicting series evidence: require explicit user choice
 				return suggestions[0];
 			}
-			catch {
-				return (null, null);
-			}
+			catch { return (null, null); }
 		}
 
 		SingleResourceExecutionResult ExecuteSingleResourceConsolidation(
@@ -223,17 +187,12 @@ namespace VDF.GUI.ViewModels {
 			string destination,
 			DuplicateItemVM? destinationMember) {
 			string bestOriginal = originalPaths[best];
-			bool bestAlreadyAtDestination = PathsEqual(bestOriginal, destination);
-			SafeMoveResult transfer;
-			if (bestAlreadyAtDestination) {
-				transfer = new SafeMoveResult(true, destination, null);
-			}
-			else if (File.Exists(destination)) {
-				transfer = SafeFileTransfer.ReplaceVerifiedExact(bestOriginal, destination);
-			}
-			else {
-				transfer = SafeFileTransfer.MoveVerifiedExact(bestOriginal, destination);
-			}
+			bool alreadyThere = ConsolidationPathsEqual(bestOriginal, destination);
+			SafeMoveResult transfer = alreadyThere
+				? new SafeMoveResult(true, destination, null)
+				: File.Exists(destination)
+					? SafeFileTransfer.ReplaceVerifiedExact(bestOriginal, destination)
+					: SafeFileTransfer.MoveVerifiedExact(bestOriginal, destination);
 			if (!transfer.Success)
 				return new SingleResourceExecutionResult(false, false, transfer.Error, null,
 					Array.Empty<string>(), Array.Empty<string>());
@@ -242,12 +201,10 @@ namespace VDF.GUI.ViewModels {
 			var failures = new List<string>();
 			if (destinationMember != null && !ReferenceEquals(destinationMember, best))
 				removedPaths.Add(originalPaths[destinationMember]);
-
 			foreach (DuplicateItemVM loser in members) {
-				if (ReferenceEquals(loser, best) || ReferenceEquals(loser, destinationMember))
-					continue;
+				if (ReferenceEquals(loser, best) || ReferenceEquals(loser, destinationMember)) continue;
 				string path = originalPaths[loser];
-				if (PathsEqual(path, destination)) {
+				if (ConsolidationPathsEqual(path, destination)) {
 					removedPaths.Add(path);
 					continue;
 				}
@@ -258,24 +215,13 @@ namespace VDF.GUI.ViewModels {
 			}
 
 			bool committed = ScanEngine.CommitConsolidationDatabaseChange(
-				bestOriginal,
-				destination,
-				removedPaths,
-				out string dbError);
+				bestOriginal, destination, removedPaths, out string dbError);
 			return new SingleResourceExecutionResult(
-				true,
-				committed,
-				committed ? null : dbError,
-				transfer.Error,
-				removedPaths,
-				failures);
+				true, committed, committed ? null : dbError, transfer.Error, removedPaths, failures);
 		}
 
 		static bool TryRemoveConsolidatedDuplicate(string path, out string? error) {
-			if (!File.Exists(path)) {
-				error = null;
-				return true;
-			}
+			if (!File.Exists(path)) { error = null; return true; }
 			try {
 				if (OperatingSystem.IsWindows()) {
 					var op = new CoreFileUtils.SHFILEOPSTRUCT {
@@ -296,31 +242,24 @@ namespace VDF.GUI.ViewModels {
 					error = null;
 					return true;
 				}
-
-				if (!CoreFileUtils.MoveToTrash(path))
-					File.Delete(path);
-				if (File.Exists(path)) {
-					error = "删除后文件仍然存在";
-					return false;
-				}
+				if (!CoreFileUtils.MoveToTrash(path)) File.Delete(path);
+				if (File.Exists(path)) { error = "删除后文件仍然存在"; return false; }
 				error = null;
 				return true;
 			}
-			catch (Exception ex) {
-				error = ex.Message;
-				return false;
-			}
+			catch (Exception ex) { error = ex.Message; return false; }
 		}
 
-		static bool PathsEqual(string a, string b) =>
-			PathComparer().Equals(NormalizePathForSet(a), NormalizePathForSet(b));
+		static bool ConsolidationPathsEqual(string a, string b) =>
+			ConsolidationPathComparer().Equals(
+				NormalizeConsolidationSetPath(a), NormalizeConsolidationSetPath(b));
 
-		static string NormalizePathForSet(string path) {
+		static string NormalizeConsolidationSetPath(string path) {
 			try { return Path.GetFullPath(path); }
 			catch { return path; }
 		}
 
-		static StringComparer PathComparer() =>
+		static StringComparer ConsolidationPathComparer() =>
 			OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 	}
 }
