@@ -34,15 +34,21 @@ public class FolderMergeUxRegressionTests {
     };
 
     [Fact]
-    public void DifferentFileSizeAlone_NeverCreatesStrictBest() {
+    public void DifferentFileSizeAlone_GetsLikelyBestButNeverStrictAutoBest() {
         var group = Guid.NewGuid();
         var small = Video(group, @"D:\Series\small.mkv", 100_000_000);
         var large = Video(group, @"E:\Collection\large.mkv", 900_000_000);
 
         Assert.False(MainWindowVM.TryPickDecisiveQualityWinner(new[] { small, large }, out _));
+
+        BestRecommendation recommendation = MainWindowVM.RecommendBest(new[] { small, large });
+        Assert.Same(large, recommendation.Winner);
+        Assert.False(recommendation.IsConfirmed);
+        Assert.Contains("弱参考", recommendation.Reason);
+
         var presentation = MainWindowVM.PickDecisiveBestForResults(new[] { small, large });
-        Assert.Null(presentation.Best);
-        Assert.Null(presentation.Tooltip);
+        Assert.Same(large, presentation.Best);
+        Assert.NotNull(presentation.Tooltip);
     }
 
     [Fact]
