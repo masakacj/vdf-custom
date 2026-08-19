@@ -28,7 +28,7 @@ namespace VDF.GUI.Views {
 			Icon = ApplicationHelpers.MainWindow.Icon;
 			SummaryText.Text = summary + (multipleSeries
 				? "\n多个系列时，此处作为总目标目录，每个系列会建立自己的系列根目录。"
-				: "\n单个系列时，此处就是最终系列根目录；修改目标后会重新计算增减和最终目录树。 ");
+				: "\n单个系列时，此处就是最终系列根目录；修改目标后会重新计算增减和最终目录树。");
 			DestinationTextBox.Text = initialPath;
 
 			var candidates = (candidatePaths ?? Array.Empty<string>())
