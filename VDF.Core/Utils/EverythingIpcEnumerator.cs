@@ -17,33 +17,33 @@ using System.Text;
 
 namespace VDF.Core.Utils {
 	/// <summary>
-	/// Metadata returned together with an Everything IPC result. The weak-table key is the
-	/// exact FileInfo returned to ScanEngine, letting FileEntry reuse indexed size/timestamps/
-	/// attributes without a second filesystem metadata lookup when Everything supplied all of it.
+	/// Metadata returned together with an Everything IPC result. Size and modified date are
+	/// indexed by Everything by default. Creation time / attributes are optional on purpose:
+	/// requesting unindexed properties can make Everything itself touch every media file and
+	/// would defeat the HDD-friendly enumeration fast path.
 	/// </summary>
 	internal sealed record EverythingIndexedFileMetadata(
 		long? Length,
 		DateTime? CreationTimeUtc,
 		DateTime? LastWriteTimeUtc,
 		FileAttributes? Attributes) {
-		internal bool IsComplete => Length.HasValue && CreationTimeUtc.HasValue && LastWriteTimeUtc.HasValue && Attributes.HasValue;
+		internal bool HasFastIdentity => Length.HasValue && LastWriteTimeUtc.HasValue;
 	}
 
 	internal sealed record EverythingEnumerationStats(
 		int ResultCount,
-		int CompleteMetadataCount,
+		int FastMetadataCount,
 		int Pages,
 		TimeSpan Elapsed,
 		string WindowClass);
 
 	/// <summary>
-	/// Windows-only Everything 1.4+ IPC enumerator. This is deliberately an accelerator,
-	/// never a dependency: any unsupported option, missing Everything window, malformed/slow
-	/// reply or empty result returns false and the caller performs the original native walk.
+	/// Windows-only Everything 1.4+ Query2 enumerator. It talks directly to Everything via
+	/// WM_COPYDATA: no ES.exe and no SDK DLL are bundled or required.
 	///
-	/// Query2 is used directly over WM_COPYDATA, so VDF does not ship or require ES.exe or an
-	/// Everything SDK DLL. Named Everything instances (including the usual 1.5 alpha instance)
-	/// are discovered by window-class prefix when the default IPC class is absent.
+	/// Everything is only an accelerator. Missing IPC, network paths, strict folder-attribute
+	/// filters, missing default metadata, a malformed/slow reply or an empty result all return
+	/// false so FileUtils performs the original filesystem enumeration instead.
 	/// </summary>
 	internal static unsafe class EverythingIpcEnumerator {
 		const string EverythingWindowClass = "EVERYTHING_TASKBAR_NOTIFICATION";
@@ -52,18 +52,18 @@ namespace VDF.Core.Utils {
 		const uint PM_REMOVE = 0x0001;
 		const uint SMTO_BLOCK = 0x0001;
 		const uint SMTO_ABORTIFHUNG = 0x0002;
-		const uint ERROR_CLASS_ALREADY_EXISTS = 1410;
+		const int ERROR_CLASS_ALREADY_EXISTS = 1410;
 		const uint EVERYTHING_IPC_COPYDATA_QUERY2W = 18;
 		const uint ReplyCopyDataMessage = 0x56444645; // "VDFE"
-		const uint EVERYTHING_IPC_ALLRESULTS = 0xFFFFFFFF;
 		const uint EVERYTHING_IPC_SORT_PATH_ASCENDING = 3;
 		const uint REQUEST_FULL_PATH_AND_NAME = 0x00000004;
 		const uint REQUEST_SIZE = 0x00000010;
 		const uint REQUEST_DATE_CREATED = 0x00000020;
 		const uint REQUEST_DATE_MODIFIED = 0x00000040;
 		const uint REQUEST_ATTRIBUTES = 0x00000100;
-		const uint RequestedFields = REQUEST_FULL_PATH_AND_NAME | REQUEST_SIZE | REQUEST_DATE_CREATED |
-			REQUEST_DATE_MODIFIED | REQUEST_ATTRIBUTES;
+		// Deliberately do NOT request DATE_CREATED or ATTRIBUTES here. Everything does not
+		// index those by default and would gather them from the filesystem on demand.
+		const uint RequestedFields = REQUEST_FULL_PATH_AND_NAME | REQUEST_SIZE | REQUEST_DATE_MODIFIED;
 		const int Query2HeaderBytes = 7 * sizeof(uint);
 		const int List2HeaderBytes = 5 * sizeof(uint);
 		const int Item2Bytes = 2 * sizeof(uint);
@@ -74,8 +74,6 @@ namespace VDF.Core.Utils {
 		static readonly ConcurrentDictionary<nint, QueryContext> queryContexts = new();
 		static readonly object windowClassLock = new();
 		static bool windowClassReady;
-		static WndProcDelegate? wndProcDelegate;
-		static EnumWindowsProcDelegate? enumWindowsDelegate;
 
 		internal static bool TryGetIndexedMetadata(FileInfo fileInfo, out EverythingIndexedFileMetadata metadata) =>
 			indexedMetadata.TryGetValue(fileInfo, out metadata!);
@@ -88,12 +86,13 @@ namespace VDF.Core.Utils {
 				.Select(x => x.Trim().TrimStart('.'))
 				.Where(x => x.Length > 0)
 				.Distinct(StringComparer.OrdinalIgnoreCase));
+			// file: prevents a folder whose name ends in .mp4/.jpg from becoming a candidate.
 			return ext.Length == 0
-				? $"{scope}:\"{path}\""
-				: $"{scope}:\"{path}\" ext:{ext}";
+				? $"file: {scope}:\"{path}\""
+				: $"file: {scope}:\"{path}\" ext:{ext}";
 		}
 
-		/// <summary>Pure scope guard: Everything search syntax is broad; VDF rechecks every result.</summary>
+		/// <summary>Pure scope guard: VDF does not trust search syntax alone to enforce the root.</summary>
 		internal static bool IsPathInScope(string initial, string fullPath, bool recursive) {
 			string root = NormalizeDirectory(initial);
 			string? parent;
@@ -108,8 +107,8 @@ namespace VDF.Core.Utils {
 
 		/// <summary>
 		/// Mirrors FileUtils' native blacklist rule across every ancestor below the scan root.
-		/// A plain path excludes that exact folder/subtree; wildcard rules match the same folder
-		/// full path (when they contain a separator) or folder name (when they do not).
+		/// A plain path excludes that exact folder/subtree; wildcard rules match folder full
+		/// paths when they contain a separator, otherwise folder names.
 		/// </summary>
 		internal static bool IsExcludedByFolderRules(string initial, string fullPath, IReadOnlyList<string> excludeFolders) {
 			if (excludeFolders.Count == 0) return false;
@@ -120,7 +119,7 @@ namespace VDF.Core.Utils {
 			while (!string.IsNullOrEmpty(current)) {
 				current = NormalizeDirectory(current);
 				if (current.Equals(root, StringComparison.OrdinalIgnoreCase))
-					return false; // the native walker does not blacklist the initial include itself
+					return false; // native walker does not blacklist the initial include itself
 				if (!StartsWithDirectory(current, root))
 					return false;
 				foreach (string rule in excludeFolders) {
@@ -163,9 +162,14 @@ namespace VDF.Core.Utils {
 				fallbackReason = "Everything IPC is Windows-only";
 				return false;
 			}
+			// Do not trust an optional Everything Folder Index as the source of truth for a
+			// NAS/mapped share. Native enumeration remains the safe path for network storage.
+			if (IsNetworkPath(initial)) {
+				fallbackReason = "network/UNC paths keep native enumeration so folder-index completeness is never assumed";
+				return false;
+			}
 			// The native walker can skip whole folders based on these attributes. Query2 gives
-			// attributes for each result, not every ancestor, so falling back preserves exact
-			// semantics for users who explicitly enable either strict folder filter.
+			// result metadata, not every ancestor's attributes; preserve exact semantics.
 			if (ignoreReadonly || ignoreReparsePoints) {
 				fallbackReason = "strict read-only/reparse folder filtering requires the native walker";
 				return false;
@@ -218,6 +222,13 @@ namespace VDF.Core.Utils {
 						fallbackReason = context.Error;
 						return false;
 					}
+					// Size + modified date are the default Everything property indexes. If a user
+					// disabled them, fall back instead of making Everything gather them from disk.
+					if ((context.AvailableRequestFlags & (REQUEST_SIZE | REQUEST_DATE_MODIFIED)) !=
+						(REQUEST_SIZE | REQUEST_DATE_MODIFIED)) {
+						fallbackReason = "Everything is not returning indexed size/date-modified metadata";
+						return false;
+					}
 					pages++;
 
 					foreach (EverythingRawResult result in context.PageResults) {
@@ -228,32 +239,25 @@ namespace VDF.Core.Utils {
 						catch { continue; }
 						if (!FileUtils.IsMediaExtension(extension)) continue;
 						if (!includeImages && FileUtils.IsImageFile(result.FullPath)) continue;
-						if (result.Attributes is FileAttributes attributes) {
-							if ((attributes & (FileAttributes.Directory | FileAttributes.System)) != 0) continue;
-						}
 						if (!seen.Add(result.FullPath)) continue;
 
 						FileInfo fileInfo;
 						try { fileInfo = new FileInfo(result.FullPath); }
 						catch { continue; }
-						var metadata = new EverythingIndexedFileMetadata(
-							result.Size,
-							result.CreationTimeUtc,
-							result.LastWriteTimeUtc,
-							result.Attributes);
-						indexedMetadata.Add(fileInfo, metadata);
+						indexedMetadata.Add(fileInfo, new EverythingIndexedFileMetadata(
+							result.Size, result.CreationTimeUtc, result.LastWriteTimeUtc, result.Attributes));
 						files.Add(fileInfo);
 					}
 
-					uint returned = (uint)context.PageResults.Count;
+					uint returned = context.ReturnedItems;
 					uint total = context.TotalItems;
-					if (returned == 0 || offset + returned >= total)
+					if (returned == 0 || (ulong)offset + returned >= total)
 						break;
 					offset += returned;
 				}
 
-				// Empty is deliberately not trusted. A folder omitted from Everything's index would
-				// also return zero; the original filesystem walk is the safe source of truth.
+				// Empty is deliberately not trusted. A folder omitted/excluded from Everything's
+				// index would also return zero; native enumeration verifies it instead.
 				if (files.Count == 0) {
 					fallbackReason = "Everything returned no media candidates; native enumeration will verify the folder";
 					return false;
@@ -262,7 +266,7 @@ namespace VDF.Core.Utils {
 				stopwatch.Stop();
 				stats = new EverythingEnumerationStats(
 					files.Count,
-					files.Count(file => indexedMetadata.TryGetValue(file, out var m) && m.IsComplete),
+					files.Count(file => indexedMetadata.TryGetValue(file, out var m) && m.HasFastIdentity),
 					pages,
 					stopwatch.Elapsed,
 					everythingClass);
@@ -287,12 +291,12 @@ namespace VDF.Core.Utils {
 				span.Clear();
 				BinaryPrimitives.WriteUInt32LittleEndian(span[0..4], unchecked((uint)(nuint)replyWindow));
 				BinaryPrimitives.WriteUInt32LittleEndian(span[4..8], ReplyCopyDataMessage);
-				BinaryPrimitives.WriteUInt32LittleEndian(span[8..12], 0); // search flags: use Everything search syntax
+				BinaryPrimitives.WriteUInt32LittleEndian(span[8..12], 0); // use normal Everything search syntax
 				BinaryPrimitives.WriteUInt32LittleEndian(span[12..16], offset);
-				BinaryPrimitives.WriteUInt32LittleEndian(span[16..20], maxResults == 0 ? EVERYTHING_IPC_ALLRESULTS : maxResults);
+				BinaryPrimitives.WriteUInt32LittleEndian(span[16..20], maxResults);
 				BinaryPrimitives.WriteUInt32LittleEndian(span[20..24], RequestedFields);
 				BinaryPrimitives.WriteUInt32LittleEndian(span[24..28], EVERYTHING_IPC_SORT_PATH_ASCENDING);
-				searchBytes.CopyTo(span[Query2HeaderBytes..]);
+				searchBytes.AsSpan().CopyTo(span[Query2HeaderBytes..]);
 
 				var cds = new CopyDataStruct {
 					dwData = EVERYTHING_IPC_COPYDATA_QUERY2W,
@@ -327,68 +331,79 @@ namespace VDF.Core.Utils {
 			nint direct = Native.FindWindowW(EverythingWindowClass, null);
 			if (direct != 0) return direct;
 
-			nint found = 0;
-			string foundClass = string.Empty;
-			enumWindowsDelegate ??= (hwnd, _) => {
-				Span<char> chars = stackalloc char[256];
-				int length = Native.GetClassNameW(hwnd, chars, chars.Length);
-				if (length <= 0) return true;
-				string cls = new(chars[..length]);
-				if (!cls.StartsWith(EverythingWindowClass, StringComparison.OrdinalIgnoreCase)) return true;
-				found = hwnd;
-				foundClass = cls;
-				return false;
-			};
-			// The delegate captures this invocation's locals, so assign a fresh one here rather
-			// than reusing the previous closure. Keep a static reference for native-call lifetime.
-			enumWindowsDelegate = (hwnd, _) => {
-				Span<char> chars = stackalloc char[256];
-				int length = Native.GetClassNameW(hwnd, chars, chars.Length);
-				if (length <= 0) return true;
-				string cls = new(chars[..length]);
-				if (!cls.StartsWith(EverythingWindowClass, StringComparison.OrdinalIgnoreCase)) return true;
-				found = hwnd;
-				foundClass = cls;
-				return false;
-			};
-			Native.EnumWindows(enumWindowsDelegate, 0);
-			if (found != 0) windowClass = foundClass;
-			return found;
+			var state = new EnumWindowState();
+			GCHandle handle = GCHandle.Alloc(state);
+			try {
+				nint callback = (nint)(delegate* unmanaged[Stdcall]<nint, nint, int>)&EnumWindowsProc;
+				Native.EnumWindows(callback, GCHandle.ToIntPtr(handle));
+			}
+			finally {
+				handle.Free();
+			}
+			if (state.Found != 0)
+				windowClass = state.ClassName;
+			return state.Found;
+		}
+
+		[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
+		static int EnumWindowsProc(nint hwnd, nint lParam) {
+			try {
+				var state = (EnumWindowState?)GCHandle.FromIntPtr(lParam).Target;
+				if (state == null) return 0;
+				char* chars = stackalloc char[256];
+				int length = Native.GetClassNameW(hwnd, chars, 256);
+				if (length <= 0) return 1;
+				string cls = new(chars, 0, length);
+				// Named instances use the same base class plus an instance suffix. Prefix
+				// matching supports those without asking users to install/run ES.exe.
+				if (!cls.StartsWith(EverythingWindowClass, StringComparison.OrdinalIgnoreCase)) return 1;
+				state.Found = hwnd;
+				state.ClassName = cls;
+				return 0;
+			}
+			catch {
+				return 1;
+			}
 		}
 
 		static bool EnsureReplyWindowClass() {
 			lock (windowClassLock) {
 				if (windowClassReady) return true;
-				wndProcDelegate ??= WindowProc;
-				var wc = new WndClassEx {
-					cbSize = (uint)Marshal.SizeOf<WndClassEx>(),
-					lpfnWndProc = Marshal.GetFunctionPointerForDelegate(wndProcDelegate),
-					hInstance = Native.GetModuleHandleW(null),
-					lpszClassName = ReplyWindowClass,
-				};
-				ushort atom = Native.RegisterClassExW(ref wc);
-				if (atom == 0 && Marshal.GetLastWin32Error() != ERROR_CLASS_ALREADY_EXISTS)
-					return false;
+				fixed (char* className = ReplyWindowClass) {
+					var wc = new WndClassEx {
+						cbSize = (uint)sizeof(WndClassEx),
+						lpfnWndProc = (nint)(delegate* unmanaged[Stdcall]<nint, uint, nuint, nint, nint>)&WindowProc,
+						hInstance = Native.GetModuleHandleW(null),
+						lpszClassName = (nint)className,
+					};
+					ushort atom = Native.RegisterClassExW(ref wc);
+					if (atom == 0 && Marshal.GetLastWin32Error() != ERROR_CLASS_ALREADY_EXISTS)
+						return false;
+				}
 				windowClassReady = true;
 				return true;
 			}
 		}
 
+		[UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvStdcall) })]
 		static nint WindowProc(nint hwnd, uint message, nuint wParam, nint lParam) {
-			if (message == WM_COPYDATA && queryContexts.TryGetValue(hwnd, out QueryContext? context)) {
-				try {
-					CopyDataStruct cds = Marshal.PtrToStructure<CopyDataStruct>(lParam);
+			try {
+				if (message == WM_COPYDATA && queryContexts.TryGetValue(hwnd, out QueryContext? context)) {
+					CopyDataStruct cds = *(CopyDataStruct*)lParam;
 					if ((uint)cds.dwData == ReplyCopyDataMessage) {
-						ParseReply(cds.lpData, cds.cbData, context);
-						return 1;
+						try {
+							ParseReply(cds.lpData, cds.cbData, context);
+							return 1;
+						}
+						catch (Exception ex) {
+							context.Error = $"invalid Everything IPC reply: {ex.Message}";
+							context.Completed = true;
+							return 0;
+						}
 					}
 				}
-				catch (Exception ex) {
-					context.Error = $"invalid Everything IPC reply: {ex.Message}";
-					context.Completed = true;
-					return 0;
-				}
 			}
+			catch { /* never let an exception cross the unmanaged window-proc boundary */ }
 			return Native.DefWindowProcW(hwnd, message, wParam, lParam);
 		}
 
@@ -405,7 +420,7 @@ namespace VDF.Core.Utils {
 			if (itemTableEnd > span.Length)
 				throw new InvalidDataException("item table exceeds reply buffer");
 
-			var page = new List<EverythingRawResult>(checked((int)Math.Min(numItems, int.MaxValue)));
+			var page = new List<EverythingRawResult>(checked((int)numItems));
 			for (uint i = 0; i < numItems; i++) {
 				int itemOffset = checked(List2HeaderBytes + (int)i * Item2Bytes);
 				uint dataOffset = BinaryPrimitives.ReadUInt32LittleEndian(span.Slice(itemOffset + 4, 4));
@@ -431,6 +446,8 @@ namespace VDF.Core.Utils {
 			}
 
 			context.TotalItems = totalItems;
+			context.ReturnedItems = numItems;
+			context.AvailableRequestFlags = requestFlags;
 			context.PageResults = page;
 			context.Completed = true;
 		}
@@ -466,6 +483,18 @@ namespace VDF.Core.Utils {
 			catch { return null; }
 		}
 
+		static bool IsNetworkPath(string path) {
+			if (path.StartsWith("\\\\", StringComparison.Ordinal)) return true;
+			try {
+				string? root = Path.GetPathRoot(Path.GetFullPath(path));
+				if (string.IsNullOrEmpty(root)) return false;
+				return new DriveInfo(root).DriveType == DriveType.Network;
+			}
+			catch {
+				return false;
+			}
+		}
+
 		static string NormalizeDirectory(string path) {
 			try {
 				string full = Path.GetFullPath(path);
@@ -492,13 +521,22 @@ namespace VDF.Core.Utils {
 			internal bool Completed;
 			internal string? Error;
 			internal uint TotalItems;
+			internal uint ReturnedItems;
+			internal uint AvailableRequestFlags;
 			internal List<EverythingRawResult> PageResults = new();
 			internal void ResetPage() {
 				Completed = false;
 				Error = null;
 				TotalItems = 0;
+				ReturnedItems = 0;
+				AvailableRequestFlags = 0;
 				PageResults = new List<EverythingRawResult>();
 			}
+		}
+
+		sealed class EnumWindowState {
+			internal nint Found;
+			internal string ClassName = string.Empty;
 		}
 
 		sealed record EverythingRawResult(
@@ -508,12 +546,7 @@ namespace VDF.Core.Utils {
 			DateTime? LastWriteTimeUtc,
 			FileAttributes? Attributes);
 
-		[UnmanagedFunctionPointer(CallingConvention.Winapi)]
-		delegate nint WndProcDelegate(nint hwnd, uint message, nuint wParam, nint lParam);
-		[UnmanagedFunctionPointer(CallingConvention.Winapi)]
-		delegate bool EnumWindowsProcDelegate(nint hwnd, nint lParam);
-
-		[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+		[StructLayout(LayoutKind.Sequential)]
 		struct WndClassEx {
 			internal uint cbSize;
 			internal uint style;
@@ -524,8 +557,8 @@ namespace VDF.Core.Utils {
 			internal nint hIcon;
 			internal nint hCursor;
 			internal nint hbrBackground;
-			[MarshalAs(UnmanagedType.LPWStr)] internal string? lpszMenuName;
-			[MarshalAs(UnmanagedType.LPWStr)] internal string lpszClassName;
+			internal nint lpszMenuName;
+			internal nint lpszClassName;
 			internal nint hIconSm;
 		}
 
@@ -555,10 +588,10 @@ namespace VDF.Core.Utils {
 			internal static extern nint FindWindowW(string lpClassName, string? lpWindowName);
 			[DllImport("user32.dll", SetLastError = true)]
 			[return: MarshalAs(UnmanagedType.Bool)]
-			internal static extern bool EnumWindows(EnumWindowsProcDelegate lpEnumFunc, nint lParam);
+			internal static extern bool EnumWindows(nint lpEnumFunc, nint lParam);
 			[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-			internal static extern int GetClassNameW(nint hWnd, Span<char> lpClassName, int nMaxCount);
-			[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+			internal static extern int GetClassNameW(nint hWnd, char* lpClassName, int nMaxCount);
+			[DllImport("user32.dll", SetLastError = true)]
 			internal static extern ushort RegisterClassExW(ref WndClassEx lpwcx);
 			[DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
 			internal static extern nint CreateWindowExW(uint dwExStyle, string lpClassName, string? lpWindowName,
