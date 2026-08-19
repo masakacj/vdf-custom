@@ -52,7 +52,7 @@ namespace VDF.GUI.ViewModels {
 		public string Label => "显示方式";
 		public string Hint => Selected.Mode == ResultsDisplayMode.SimilarityGroups
 			? "传统 VDF：每个相似文件组独立显示。"
-			: "文件夹整合：以目标系列文件夹为一级组，把多个候选副本目录放在一起；待复核资源保持人工处理。";
+			: "文件夹整合：以目标系列文件夹为一级组，把有共同资源证据的多个副本目录放在一起；待复核资源保持人工处理。";
 	}
 
 	/// <summary>
@@ -79,12 +79,13 @@ namespace VDF.GUI.ViewModels {
 		internal int SourceResources => TargetIsA ? Option.EstimatedResourcesB : Option.EstimatedResourcesA;
 		internal double SourceCoverage => TargetIsA ? Option.CoverageB : Option.CoverageA;
 		internal bool WholeSourceEligible => MainWindowVM.MayMergeWholeSource(SourceCoverage, Option.ReviewOnlyGroupCount);
+		internal HashSet<Guid> GroupIds => Option.Matches.Select(match => match.GroupId).ToHashSet();
 	}
 
 	/// <summary>
-	/// Top-level header for one target series folder. Multiple source/copy folders that all
-	/// resolve toward the same target are deliberately combined here so the user can review
-	/// one series at a time instead of bouncing between A↔B, A↔C pair buckets.
+	/// Top-level header for one target series folder. Multiple source/copy folders are combined
+	/// only when they have direct shared-resource evidence, so a generic directory that happens
+	/// to contain copies from unrelated series cannot silently become one giant merge group.
 	/// </summary>
 	public sealed class ResourceRelationHeader {
 		readonly IReadOnlyList<ResourceDirectedRelation> sourceRelations;
@@ -217,9 +218,9 @@ namespace VDF.GUI.ViewModels {
 
 	/// <summary>
 	/// Builds a target-folder-oriented presentation from the already-built canonical VDF groups.
-	/// Folder pairs are directed first, then ONLY relations with the same target folder are merged.
-	/// This is intentionally not a generic connected-component graph: a common Misc/Download
-	/// folder may be a source for several series without merging those independent series together.
+	/// Folder pairs are directed first. Relations are combined only when they share the same
+	/// target folder AND are connected by at least one common duplicate GroupId. This avoids
+	/// a common Misc/Download directory acting as an accidental bridge between unrelated series.
 	/// Each GroupId is still rendered at most once. Nothing is deleted, moved or re-matched here.
 	/// </summary>
 	public static class ResourceResultsBuilder {
@@ -245,36 +246,38 @@ namespace VDF.GUI.ViewModels {
 				.ToList();
 
 			foreach (var targetGroup in targetGroups) {
-				var gids = new List<Guid>();
-				var localSeen = new HashSet<Guid>();
-				foreach (var relation in targetGroup.Relations) {
-					foreach (var match in relation.Option.Matches) {
-						Guid gid = match.GroupId;
-						if (!byId.ContainsKey(gid) || assigned.Contains(gid) || !localSeen.Add(gid))
-							continue;
-						gids.Add(gid);
+				foreach (var coherentRelations in SplitBySharedResourceEvidence(targetGroup.Relations)) {
+					var gids = new List<Guid>();
+					var localSeen = new HashSet<Guid>();
+					foreach (var relation in coherentRelations) {
+						foreach (var match in relation.Option.Matches) {
+							Guid gid = match.GroupId;
+							if (!byId.ContainsKey(gid) || assigned.Contains(gid) || !localSeen.Add(gid))
+								continue;
+							gids.Add(gid);
+						}
 					}
+					if (gids.Count == 0)
+						continue;
+
+					// Show only source relations that actually contributed at least one group to this
+					// target bucket after global de-duplication.
+					var gidSet = gids.ToHashSet();
+					var usedRelations = coherentRelations
+						.Where(relation => relation.Option.Matches.Any(match => gidSet.Contains(match.GroupId)))
+						.ToList();
+					if (usedRelations.Count == 0)
+						continue;
+
+					assigned.UnionWith(gids);
+					representedRelations += usedRelations.Count;
+					rows.Add(new ResourceRelationHeader(usedRelations, gids));
+
+					// Retain the canonical result sort inside the series folder group so BEST-first,
+					// size sorting, checked-first etc. continue to behave exactly like traditional VDF.
+					foreach (var gid in gids.OrderBy(gid => byId[gid].GroupNumber))
+						AppendCanonicalGroup(rows, byId[gid], expandedDetails);
 				}
-				if (gids.Count == 0)
-					continue;
-
-				// Show only source relations that actually contributed at least one group to this
-				// target bucket after global de-duplication.
-				var gidSet = gids.ToHashSet();
-				var usedRelations = targetGroup.Relations
-					.Where(relation => relation.Option.Matches.Any(match => gidSet.Contains(match.GroupId)))
-					.ToList();
-				if (usedRelations.Count == 0)
-					continue;
-
-				assigned.UnionWith(gids);
-				representedRelations += usedRelations.Count;
-				rows.Add(new ResourceRelationHeader(usedRelations, gids));
-
-				// Retain the canonical result sort inside the series folder group so BEST-first,
-				// size sorting, checked-first etc. continue to behave exactly like traditional VDF.
-				foreach (var gid in gids.OrderBy(gid => byId[gid].GroupNumber))
-					AppendCanonicalGroup(rows, byId[gid], expandedDetails);
 			}
 
 			var unassigned = canonicalGroups.Where(g => !assigned.Contains(g.GroupId)).ToList();
@@ -290,6 +293,41 @@ namespace VDF.GUI.ViewModels {
 				AssignedGroupCount = assigned.Count,
 				UnassignedGroupCount = unassigned.Count,
 			};
+		}
+
+		/// <summary>
+		/// Conservative folder-level clustering. Same target path alone is not enough evidence:
+		/// two source relations must share a duplicate GroupId directly, or through a chain of
+		/// relations that share groups, before they become one multi-source series header.
+		/// </summary>
+		internal static IReadOnlyList<IReadOnlyList<ResourceDirectedRelation>> SplitBySharedResourceEvidence(
+			IReadOnlyList<ResourceDirectedRelation> relations) {
+			if (relations.Count <= 1)
+				return new[] { relations };
+
+			var ids = relations.Select(relation => relation.GroupIds).ToList();
+			var visited = new bool[relations.Count];
+			var components = new List<IReadOnlyList<ResourceDirectedRelation>>();
+			for (int seed = 0; seed < relations.Count; seed++) {
+				if (visited[seed]) continue;
+				var stack = new Stack<int>();
+				var indexes = new List<int>();
+				stack.Push(seed);
+				visited[seed] = true;
+				while (stack.Count > 0) {
+					int current = stack.Pop();
+					indexes.Add(current);
+					for (int candidate = 0; candidate < relations.Count; candidate++) {
+						if (visited[candidate] || !ids[current].Overlaps(ids[candidate]))
+							continue;
+						visited[candidate] = true;
+						stack.Push(candidate);
+					}
+				}
+				indexes.Sort();
+				components.Add(indexes.Select(index => relations[index]).ToList());
+			}
+			return components;
 		}
 
 		static void AppendCanonicalGroup(
