@@ -1,10 +1,13 @@
 <Project>
 
   <PropertyGroup>
-    <!-- Base version for all VDF assemblies. Releases publish to the single "4.1.x"
-         GitHub tag and never bump a number, so the git commit baked in below is the
-         real build identifier the About box / diagnostics report show. Must match the
-         tag_name in .github/workflows/releases.yml (enforced by a test). -->
+    <!-- Base release train for all VDF assemblies. The custom Windows workflow publishes
+         numeric releases such as v4.1.0, v4.1.1, v4.1.2... by keeping this major/minor
+         and automatically incrementing the patch for each new main commit. A rerun of
+         the same commit reuses its existing numeric tag. Release builds override
+         VersionPrefix with the resolved release version so the binary version, tag and
+         asset names stay aligned. Change this value (for example to 4.2.0) to start a
+         new release train. -->
     <VersionPrefix>4.1.0</VersionPrefix>
   </PropertyGroup>
 

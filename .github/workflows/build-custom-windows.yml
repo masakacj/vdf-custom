@@ -37,110 +37,128 @@ jobs:
         shell: pwsh
         run: dotnet restore .\VideoDuplicateFinder.sln
 
+      - name: Resolve release version
+        id: version
+        shell: pwsh
+        run: |
+          $props = Get-Content .\Directory.Build.props -Raw
+          $match = [regex]::Match($props, '<VersionPrefix>(\d+)\.(\d+)\.(\d+)</VersionPrefix>')
+          if (-not $match.Success) {
+            throw 'Directory.Build.props does not contain a numeric VersionPrefix.'
+          }
+
+          $major = [int]$match.Groups[1].Value
+          $minor = [int]$match.Groups[2].Value
+          $seedPatch = [int]$match.Groups[3].Value
+          $prefix = "$major.$minor"
+          $prefixEscaped = [regex]::Escape($prefix)
+
+          git fetch --tags --force
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          # A rerun of the same commit must reuse its existing numeric version.
+          $current = @()
+          foreach ($candidate in @(git tag --points-at $env:GITHUB_SHA --list "v$prefix.*")) {
+            if ($candidate -match "^v$prefixEscaped\.(\d+)$") {
+              $current += [pscustomobject]@{ Tag = $candidate; Patch = [int]$Matches[1] }
+            }
+          }
+
+          if ($current.Count -gt 0) {
+            $chosen = $current | Sort-Object Patch -Descending | Select-Object -First 1
+            $patch = $chosen.Patch
+          } else {
+            $patches = @()
+            foreach ($candidate in @(git tag --list "v$prefix.*")) {
+              if ($candidate -match "^v$prefixEscaped\.(\d+)$") {
+                $patches += [int]$Matches[1]
+              }
+            }
+
+            if ($patches.Count -gt 0) {
+              $patch = (($patches | Measure-Object -Maximum).Maximum + 1)
+            } else {
+              $patch = $seedPatch
+            }
+          }
+
+          $version = "$prefix.$patch"
+          $tag = "v$version"
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          Write-Host "Release version: $tag"
+
       - name: Publish GUI win-x64 Native AOT
         shell: pwsh
-        run: dotnet publish .\VDF.GUI\VDF.GUI.csproj -c Release -v q -p:PublishAot=true -r win-x64 -o .\artifacts\GUI-win-x64
+        run: dotnet publish .\VDF.GUI\VDF.GUI.csproj -c Release -v q -p:PublishAot=true -p:VersionPrefix=${{ steps.version.outputs.version }} -r win-x64 -o .\artifacts\GUI-win-x64
 
       - name: Publish CLI win-x64 Native AOT
         shell: pwsh
-        run: dotnet publish .\VDF.CLI\VDF.CLI.csproj -c Release -v q -p:PublishAot=true -r win-x64 -o .\artifacts\CLI-win-x64
+        run: dotnet publish .\VDF.CLI\VDF.CLI.csproj -c Release -v q -p:PublishAot=true -p:VersionPrefix=${{ steps.version.outputs.version }} -r win-x64 -o .\artifacts\CLI-win-x64
 
       - name: Record build metadata
         shell: pwsh
         run: |
           $sha = (git rev-parse --short=8 HEAD).Trim()
           "Repository: $env:GITHUB_REPOSITORY" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8
+          "Version: ${{ steps.version.outputs.version }}" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8 -Append
           "Commit: $sha" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8 -Append
           "Built UTC: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))" | Out-File .\artifacts\BUILD_INFO.txt -Encoding utf8 -Append
 
       - name: Package release files
         shell: pwsh
         run: |
+          $version = "${{ steps.version.outputs.version }}"
           New-Item -ItemType Directory -Force .\release | Out-Null
-          Compress-Archive -Path .\artifacts\GUI-win-x64\* -DestinationPath .\release\VDF-Custom-GUI-win-x64.zip -Force
-          Compress-Archive -Path .\artifacts\CLI-win-x64\* -DestinationPath .\release\VDF-Custom-CLI-win-x64.zip -Force
+          Compress-Archive -Path .\artifacts\GUI-win-x64\* -DestinationPath ".\release\VDF-Custom-GUI-v$version-win-x64.zip" -Force
+          Compress-Archive -Path .\artifacts\CLI-win-x64\* -DestinationPath ".\release\VDF-Custom-CLI-v$version-win-x64.zip" -Force
           Copy-Item .\artifacts\BUILD_INFO.txt .\release\BUILD_INFO.txt -Force
 
       - name: Upload Actions artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VDF-Custom-win-x64-${{ github.sha }}
+          name: VDF-Custom-v${{ steps.version.outputs.version }}-win-x64-${{ github.sha }}
           path: release/**
           if-no-files-found: error
           retention-days: 14
 
-      - name: Publish versioned GitHub Release
+      - name: Publish numeric GitHub Release
         if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $sha = (git rev-parse --short=8 HEAD).Trim()
-          $tag = "custom-$sha"
+          $version = "${{ steps.version.outputs.version }}"
+          $tag = "${{ steps.version.outputs.tag }}"
+          $guiAsset = ".\release\VDF-Custom-GUI-v$version-win-x64.zip"
+          $cliAsset = ".\release\VDF-Custom-CLI-v$version-win-x64.zip"
           $built = [DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss UTC')
           $notes = @(
             'Automated Windows x64 build of VDF Custom.'
             ''
+            "Version: $version"
             "Commit: $sha"
             "Built: $built"
             ''
             'Assets:'
-            '- VDF-Custom-GUI-win-x64.zip'
-            '- VDF-Custom-CLI-win-x64.zip'
+            "- VDF-Custom-GUI-v$version-win-x64.zip"
+            "- VDF-Custom-CLI-v$version-win-x64.zip"
             '- BUILD_INFO.txt'
           ) -join "`n"
 
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --target $env:GITHUB_SHA --title "VDF Custom $sha" --notes $notes
+            gh release create $tag --target $env:GITHUB_SHA --title "VDF Custom v$version" --notes $notes
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           } else {
-            gh release edit $tag --title "VDF Custom $sha" --notes $notes
+            gh release edit $tag --title "VDF Custom v$version" --notes $notes
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
           gh release upload $tag `
-            .\release\VDF-Custom-GUI-win-x64.zip `
-            .\release\VDF-Custom-CLI-win-x64.zip `
-            .\release\BUILD_INFO.txt `
-            --clobber
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-      - name: Update rolling custom-latest Release
-        if: github.ref == 'refs/heads/main'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $sha = (git rev-parse --short=8 HEAD).Trim()
-          $built = [DateTime]::UtcNow.ToString('yyyy-MM-dd HH:mm:ss UTC')
-          $notes = @(
-            'Rolling alias for the latest successful Windows x64 build of VDF Custom.'
-            ''
-            "Commit: $sha"
-            "Built: $built"
-            ''
-            'A separate immutable release is also created for this commit.'
-          ) -join "`n"
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f custom-latest $env:GITHUB_SHA
-          git push origin refs/tags/custom-latest --force
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-          gh release view custom-latest *> $null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create custom-latest --title "VDF Custom Latest" --notes $notes
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          } else {
-            gh release edit custom-latest --title "VDF Custom Latest" --notes $notes
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-
-          gh release upload custom-latest `
-            .\release\VDF-Custom-GUI-win-x64.zip `
-            .\release\VDF-Custom-CLI-win-x64.zip `
+            $guiAsset `
+            $cliAsset `
             .\release\BUILD_INFO.txt `
             --clobber
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

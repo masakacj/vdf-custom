@@ -10,12 +10,9 @@
 using System.Linq;
 using ReactiveUI;
 using VDF.Core.Utils;
+using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
-	/// <summary>
-	/// The classic VDF file-similarity grouping remains the canonical result model.
-	/// ResourceConsolidation is only a second presentation layer over those same groups.
-	/// </summary>
 	public enum ResultsDisplayMode {
 		SimilarityGroups = 0,
 		ResourceConsolidation = 1,
@@ -24,20 +21,27 @@ namespace VDF.GUI.ViewModels {
 	public sealed record ResultsDisplayModeOption(string Name, ResultsDisplayMode Mode);
 
 	/// <summary>
-	/// First row of either results view. Keeping the switcher inside the flattened list lets
-	/// the feature land without replacing the mature file-row templates or interaction code.
+	/// First row of either results view. Resource mode also exposes the persisted minimum
+	/// bilateral folder-overlap threshold so the user can tune series-folder grouping live.
 	/// </summary>
 	public sealed class ResultsViewSwitcherRow : ReactiveObject {
 		readonly Action<ResultsDisplayMode> onChanged;
+		readonly Action<double>? onFolderMatchThresholdChanged;
 		ResultsDisplayModeOption _Selected;
+		double _FolderMatchThresholdPercent;
 
 		public ResultsViewSwitcherRow(
 			IReadOnlyList<ResultsDisplayModeOption> options,
 			ResultsDisplayMode selected,
-			Action<ResultsDisplayMode> onChanged) {
+			Action<ResultsDisplayMode> onChanged,
+			double? folderMatchThresholdPercent = null,
+			Action<double>? onFolderMatchThresholdChanged = null) {
 			Options = options;
 			this.onChanged = onChanged;
+			this.onFolderMatchThresholdChanged = onFolderMatchThresholdChanged;
 			_Selected = options.FirstOrDefault(o => o.Mode == selected) ?? options[0];
+			_FolderMatchThresholdPercent = Math.Clamp(
+				folderMatchThresholdPercent ?? ResourceFolderMatchPreference.MinimumPercent, 0d, 100d);
 		}
 
 		public IReadOnlyList<ResultsDisplayModeOption> Options { get; }
@@ -46,21 +50,37 @@ namespace VDF.GUI.ViewModels {
 			set {
 				if (value == null || value.Mode == _Selected.Mode) return;
 				this.RaiseAndSetIfChanged(ref _Selected, value);
+				this.RaisePropertyChanged(nameof(ShowFolderMatchThreshold));
+				this.RaisePropertyChanged(nameof(Hint));
 				onChanged(value.Mode);
 			}
 		}
+
+		public double FolderMatchThresholdPercent {
+			get => _FolderMatchThresholdPercent;
+			set {
+				double clamped = Math.Clamp(value, 0d, 100d);
+				if (Math.Abs(clamped - _FolderMatchThresholdPercent) < 0.0001d) return;
+				this.RaiseAndSetIfChanged(ref _FolderMatchThresholdPercent, clamped);
+				if (onFolderMatchThresholdChanged != null) {
+					onFolderMatchThresholdChanged(clamped);
+				}
+				else {
+					ResourceFolderMatchPreference.MinimumPercent = clamped;
+					ApplicationHelpers.MainWindowDataContext.RefreshResultsView();
+				}
+			}
+		}
+
+		public bool ShowFolderMatchThreshold => Selected.Mode == ResultsDisplayMode.ResourceConsolidation;
 		public string Label => "显示方式";
+		public string FolderMatchLabel => "文件夹匹配 ≥";
+		public string FolderMatchTip => "文件夹匹配度 = min(A目录确认覆盖率, B目录确认覆盖率)。0% 表示不额外过滤；提高阈值可排除只有少量共同资源的目录关系。";
 		public string Hint => Selected.Mode == ResultsDisplayMode.SimilarityGroups
 			? "传统 VDF：每个相似文件组独立显示。"
-			: "文件夹整合：以目标系列文件夹为一级组，把有共同资源证据的多个副本目录放在一起；待复核资源保持人工处理。";
+			: "文件夹整合：按同系列目录组织；只有质量信号存在唯一、无冲突的明显胜者才自动 BEST，否则保留人工复核。";
 	}
 
-	/// <summary>
-	/// One folder-pair option after resolving its safer direction. Keeping this directional
-	/// object separate lets the presentation merge A←B and A←C into one series-folder group
-	/// without ever turning the graph into an undirected connected component (which could let
-	/// a generic Misc/Download folder bridge two unrelated series).
-	/// </summary>
 	internal sealed class ResourceDirectedRelation {
 		internal ResourceDirectedRelation(PikPakFolderCoverageOption option) {
 			Option = option;
@@ -78,15 +98,11 @@ namespace VDF.GUI.ViewModels {
 		internal int TargetResources => TargetIsA ? Option.EstimatedResourcesA : Option.EstimatedResourcesB;
 		internal int SourceResources => TargetIsA ? Option.EstimatedResourcesB : Option.EstimatedResourcesA;
 		internal double SourceCoverage => TargetIsA ? Option.CoverageB : Option.CoverageA;
-		internal bool WholeSourceEligible => MainWindowVM.MayMergeWholeSource(SourceCoverage, Option.ReviewOnlyGroupCount);
+		internal double MatchPercent => Option.FolderMatchPercent;
+		internal bool WholeSourceEligible => MainWindowVM.MayMergeWholeSource(SourceCoverage, Option.AutoBestReviewOnlyGroupCount);
 		internal HashSet<Guid> GroupIds => Option.Matches.Select(match => match.GroupId).ToHashSet();
 	}
 
-	/// <summary>
-	/// Top-level header for one target series folder. Multiple source/copy folders are combined
-	/// only when they have direct shared-resource evidence, so a generic directory that happens
-	/// to contain copies from unrelated series cannot silently become one giant merge group.
-	/// </summary>
 	public sealed class ResourceRelationHeader {
 		readonly IReadOnlyList<ResourceDirectedRelation> sourceRelations;
 
@@ -101,11 +117,12 @@ namespace VDF.GUI.ViewModels {
 			if (relations.Any(r => !r.TargetFolder.Equals(targetFolder, StringComparison.OrdinalIgnoreCase)))
 				throw new ArgumentException("All relations in a resource header must share the same target folder.", nameof(relations));
 
-			// Defensive de-duplication: ComputePikPakFolderCoverageOptions normally emits one
-			// pair per source folder, but if that ever changes the UI still shows a source once.
 			sourceRelations = relations
 				.GroupBy(r => r.SourceFolder, StringComparer.OrdinalIgnoreCase)
-				.Select(g => g.OrderByDescending(r => r.SourceCoverage).ThenByDescending(r => r.Option.ConfirmedMatchedGroupCount).First())
+				.Select(g => g.OrderByDescending(r => r.MatchPercent)
+					.ThenByDescending(r => r.SourceCoverage)
+					.ThenByDescending(r => r.Option.ConfirmedMatchedGroupCount)
+					.First())
 				.ToList();
 
 			TargetFolder = targetFolder;
@@ -117,30 +134,27 @@ namespace VDF.GUI.ViewModels {
 			SourceBytes = sourceRelations.Sum(r => r.SourceBytes);
 			SourceResources = sourceRelations.Sum(r => r.SourceResources);
 			SourceCoverage = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.SourceCoverage);
-			WholeSourceEligible = sourceRelations.Count > 0 && sourceRelations.All(r => r.WholeSourceEligible);
+			MinimumFolderMatchPercent = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.MatchPercent);
 			DisplayedResourceGroups = displaySet.Count;
 
-			// A group is manual-review if ANY contributing relation says so. This intentionally
-			// biases toward retaining both copies rather than allowing a second, looser relation
-			// to turn an ambiguous item back into an automatic BEST decision.
 			var reviewByGroup = new Dictionary<Guid, bool>();
 			foreach (var relation in relations) {
 				foreach (var match in relation.Option.Matches) {
 					if (!displaySet.Contains(match.GroupId)) continue;
 					if (reviewByGroup.TryGetValue(match.GroupId, out bool existing))
-						reviewByGroup[match.GroupId] = existing || match.ReviewOnly;
+						reviewByGroup[match.GroupId] = existing || match.AutoBestReviewOnly;
 					else
-						reviewByGroup[match.GroupId] = match.ReviewOnly;
+						reviewByGroup[match.GroupId] = match.AutoBestReviewOnly;
 				}
 			}
 			ReviewOnlyMatches = reviewByGroup.Count(pair => pair.Value);
 			ConfirmedMatches = reviewByGroup.Count - ReviewOnlyMatches;
+			WholeSourceEligible = ReviewOnlyMatches == 0 && sourceRelations.Count > 0 && sourceRelations.All(r => r.WholeSourceEligible);
 		}
 
 		internal PikPakFolderCoverageOption Option => sourceRelations[0].Option;
 		public int DisplayedResourceGroups { get; }
 		public string TargetFolder { get; }
-		/// <summary>Compatibility accessor: one path for one source, joined paths for a multi-source series group.</summary>
 		public string SourceFolder => string.Join("；", SourceFolders);
 		public IReadOnlyList<string> SourceFolders { get; }
 		public int TargetFiles { get; }
@@ -150,6 +164,7 @@ namespace VDF.GUI.ViewModels {
 		public int TargetResources { get; }
 		public int SourceResources { get; }
 		public double SourceCoverage { get; }
+		public double MinimumFolderMatchPercent { get; }
 		public bool WholeSourceEligible { get; }
 		public int ConfirmedMatches { get; }
 		public int ReviewOnlyMatches { get; }
@@ -160,29 +175,27 @@ namespace VDF.GUI.ViewModels {
 			: $"系列文件夹：{TargetFolder}  ←  {SourceFolderCount:N0} 个候选副本目录";
 		public string TargetStats => $"目标：{TargetFiles:N0} 文件 · {TargetBytes.BytesToString()} · 约 {TargetResources:N0} 资源";
 		public string SourceStats => SourceFolderCount == 1
-			? $"来源：{sourceRelations[0].SourceFolder} · {sourceRelations[0].SourceFiles:N0} 文件 · {sourceRelations[0].SourceBytes.BytesToString()} · 约 {sourceRelations[0].SourceResources:N0} 资源"
+			? $"来源：{sourceRelations[0].SourceFolder} · {sourceRelations[0].SourceFiles:N0} 文件 · {sourceRelations[0].SourceBytes.BytesToString()} · 约 {sourceRelations[0].SourceResources:N0} 资源 · 文件夹匹配 {sourceRelations[0].MatchPercent:0.#}% · 来源覆盖 {sourceRelations[0].SourceCoverage:0.#}%"
 			: "来源副本：" + string.Join("；", sourceRelations.Select(r =>
-				$"{r.SourceFolder}（{r.SourceFiles:N0} 文件 / {r.SourceBytes.BytesToString()} / 覆盖 {r.SourceCoverage:0.#}%）"));
+				$"{r.SourceFolder}（{r.SourceFiles:N0} 文件 / {r.SourceBytes.BytesToString()} / 匹配 {r.MatchPercent:0.#}% / 来源覆盖 {r.SourceCoverage:0.#}%）"));
 		public string RelationStats =>
-			$"本系列归入 {DisplayedResourceGroups:N0} 个相似资源组 · 可按 BEST 规则处理 {ConfirmedMatches:N0} · 人工复核 {ReviewOnlyMatches:N0}";
+			$"本系列归入 {DisplayedResourceGroups:N0} 个相似资源组 · 最低文件夹匹配 {MinimumFolderMatchPercent:0.#}% · 明确 BEST {ConfirmedMatches:N0} · 人工复核 {ReviewOnlyMatches:N0}";
 		public string ActionLabel => ReviewOnlyMatches > 0
 			? "含人工复核"
 			: WholeSourceEligible ? "可整合集合" : "可处理匹配资源";
 		public string ActionHint => ReviewOnlyMatches > 0
-			? "只对安全门槛已确认的资源按 BEST 质量规则保留一份；AI/片段/版本差异等不确定组不会自动处理，留给你手动决定。"
+			? "质量指标打平、互有胜负或关键元数据不足时不会自动选 BEST；这些资源保留原样供手动决定。"
 			: WholeSourceEligible
-				? "所有来源目录确认覆盖率 ≥ 90% 且没有待复核资源，可逐个来源执行安全整合并保留 BEST。"
-				: "仅处理已经匹配且通过安全门槛的资源；不会因为文件夹属于同一系列就移动其他未匹配文件。";
+				? "所有来源目录确认覆盖率 ≥ 90%、且每个资源都有无冲突的唯一质量胜者，可逐个来源执行安全整合。"
+				: "仅处理已经匹配且存在明确质量胜者的资源；不会因为文件夹属于同一系列就移动其他未匹配文件。";
 
 		internal static bool ChooseTargetIsA(PikPakFolderCoverageOption option) {
 			bool aSubset = option.CoverageA >= MainWindowVM.WholeSourceCoverageThreshold;
 			bool bSubset = option.CoverageB >= MainWindowVM.WholeSourceCoverageThreshold;
 			if (aSubset != bSubset)
-				return !aSubset; // the >=90% side is source, the other side is target
-
+				return !aSubset;
 			if (!aSubset && !bSubset && Math.Abs(option.CoverageA - option.CoverageB) > 0.0001)
-				return option.CoverageA > option.CoverageB; // stronger relationship density = collection
-
+				return option.CoverageA > option.CoverageB;
 			if (option.EstimatedResourcesA != option.EstimatedResourcesB)
 				return option.EstimatedResourcesA > option.EstimatedResourcesB;
 			if (option.TotalFilesA != option.TotalFilesB)
@@ -191,10 +204,6 @@ namespace VDF.GUI.ViewModels {
 		}
 	}
 
-	/// <summary>
-	/// Same-folder-only or otherwise cross-folder-unassigned groups are never hidden in the
-	/// resource view. They live under this catch-all header and retain the classic rows.
-	/// </summary>
 	public sealed class ResourceUnassignedHeader {
 		public ResourceUnassignedHeader(IReadOnlyList<ResultsGroupHeader> groups) {
 			GroupCount = groups.Count;
@@ -205,35 +214,32 @@ namespace VDF.GUI.ViewModels {
 		public int FileCount { get; }
 		public long TotalBytes { get; }
 		public string Title => "其他相似文件组";
-		public string Summary => $"{GroupCount:N0} 组 · {FileCount:N0} 文件 · {TotalBytes.BytesToString()} · 未形成可用的跨目录系列文件夹关系";
+		public string Summary => $"{GroupCount:N0} 组 · {FileCount:N0} 文件 · {TotalBytes.BytesToString()} · 未达到当前文件夹匹配阈值，或未形成可用的跨目录系列关系";
 	}
 
 	public sealed class ResourceResultsBuildResult {
 		public required List<object> Rows { get; init; }
-		/// <summary>Number of directed source-folder relationships represented by the rendered target groups.</summary>
 		public required int RelationCount { get; init; }
 		public required int AssignedGroupCount { get; init; }
 		public required int UnassignedGroupCount { get; init; }
 	}
 
-	/// <summary>
-	/// Builds a target-folder-oriented presentation from the already-built canonical VDF groups.
-	/// Folder pairs are directed first. Relations are combined only when they share the same
-	/// target folder AND are connected by at least one common duplicate GroupId. This avoids
-	/// a common Misc/Download directory acting as an accidental bridge between unrelated series.
-	/// Each GroupId is still rendered at most once. Nothing is deleted, moved or re-matched here.
-	/// </summary>
 	public static class ResourceResultsBuilder {
 		public static ResourceResultsBuildResult Build(
 			IReadOnlyList<ResultsGroupHeader> canonicalGroups,
 			IReadOnlyList<PikPakFolderCoverageOption> options,
-			IReadOnlySet<DuplicateItemVM>? expandedDetails = null) {
+			IReadOnlySet<DuplicateItemVM>? expandedDetails = null,
+			double minimumFolderMatchPercent = double.NaN) {
 			var byId = canonicalGroups.ToDictionary(g => g.GroupId);
 			var assigned = new HashSet<Guid>();
 			var rows = new List<object>();
 			int representedRelations = 0;
+			double threshold = double.IsNaN(minimumFolderMatchPercent)
+				? ResourceFolderMatchPreference.MinimumPercent
+				: Math.Clamp(minimumFolderMatchPercent, 0d, 100d);
 
 			var directed = options
+				.Where(option => option.FolderMatchPercent + 0.0001d >= threshold)
 				.Select((option, index) => new { Relation = new ResourceDirectedRelation(option), Index = index })
 				.ToList();
 			var targetGroups = directed
@@ -260,8 +266,6 @@ namespace VDF.GUI.ViewModels {
 					if (gids.Count == 0)
 						continue;
 
-					// Show only source relations that actually contributed at least one group to this
-					// target bucket after global de-duplication.
 					var gidSet = gids.ToHashSet();
 					var usedRelations = coherentRelations
 						.Where(relation => relation.Option.Matches.Any(match => gidSet.Contains(match.GroupId)))
@@ -272,9 +276,6 @@ namespace VDF.GUI.ViewModels {
 					assigned.UnionWith(gids);
 					representedRelations += usedRelations.Count;
 					rows.Add(new ResourceRelationHeader(usedRelations, gids));
-
-					// Retain the canonical result sort inside the series folder group so BEST-first,
-					// size sorting, checked-first etc. continue to behave exactly like traditional VDF.
 					foreach (var gid in gids.OrderBy(gid => byId[gid].GroupNumber))
 						AppendCanonicalGroup(rows, byId[gid], expandedDetails);
 				}
@@ -295,11 +296,6 @@ namespace VDF.GUI.ViewModels {
 			};
 		}
 
-		/// <summary>
-		/// Conservative folder-level clustering. Same target path alone is not enough evidence:
-		/// two source relations must share a duplicate GroupId directly, or through a chain of
-		/// relations that share groups, before they become one multi-source series header.
-		/// </summary>
 		internal static IReadOnlyList<IReadOnlyList<ResourceDirectedRelation>> SplitBySharedResourceEvidence(
 			IReadOnlyList<ResourceDirectedRelation> relations) {
 			if (relations.Count <= 1)
