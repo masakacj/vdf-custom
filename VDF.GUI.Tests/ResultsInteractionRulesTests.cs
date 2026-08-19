@@ -54,13 +54,18 @@ namespace VDF.GUI.Tests {
 		public async Task PathCopiedFlash_RapidReCopy_ExtendsInsteadOfCuttingShort() {
 			var vm = new DuplicateItemVM();
 			var first = vm.FlashPathCopiedAsync(durationMs: 30);
-			var second = vm.FlashPathCopiedAsync(durationMs: 200);
+			// Keep the newer flash alive far beyond normal CI scheduling jitter. We only
+			// need to prove that the stale first timer cannot hide a newer badge; the
+			// separate ShowsThenHides test already verifies eventual hiding.
+			var second = vm.FlashPathCopiedAsync(durationMs: 60_000);
 			await first;
-			// The first flash's timer has expired, but the second copy is still fresh -
-			// its badge must not be hidden by the stale timer.
 			Assert.True(vm.PathCopiedFlash);
-			await second;
+
+			// Invalidate the long-lived test flash without waiting a minute. The second
+			// task becomes stale and therefore cannot change the badge when its timer ends.
+			await vm.FlashPathCopiedAsync(durationMs: 0);
 			Assert.False(vm.PathCopiedFlash);
+			_ = second;
 		}
 	}
 }
