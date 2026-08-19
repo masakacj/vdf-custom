@@ -29,7 +29,10 @@ namespace VDF.GUI.Views {
 			InitializeComponent();
 		}
 
-		internal SingleResourceConsolidationDialog(string bestPath, IReadOnlyList<string> anchors) {
+		internal SingleResourceConsolidationDialog(
+			string bestPath,
+			IReadOnlyList<string> anchors,
+			string? suggestedAnchor = null) {
 			this.bestPath = bestPath;
 			this.anchors = anchors;
 			InitializeComponent();
@@ -40,8 +43,11 @@ namespace VDF.GUI.Views {
 
 			BestPathText.Text = bestPath;
 			AnchorComboBox.ItemsSource = anchors;
-			if (anchors.Count == 1)
-				AnchorComboBox.SelectedIndex = 0;
+			if (!string.IsNullOrWhiteSpace(suggestedAnchor)) {
+				int index = anchors.ToList().FindIndex(path => PathEquals(path, suggestedAnchor));
+				if (index >= 0)
+					AnchorComboBox.SelectedIndex = index;
+			}
 		}
 
 		void InitializeComponent() => AvaloniaXamlLoader.Load(this);
@@ -53,6 +59,14 @@ namespace VDF.GUI.Views {
 			string stem = Path.GetFileNameWithoutExtension(anchorPath);
 			string extension = Path.GetExtension(bestPath);
 			return Path.Combine(folder, stem + extension);
+		}
+
+		static bool PathEquals(string a, string b) {
+			try {
+				return Path.GetFullPath(a).Equals(Path.GetFullPath(b),
+					OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+			}
+			catch { return false; }
 		}
 
 		void OnAnchorSelectionChanged(object? sender, SelectionChangedEventArgs e) {
