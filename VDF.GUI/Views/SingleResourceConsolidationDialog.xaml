@@ -1,0 +1,60 @@
+<Window
+    x:Class="VDF.GUI.Views.SingleResourceConsolidationDialog"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="整合到系列"
+    Width="700"
+    MinWidth="560"
+    CanResize="false"
+    SizeToContent="Height"
+    WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="18" Spacing="12">
+        <TextBlock FontSize="14" FontWeight="SemiBold" Text="单资源整合" />
+
+        <Border Padding="10" CornerRadius="6" Background="{DynamicResource VdfGoodSoftBrush}">
+            <StackPanel Spacing="3">
+                <TextBlock FontSize="11" FontWeight="SemiBold" Text="明确 BEST" />
+                <SelectableTextBlock x:Name="BestPathText" FontSize="11.5" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
+        <TextBlock FontSize="12" FontWeight="SemiBold" Text="目标位置锚点" />
+        <TextBlock
+            FontSize="11.5"
+            Opacity="0.7"
+            TextWrapping="Wrap"
+            Text="选择系列目录中已有的低质量副本，可保留它的目录结构和文件名；如果没有合适候选，可直接浏览目标文件夹。多个候选不会自动替你决定。" />
+        <ComboBox
+            x:Name="AnchorComboBox"
+            MinHeight="34"
+            SelectionChanged="OnAnchorSelectionChanged"
+            PlaceholderText="选择现有副本作为位置锚点（可不选）" />
+
+        <TextBlock FontSize="12" FontWeight="SemiBold" Text="最终文件路径" />
+        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+            <TextBox
+                x:Name="DestinationTextBox"
+                MinHeight="34"
+                VerticalContentAlignment="Center"
+                Watermark="选择锚点后自动生成，或点击浏览选择目标文件夹" />
+            <Button
+                Grid.Column="1"
+                MinWidth="82"
+                Click="OnBrowseClicked"
+                Content="浏览…" />
+        </Grid>
+
+        <Border Padding="10" CornerRadius="6" Background="{DynamicResource VdfMutedSoftBrush}">
+            <TextBlock
+                FontSize="11.5"
+                Opacity="0.75"
+                TextWrapping="Wrap"
+                Text="执行顺序：先把 BEST 复制到目标目录临时文件并做完整 SHA-256 校验；若目标已有低质量副本，会先保留回滚备份，再原子替换；最终 BEST 再次校验成功后才移除源 BEST 和其他副本。不会用错误扩展名，也不会覆盖本组之外的文件。" />
+        </Border>
+
+        <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+            <Button MinWidth="92" IsCancel="True" Click="OnCancelClicked" Content="取消" />
+            <Button MinWidth="110" Classes="accent" IsDefault="True" Click="OnOkClicked" Content="预览整合" />
+        </StackPanel>
+    </StackPanel>
+</Window>
