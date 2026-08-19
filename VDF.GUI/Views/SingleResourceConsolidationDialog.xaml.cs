@@ -32,7 +32,8 @@ namespace VDF.GUI.Views {
 		internal SingleResourceConsolidationDialog(
 			string bestPath,
 			IReadOnlyList<string> anchors,
-			string? suggestedAnchor = null) {
+			string? suggestedAnchor = null,
+			string? initialDestination = null) {
 			this.bestPath = bestPath;
 			this.anchors = anchors;
 			InitializeComponent();
@@ -48,6 +49,8 @@ namespace VDF.GUI.Views {
 				if (index >= 0)
 					AnchorComboBox.SelectedIndex = index;
 			}
+			if (!string.IsNullOrWhiteSpace(initialDestination) && AnchorComboBox.SelectedIndex < 0)
+				DestinationTextBox.Text = initialDestination;
 		}
 
 		void InitializeComponent() => AvaloniaXamlLoader.Load(this);
