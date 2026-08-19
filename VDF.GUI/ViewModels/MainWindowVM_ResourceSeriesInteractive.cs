@@ -149,10 +149,9 @@ namespace VDF.GUI.ViewModels {
 					matchedPaths.Add(Path.GetFullPath(candidate.ItemInfo.Path));
 
 				DuplicateItemVM? keeper = null;
-				bool automatic = !matches.Any(match => match.ReviewOnly) &&
-					TryPickDecisiveQualityWinner(candidates, out DuplicateItemVM decisive);
-				if (automatic) {
-					keeper = decisive;
+				if (!matches.Any(match => match.ReviewOnly) &&
+					TryPickDecisiveQualityWinner(candidates, out DuplicateItemVM decisiveWinner)) {
+					keeper = decisiveWinner;
 				}
 				else if (keeperOverrides != null && keeperOverrides.TryGetValue(matchGroup.Key, out DuplicateItemVM? manual) &&
 					candidates.Any(candidate => ReferenceEquals(candidate, manual))) {
