@@ -33,6 +33,14 @@ public class FolderMergeUxRegressionTests {
         }
     };
 
+    static string RepoRoot() {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        return dir!.FullName;
+    }
+
     [Fact]
     public void DifferentFileSizeAlone_GetsLikelyBestButNeverStrictAutoBest() {
         var group = Guid.NewGuid();
@@ -67,6 +75,22 @@ public class FolderMergeUxRegressionTests {
         Assert.Contains("↑ BEST替换", tree);
         Assert.Contains("2026-01", tree);
         Assert.Contains("2026-03", tree);
+    }
+
+    [Fact]
+    public void ManualReviewPreview_OffersConfirmAllAndClearAll() {
+        string root = RepoRoot();
+        string xaml = File.ReadAllText(Path.Combine(root, "VDF.GUI", "Views", "ResourceConsolidationPreviewDialog.xaml"));
+        string code = File.ReadAllText(Path.Combine(root, "VDF.GUI", "Views", "ResourceConsolidationPreviewDialog.xaml.cs"));
+
+        Assert.Contains("Content=\"确认全部\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Content=\"取消确认全部\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Click=\"OnConfirmAllManualClicked\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Click=\"OnClearAllManualClicked\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("SetAllManualReviewsConfirmed(true)", code, StringComparison.Ordinal);
+        Assert.Contains("SetAllManualReviewsConfirmed(false)", code, StringComparison.Ordinal);
+        Assert.Contains("suppressInteractivePreviewRefresh", code, StringComparison.Ordinal);
+        Assert.Contains("manualAcceptBoxes", code, StringComparison.Ordinal);
     }
 
     [Fact]
