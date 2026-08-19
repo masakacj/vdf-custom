@@ -14,7 +14,7 @@ using VDF.GUI.Views;
 namespace VDF.GUI.ViewModels {
 	public partial class MainWindowVM : ReactiveObject {
 		/// <summary>
-		/// Interactive folder-merge workflow. Ambiguous groups keep a system recommendation,
+		/// Interactive folder-merge workflow. Ambiguous groups keep a system BEST recommendation,
 		/// and the user can accept/change those recommendations directly in the preview.
 		/// </summary>
 		internal async Task ConsolidateSelectedResourceSeriesInteractiveAsync(IReadOnlyList<ResourceRelationHeader> headers) {
@@ -52,10 +52,11 @@ namespace VDF.GUI.ViewModels {
 			ResourceSeriesConsolidationPreview BuildPreview(IReadOnlyDictionary<Guid, DuplicateItemVM> overrides) {
 				var previewPlans = headers.Select(header => BuildResourceSeriesConsolidationPlanInteractive(
 					header, destinations[header.SelectionKey], overrides)).ToList();
-				return BuildResourceSeriesConsolidationPreview(previewPlans);
+				return BuildResourceSeriesConsolidationPreview(previewPlans, manualReviews, overrides);
 			}
 
-			ResourceSeriesConsolidationPreview initialPreview = BuildResourceSeriesConsolidationPreview(initialPlans);
+			ResourceSeriesConsolidationPreview initialPreview = BuildResourceSeriesConsolidationPreview(
+				initialPlans, manualReviews, emptyOverrides);
 			var previewDialog = new ResourceConsolidationPreviewDialog(
 				initialPreview, confirmedReviews, manualReviews, BuildPreview);
 			Dictionary<Guid, DuplicateItemVM>? keeperOverrides =
