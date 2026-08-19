@@ -70,6 +70,87 @@ namespace VDF.GUI.Utils {
 			return MoveVerifiedCore(sourceFull, destinationFull, rejectExistingDestination: true);
 		}
 
+		/// <summary>
+		/// Replaces one exact destination with the source only after a byte-for-byte verified
+		/// staging copy exists beside the destination. The old destination is first renamed to
+		/// a rollback file, the staged BEST is atomically installed, then verified again. Only
+		/// after that final verification is the source removed. Any failure before source removal
+		/// restores the previous destination. This is deliberately copy-first even on the same
+		/// volume: replacing an organized lower-quality anchor must never risk the only BEST copy.
+		/// </summary>
+		internal static SafeMoveResult ReplaceVerifiedExact(string sourcePath, string destinationPath) {
+			if (!File.Exists(sourcePath))
+				return new SafeMoveResult(false, sourcePath, "source file does not exist");
+			if (string.IsNullOrWhiteSpace(destinationPath))
+				return new SafeMoveResult(false, sourcePath, "destination path is empty");
+
+			string sourceFull = Path.GetFullPath(sourcePath);
+			string destinationFull = Path.GetFullPath(destinationPath);
+			var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+			if (sourceFull.Equals(destinationFull, comparison))
+				return new SafeMoveResult(true, sourceFull, null);
+			if (Directory.Exists(destinationFull))
+				return new SafeMoveResult(false, sourceFull, "destination is a directory");
+
+			string? parent = Path.GetDirectoryName(destinationFull);
+			if (string.IsNullOrWhiteSpace(parent))
+				return new SafeMoveResult(false, sourceFull, "destination has no parent folder");
+			Directory.CreateDirectory(parent);
+
+			string temp = destinationFull + $".vdf-replace-{Guid.NewGuid():N}.tmp";
+			string? backup = File.Exists(destinationFull)
+				? destinationFull + $".vdf-replaced-{Guid.NewGuid():N}.bak"
+				: null;
+			bool backupCreated = false;
+			bool stagedInstalled = false;
+			try {
+				byte[] sourceHash = ComputeSha256(sourceFull);
+				File.Copy(sourceFull, temp, overwrite: false);
+				byte[] stagedHash = ComputeSha256(temp);
+				if (!CryptographicOperations.FixedTimeEquals(sourceHash, stagedHash))
+					throw new IOException("full-file SHA-256 verification failed for staged replacement");
+
+				if (backup != null) {
+					File.Move(destinationFull, backup);
+					backupCreated = true;
+				}
+				else if (File.Exists(destinationFull) || Directory.Exists(destinationFull)) {
+					throw new IOException("destination appeared during replacement");
+				}
+
+				File.Move(temp, destinationFull);
+				stagedInstalled = true;
+				byte[] installedHash = ComputeSha256(destinationFull);
+				if (!CryptographicOperations.FixedTimeEquals(sourceHash, installedHash))
+					throw new IOException("full-file SHA-256 verification failed after installing replacement");
+
+				File.Delete(sourceFull);
+
+				string? cleanupWarning = null;
+				if (backupCreated && backup != null) {
+					try { File.Delete(backup); }
+					catch (Exception ex) {
+						cleanupWarning = $"replacement succeeded, but rollback backup could not be removed: {backup} ({ex.Message})";
+					}
+				}
+				return new SafeMoveResult(true, destinationFull, cleanupWarning);
+			}
+			catch (Exception ex) {
+				try { if (File.Exists(temp)) File.Delete(temp); } catch { }
+				try {
+					if (stagedInstalled && File.Exists(destinationFull))
+						File.Delete(destinationFull);
+					if (backupCreated && backup != null && File.Exists(backup) && !File.Exists(destinationFull))
+						File.Move(backup, destinationFull);
+				}
+				catch (Exception restoreEx) {
+					return new SafeMoveResult(false, sourceFull,
+						$"{ex.Message}; rollback restore also failed: {restoreEx.Message}");
+				}
+				return new SafeMoveResult(false, sourceFull, ex.Message);
+			}
+		}
+
 		static SafeMoveResult MoveVerifiedCore(string sourcePath, string destination, bool rejectExistingDestination) {
 			string? temp = null;
 			try {
