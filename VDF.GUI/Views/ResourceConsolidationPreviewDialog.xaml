@@ -32,7 +32,7 @@
         <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="10">
             <Border Padding="12" CornerRadius="8" BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">
                 <StackPanel Spacing="5">
-                    <TextBlock FontSize="11" Opacity="0.62" Text="① 合并前 · 涉及范围" />
+                    <TextBlock FontSize="11" Opacity="0.62" Text="① 合并前 · VDF 索引范围" />
                     <TextBlock x:Name="BeforeText" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
@@ -48,7 +48,7 @@
                     Background="{DynamicResource VdfGoodSoftBrush}"
                     BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1">
                 <StackPanel Spacing="5">
-                    <TextBlock FontSize="11" Opacity="0.72" Text="③ 合并后 · 最终目标" />
+                    <TextBlock FontSize="11" Opacity="0.72" Text="③ 合并后 · 计划目标" />
                     <TextBlock x:Name="AfterText" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
@@ -65,7 +65,7 @@
                 </Grid>
             </TabItem>
 
-            <TabItem Header="确认删除 / 释放">
+            <TabItem x:Name="DeletionTab" Header="确认删除 / 释放">
                 <Grid Margin="8" RowDefinitions="Auto,*" RowSpacing="8">
                     <TextBlock FontSize="11" Opacity="0.68" TextWrapping="Wrap"
                                Text="这里只列系统当前确认可清理的重复副本。目标位旧副本在 BEST 校验成功后直接替换；其余副本在合并成功后标为待删除。人工复核选择变化时本页同步更新。" />
