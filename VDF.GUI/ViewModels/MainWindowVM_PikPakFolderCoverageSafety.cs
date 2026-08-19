@@ -99,6 +99,10 @@ namespace VDF.GUI.ViewModels {
 		/// comparable quality signal and is strictly better than every competing copy on at
 		/// least one signal. Ties, missing metadata and quality trade-offs remain manual.
 		/// File size is deliberately excluded from unattended quality decisions.
+		///
+		/// Still images are recommendation-only: resolution/format metadata cannot prove that
+		/// a larger image was not upscaled, sharpened or more aggressively recompressed. They
+		/// therefore always require a human confirmation before destructive consolidation.
 		/// </summary>
 		internal static bool TryPickDecisiveQualityWinner(
 			IReadOnlyList<DuplicateItemVM> candidates,
@@ -107,14 +111,8 @@ namespace VDF.GUI.ViewModels {
 			if (candidates == null || candidates.Count < 2 || IsReviewOnlyResourceGroup(candidates))
 				return false;
 
-			if (candidates[0].ItemInfo.IsImage) {
-				int maxResolution = candidates.Max(item => item.ItemInfo.FrameSizeInt);
-				var top = candidates.Where(item => item.ItemInfo.FrameSizeInt == maxResolution).ToList();
-				if (top.Count != 1)
-					return false;
-				winner = top[0];
-				return true;
-			}
+			if (candidates[0].ItemInfo.IsImage)
+				return false;
 
 			if (candidates.Any(item => item.ItemInfo.FrameSizeInt <= 0 || item.ItemInfo.BitRateKbs <= 0))
 				return false;
@@ -287,7 +285,7 @@ namespace VDF.GUI.ViewModels {
 					return "部分图片缺少有效分辨率";
 				if (candidates.Select(item => (item.ItemInfo.Format ?? string.Empty).Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
 					return "图片格式不同，不能仅按分辨率自动确认";
-				return "图片质量指标接近或打平";
+				return "图片仅凭分辨率和格式无法排除放大、锐化或重压缩差异，因此必须人工确认";
 			}
 
 			var durations = candidates.Select(item => item.ItemInfo.Duration.TotalSeconds).ToList();
