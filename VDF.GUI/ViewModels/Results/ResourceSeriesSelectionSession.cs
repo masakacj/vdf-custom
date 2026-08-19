@@ -14,9 +14,38 @@ namespace VDF.GUI.ViewModels {
 		static readonly Dictionary<string, ResourceRelationHeader> currentHeaders = new(StringComparer.OrdinalIgnoreCase);
 		static WeakReference<ResultsViewSwitcherRow>? currentSwitcher;
 
+		internal static bool ShouldResetViewportForModeChange(ResultsDisplayMode previous, ResultsDisplayMode current) =>
+			previous != current;
+
 		internal static void AttachSwitcher(ResultsViewSwitcherRow switcher) {
+			ResultsDisplayMode? previousMode = null;
+			if (currentSwitcher != null && currentSwitcher.TryGetTarget(out ResultsViewSwitcherRow? previousSwitcher))
+				previousMode = previousSwitcher.Selected.Mode;
+
 			currentSwitcher = new WeakReference<ResultsViewSwitcherRow>(switcher);
 			switcher.RefreshSeriesSelection();
+
+			// The mode switcher is itself the first row of ResultsRows. RebuildResultsList
+			// normally restores the previous scroll anchor, which can immediately scroll this
+			// row out of view after the user changes “相似文件组 / 文件夹合并”. That made the
+			// folder-match threshold, selected-folder count and merge controls appear to vanish.
+			// Queue a top restore after the rebuild/anchor restore has been scheduled. Normal
+			// filter/sort/selection rebuilds keep their existing scroll position because their
+			// display mode does not change.
+			if (previousMode is { } oldMode && ShouldResetViewportForModeChange(oldMode, switcher.Selected.Mode)) {
+				Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+					try {
+						MainWindowVM vm = ApplicationHelpers.MainWindowDataContext;
+						if (vm.ResultsRows.Count == 0 || !ReferenceEquals(vm.ResultsRows[0], switcher))
+							return;
+						vm.ResultsScrollToRow?.Invoke(switcher, 0d);
+					}
+					catch {
+						// No active window during headless/unit-test construction: there is no viewport
+						// to restore, so the UI-only convenience can safely be skipped.
+					}
+				}, Avalonia.Threading.DispatcherPriority.Loaded);
+			}
 		}
 
 		internal static void BeginBuild() => currentHeaders.Clear();
