@@ -82,7 +82,7 @@ namespace VDF.Core.Utils {
 					Logger.Instance.Info(
 						$"Everything IPC enumerated {everythingStats.ResultCount:N0} media file(s) under '{initial}' " +
 						$"in {everythingStats.Elapsed.TotalMilliseconds:N0} ms ({everythingStats.Pages:N0} page(s), " +
-						$"{everythingStats.CompleteMetadataCount:N0} with complete indexed metadata; class '{everythingStats.WindowClass}'). " +
+						$"{everythingStats.FastMetadataCount:N0} with indexed size/modified metadata; class '{everythingStats.WindowClass}'). " +
 						"Native directory walk skipped.");
 				}
 				return indexedFiles;
