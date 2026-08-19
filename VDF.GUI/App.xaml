@@ -102,7 +102,7 @@
                             FontSize="12"
                             IsEnabled="{Binding CanConsolidate}"
                             Command="{Binding ConsolidateSelectedCommand}"
-                            Content="整合所选资源" />
+                            Content="合并所选文件夹" />
                     </StackPanel>
                     <TextBlock
                         Margin="14,0,0,0"

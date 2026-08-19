@@ -53,7 +53,7 @@ namespace VDF.GUI.ViewModels {
 
 		public ResultsDisplayModeOption[] ResultsDisplayModeOptions { get; } = {
 			new("相似文件组", ResultsDisplayMode.SimilarityGroups),
-			new("资源整合", ResultsDisplayMode.ResourceConsolidation),
+			new("文件夹合并", ResultsDisplayMode.ResourceConsolidation),
 		};
 
 		internal void SetResultsDisplayMode(ResultsDisplayMode mode) {
