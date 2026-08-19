@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -35,12 +35,27 @@ namespace VDF.Core {
 			Folder = fileInfo.Directory?.FullName ?? string.Empty;
 			var extension = fileInfo.Extension;
 			IsImage = FileUtils.ImageExtensions.Any(x => extension.EndsWith(x, StringComparison.OrdinalIgnoreCase));
-			DateCreated = fileInfo.CreationTimeUtc;
-			DateModified = fileInfo.LastWriteTimeUtc;
-			FileSize = fileInfo.Length;
-			// Attributes are already populated on enumerated FileInfos, so stamping the
-			// reparse flag here is free and spares the scan a per-file syscall later.
-			FileAttributes attributes = fileInfo.Attributes;
+
+			// Everything Query2 can return file metadata together with the path. When all
+			// required fields are present, consume that snapshot instead of issuing a second
+			// per-file filesystem metadata lookup. If the user's Everything configuration does
+			// not index one of these fields, the original FileInfo path remains the source of truth.
+			FileAttributes attributes;
+			if (EverythingIpcEnumerator.TryGetIndexedMetadata(fileInfo, out EverythingIndexedFileMetadata indexed) && indexed.IsComplete) {
+				DateCreated = indexed.CreationTimeUtc!.Value;
+				DateModified = indexed.LastWriteTimeUtc!.Value;
+				FileSize = indexed.Length!.Value;
+				attributes = indexed.Attributes!.Value;
+			}
+			else {
+				DateCreated = fileInfo.CreationTimeUtc;
+				DateModified = fileInfo.LastWriteTimeUtc;
+				FileSize = fileInfo.Length;
+				attributes = fileInfo.Attributes;
+			}
+			// Attributes are already populated on enumerated FileInfos (or came from the
+			// Everything Query2 snapshot), so stamping the reparse flag is free and spares
+			// the scan a per-file syscall later.
 			if (attributes != (FileAttributes)(-1)) {
 				Flags.Set(EntryFlags.ReparsePoint, (attributes & FileAttributes.ReparsePoint) != 0);
 				Flags.Set(EntryFlags.ReparsePointChecked);
