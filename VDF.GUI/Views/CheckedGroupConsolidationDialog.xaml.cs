@@ -133,16 +133,19 @@ namespace VDF.GUI.Views {
 			try { folder = Path.GetFullPath(folder); }
 			catch { return false; }
 
-			DuplicateItemVM? anchor = null;
-			if (PathsEqual(CandidateFolder(keeper), folder)) {
+			// C# does not allow capturing an out parameter in a lambda. Copy the normalized
+			// folder to a local before searching for the filename anchor.
+			string normalizedFolder = folder;
+			DuplicateItemVM? anchor;
+			if (PathsEqual(CandidateFolder(keeper), normalizedFolder)) {
 				anchor = keeper;
 			}
 			else {
-				anchor = candidates.FirstOrDefault(item => PathsEqual(CandidateFolder(item), folder));
+				anchor = candidates.FirstOrDefault(item => PathsEqual(CandidateFolder(item), normalizedFolder));
 			}
 			string fileName = anchor != null ? Path.GetFileName(anchor.ItemInfo.Path) : Path.GetFileName(keeper.ItemInfo.Path);
 			if (string.IsNullOrWhiteSpace(fileName)) return false;
-			destination = Path.GetFullPath(Path.Combine(folder, fileName));
+			destination = Path.GetFullPath(Path.Combine(normalizedFolder, fileName));
 			return true;
 		}
 
