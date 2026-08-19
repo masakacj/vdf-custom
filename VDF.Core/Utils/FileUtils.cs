@@ -71,6 +71,27 @@ namespace VDF.Core.Utils {
 				extension.Equals(".heif", StringComparison.OrdinalIgnoreCase);
 		}
 		internal static List<FileInfo> GetFilesRecursive(string initial, bool ignoreReadonly, bool ignoreReparsePoints, bool recursive, bool includeImages, List<string> excludeFolders, CancellationToken cancellationToken) {
+			// Windows fast path: Everything already maintains a filename index, so do not wake a
+			// large HDD just to walk every directory again. Query2 is only an accelerator: any
+			// unsupported setting/error/empty result drops straight into the proven native walker.
+			IEnumerable<string> allowedExtensions = includeImages ? AllExtensionSet : VideoExtensionSet;
+			if (EverythingIpcEnumerator.TryEnumerate(initial, ignoreReadonly, ignoreReparsePoints,
+				recursive, includeImages, allowedExtensions, excludeFolders, cancellationToken,
+				out List<FileInfo> indexedFiles, out EverythingEnumerationStats? everythingStats, out string? everythingFallback)) {
+				if (everythingStats != null) {
+					Logger.Instance.Info(
+						$"Everything IPC enumerated {everythingStats.ResultCount:N0} media file(s) under '{initial}' " +
+						$"in {everythingStats.Elapsed.TotalMilliseconds:N0} ms ({everythingStats.Pages:N0} page(s), " +
+						$"{everythingStats.CompleteMetadataCount:N0} with complete indexed metadata; class '{everythingStats.WindowClass}'). " +
+						"Native directory walk skipped.");
+				}
+				return indexedFiles;
+			}
+			else if (OperatingSystem.IsWindows() && everythingFallback != null &&
+				!everythingFallback.Equals("Everything IPC window not found", StringComparison.Ordinal)) {
+				Logger.Instance.Info($"Everything enumeration not used for '{initial}': {everythingFallback}. Falling back to native enumeration.");
+			}
+
 			EnumerationOptions enumerationOptions = new() {
 				IgnoreInaccessible = true,
 				AttributesToSkip = FileAttributes.System
