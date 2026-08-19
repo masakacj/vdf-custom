@@ -56,4 +56,35 @@ public class SafeFileTransferTests : IDisposable {
 		Assert.False(result.Success);
 		Assert.False(Directory.Exists(target));
 	}
+
+	[Fact]
+	public void ReplaceVerifiedExact_ReplacesAnchorWithBestAndOnlyThenRemovesSource() {
+		string source = Path.Combine(root, "misc-best.mkv");
+		string targetDir = Path.Combine(root, "Series", "2026-02-14", "Theme");
+		Directory.CreateDirectory(targetDir);
+		string destination = Path.Combine(targetDir, "003.mkv");
+		byte[] best = Enumerable.Range(0, 16384).Select(i => (byte)(i % 239)).ToArray();
+		File.WriteAllBytes(source, best);
+		File.WriteAllText(destination, "old-low-quality-copy");
+
+		var result = SafeFileTransfer.ReplaceVerifiedExact(source, destination);
+
+		Assert.True(result.Success, result.Error);
+		Assert.False(File.Exists(source));
+		Assert.Equal(best, File.ReadAllBytes(destination));
+		Assert.Empty(Directory.EnumerateFiles(targetDir, "*.vdf-replaced-*.bak"));
+		Assert.Empty(Directory.EnumerateFiles(targetDir, "*.vdf-replace-*.tmp"));
+	}
+
+	[Fact]
+	public void ReplaceVerifiedExact_MissingSourceDoesNotTouchExistingAnchor() {
+		string source = Path.Combine(root, "missing-best.mkv");
+		string destination = Path.Combine(root, "003.mkv");
+		File.WriteAllText(destination, "keep-me");
+
+		var result = SafeFileTransfer.ReplaceVerifiedExact(source, destination);
+
+		Assert.False(result.Success);
+		Assert.Equal("keep-me", File.ReadAllText(destination));
+	}
 }
