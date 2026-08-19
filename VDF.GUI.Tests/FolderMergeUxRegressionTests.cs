@@ -94,6 +94,19 @@ public class FolderMergeUxRegressionTests {
     }
 
     [Fact]
+    public void DisplayModeChange_ResetsViewportButOrdinaryRebuildDoesNot() {
+        Assert.True(ResourceSeriesSelectionSession.ShouldResetViewportForModeChange(
+            ResultsDisplayMode.SimilarityGroups,
+            ResultsDisplayMode.ResourceConsolidation));
+        Assert.True(ResourceSeriesSelectionSession.ShouldResetViewportForModeChange(
+            ResultsDisplayMode.ResourceConsolidation,
+            ResultsDisplayMode.SimilarityGroups));
+        Assert.False(ResourceSeriesSelectionSession.ShouldResetViewportForModeChange(
+            ResultsDisplayMode.ResourceConsolidation,
+            ResultsDisplayMode.ResourceConsolidation));
+    }
+
+    [Fact]
     public void ProductDefaultLanguage_IsSimplifiedChinese() {
         Assert.Equal("zh-Hans", SettingsFile.DefaultLanguageCode);
         var settings = new SettingsFile();
