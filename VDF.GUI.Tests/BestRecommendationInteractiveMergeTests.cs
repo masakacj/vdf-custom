@@ -1,0 +1,129 @@
+// /*
+//     Copyright (C) 2026 0x90d
+//     This file is part of VideoDuplicateFinder
+// */
+
+using VDF.Core.ViewModels;
+using VDF.GUI.ViewModels;
+
+namespace VDF.GUI.Tests;
+
+public class BestRecommendationInteractiveMergeTests {
+    static DuplicateItemVM Image(Guid group, string path, int resolution, long size, string format = "jpg") => new() {
+        IsVisibleInFilter = true,
+        ItemInfo = new DuplicateItem {
+            GroupId = group,
+            Path = path,
+            Folder = Path.GetDirectoryName(path) ?? string.Empty,
+            SizeLong = size,
+            Similarity = 99,
+            IsImage = true,
+            FrameSize = resolution >= 6000 ? "3840x2160" : "1920x1080",
+            FrameSizeInt = resolution,
+            Format = format,
+            HdrFormat = string.Empty,
+        }
+    };
+
+    static DuplicateItemVM Video(Guid group, string path, long size, decimal bitrate) => new() {
+        IsVisibleInFilter = true,
+        ItemInfo = new DuplicateItem {
+            GroupId = group,
+            Path = path,
+            Folder = Path.GetDirectoryName(path) ?? string.Empty,
+            SizeLong = size,
+            Similarity = 99,
+            Duration = TimeSpan.FromMinutes(20),
+            FrameSize = "1920x1080",
+            FrameSizeInt = 3000,
+            BitRateKbs = bitrate,
+            Fps = 30,
+            Format = "h264",
+            AudioChannel = "stereo",
+            AudioFormat = "aac",
+            AudioBitRateKbs = 192,
+            AudioSampleRate = 48_000,
+            HdrFormat = string.Empty,
+        }
+    };
+
+    [Fact]
+    public void AmbiguousImageGroup_StillGetsRecommendedBest() {
+        Guid group = Guid.NewGuid();
+        string root = Path.Combine(Path.GetTempPath(), "vdf-image-best");
+        var smaller = Image(group, Path.Combine(root, "small.jpg"), 3000, 500_000);
+        var larger = Image(group, Path.Combine(root, "large.jpg"), 3000, 2_000_000);
+
+        BestRecommendation recommendation = MainWindowVM.RecommendBest(new[] { smaller, larger });
+
+        Assert.NotNull(recommendation.Winner);
+        Assert.False(recommendation.IsConfirmed);
+        Assert.Same(larger, recommendation.Winner); // size is only a final weak tie-break, never smaller-size-win
+        Assert.Contains("推荐 BEST", recommendation.Reason);
+        Assert.Contains("弱参考", recommendation.Reason);
+    }
+
+    [Fact]
+    public void HigherResolutionImage_IsConfirmedBest() {
+        Guid group = Guid.NewGuid();
+        string root = Path.Combine(Path.GetTempPath(), "vdf-image-resolution-best");
+        var fullHd = Image(group, Path.Combine(root, "1080.jpg"), 3000, 5_000_000);
+        var ultraHd = Image(group, Path.Combine(root, "4k.jpg"), 6000, 2_000_000);
+
+        BestRecommendation recommendation = MainWindowVM.RecommendBest(new[] { fullHd, ultraHd });
+
+        Assert.True(recommendation.IsConfirmed);
+        Assert.Same(ultraHd, recommendation.Winner);
+        Assert.Contains("分辨率更高", recommendation.Reason);
+    }
+
+    [Fact]
+    public void SmallerPhysicalFile_WithClearlyHigherBitrate_StillWins() {
+        Guid group = Guid.NewGuid();
+        string root = Path.Combine(Path.GetTempPath(), "vdf-video-quality-over-size");
+        var largeLow = Video(group, Path.Combine(root, "large-low.mkv"), 8_000_000, 6_000);
+        var smallHigh = Video(group, Path.Combine(root, "small-high.mkv"), 3_000_000, 12_000);
+
+        BestRecommendation recommendation = MainWindowVM.RecommendBest(new[] { largeLow, smallHigh });
+
+        Assert.True(recommendation.IsConfirmed);
+        Assert.Same(smallHigh, recommendation.Winner);
+        Assert.Contains("视频码率更高", recommendation.Reason);
+    }
+
+    [Fact]
+    public void ResultsBuilder_AlwaysMarksExactlyOneBest_AndShowsReason() {
+        Guid group = Guid.NewGuid();
+        string root = Path.Combine(Path.GetTempPath(), "vdf-results-recommended-best");
+        var a = Image(group, Path.Combine(root, "a.jpg"), 3000, 1_000_000);
+        var b = Image(group, Path.Combine(root, "b.jpg"), 3000, 2_000_000);
+
+        ResultsBuildResult result = ResultsListBuilder.Build(new ResultsBuildRequest {
+            Items = new[] { a, b },
+            RecommendBest = MainWindowVM.RecommendBest,
+            IsTombstone = _ => false,
+            IsOffline = _ => false,
+        });
+
+        ResultsGroupHeader header = Assert.Single(result.Groups);
+        ResultsItemRow best = Assert.Single(header.Rows.Where(row => row.IsBest));
+        Assert.True(best.IsBestNeedsReview);
+        Assert.False(string.IsNullOrWhiteSpace(best.BestReason));
+        Assert.Contains("推荐 BEST", header.Summary);
+    }
+
+    [Fact]
+    public void ConfirmedReclaim_UsesActualLoserSizes_AndDeduplicatesPath() {
+        Guid group = Guid.NewGuid();
+        string root = Path.Combine(Path.GetTempPath(), "vdf-reclaim");
+        string repeated = Path.Combine(root, "duplicate.mkv");
+        var firstView = Video(group, repeated, 1_000_000, 6_000);
+        var secondView = Video(group, repeated, 2_000_000, 6_000);
+        var other = Video(group, Path.Combine(root, "other.mkv"), 3_000_000, 6_000);
+
+        long bytes = MainWindowVM.ComputeConfirmedReclaimBytes(new[] { firstView, secondView, other });
+
+        Assert.Equal(5_000_000, bytes);
+        Assert.True(bytes > 0);
+    }
+}
