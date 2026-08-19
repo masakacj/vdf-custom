@@ -236,6 +236,6 @@ public class ResourceResultsBuilderTests {
         Assert.Equal("含人工复核", header.ActionLabel);
         Assert.Equal(1, header.ReviewOnlyMatches);
         Assert.Equal(0, header.ConfirmedMatches);
-        Assert.Contains("不会自动处理", header.ActionHint);
+        Assert.Contains("不会自动选 BEST", header.ActionHint);
     }
 }
