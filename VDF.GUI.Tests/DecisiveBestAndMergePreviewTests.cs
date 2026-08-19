@@ -62,7 +62,8 @@ public class DecisiveBestAndMergePreviewTests {
             new[] { lowerQualityLargeFile, higherQualitySmallFile });
 
         Assert.Same(higherQualitySmallFile, best);
-        Assert.Contains("文件大小不参与 BEST 判定", tooltip);
+        Assert.NotNull(tooltip);
+        Assert.Contains("文件大小不参与 BEST 判定", tooltip!);
     }
 
     [Fact]
