@@ -359,13 +359,14 @@ namespace VDF.GUI.Views {
 				FontWeight = emphasize ? FontWeight.SemiBold : FontWeight.Normal,
 				TextTrimming = TextTrimming.CharacterEllipsis,
 			});
-			identity.Children.Add(new TextBlock {
+			var pathText = new TextBlock {
 				Text = candidate.ItemInfo.Path,
 				FontSize = 10.8,
 				Opacity = 0.65,
 				TextTrimming = TextTrimming.CharacterEllipsis,
-				ToolTip = candidate.ItemInfo.Path,
-			});
+			};
+			ToolTip.SetTip(pathText, candidate.ItemInfo.Path);
+			identity.Children.Add(pathText);
 			row.Children.Add(identity);
 
 			return new Border {
