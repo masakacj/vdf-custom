@@ -14,7 +14,8 @@ namespace VDF.GUI.ViewModels {
 		string Changes,
 		string After,
 		string Relations,
-		string Tree);
+		string Tree,
+		string DeletionDetails);
 
 	public partial class MainWindowVM : ReactiveObject {
 		internal ResourceSeriesConsolidationPreview BuildResourceSeriesConsolidationPreview(
@@ -22,7 +23,7 @@ namespace VDF.GUI.ViewModels {
 			var comparer = CoreUtils.IsWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 			var original = new Dictionary<string, long>(comparer);
 			var final = new Dictionary<string, (long Bytes, string Marker)>(comparer);
-			var loserPaths = new HashSet<string>(comparer);
+			var removable = new Dictionary<string, (long Bytes, string Keeper, bool ImmediateReplace)>(comparer);
 			var relationLines = new List<string>();
 			var treeSections = new List<string>();
 
@@ -45,16 +46,19 @@ namespace VDF.GUI.ViewModels {
 				}
 
 				foreach (ResourceSeriesGroupPlan group in plan.Groups) {
+					string keeperDestination = FullPreviewPath(group.DestinationPath);
 					foreach (DuplicateItemVM loser in group.Losers) {
 						string loserPath = FullPreviewPath(loser.ItemInfo.Path);
-						loserPaths.Add(loserPath);
+						bool immediate = ReferenceEquals(loser, group.DestinationMember);
+						long loserBytes = Math.Max(0, loser.ItemInfo.SizeLong);
+						if (!removable.TryGetValue(loserPath, out var existing) || loserBytes > existing.Bytes)
+							removable[loserPath] = (loserBytes, keeperDestination, immediate);
 						if (PreviewPathInside(loserPath, plan.DestinationRoot)) section.Remove(loserPath);
 					}
-					string destination = FullPreviewPath(group.DestinationPath);
 					bool replaces = group.KeeperNeedsMove && group.Losers.Any(loser =>
-						comparer.Equals(FullPreviewPath(loser.ItemInfo.Path), destination));
+						comparer.Equals(FullPreviewPath(loser.ItemInfo.Path), keeperDestination));
 					string marker = replaces ? "↑ BEST替换" : group.KeeperNeedsMove ? "＋ BEST迁入" : "＝ BEST保留";
-					section[destination] = (Math.Max(0, group.Keeper.ItemInfo.SizeLong), marker);
+					section[keeperDestination] = (Math.Max(0, group.Keeper.ItemInfo.SizeLong), marker);
 				}
 
 				foreach (ResourceSeriesFileMovePlan file in plan.UniqueFiles) {
@@ -68,12 +72,14 @@ namespace VDF.GUI.ViewModels {
 
 				int planReplacements = plan.Groups.Count(group => group.KeeperNeedsMove && group.Losers.Any(loser =>
 					comparer.Equals(FullPreviewPath(loser.ItemInfo.Path), FullPreviewPath(group.DestinationPath))));
-				int planLosers = plan.Groups.Sum(group => group.Losers.Count);
-				long planLoserBytes = plan.Groups
-					.SelectMany(group => group.Losers)
-					.Select(loser => FullPreviewPath(loser.ItemInfo.Path))
-					.Distinct(comparer)
-					.Sum(path => original.TryGetValue(path, out long size) ? size : 0);
+				var planRemovable = new Dictionary<string, long>(comparer);
+				foreach (DuplicateItemVM loser in plan.Groups.SelectMany(group => group.Losers)) {
+					string path = FullPreviewPath(loser.ItemInfo.Path);
+					long bytes = Math.Max(0, loser.ItemInfo.SizeLong);
+					if (!planRemovable.TryGetValue(path, out long old) || bytes > old)
+						planRemovable[path] = bytes;
+				}
+				long planLoserBytes = planRemovable.Values.Sum();
 
 				relationLines.Add(
 					$"A  目标文件夹（合并后保留）\n{plan.Header.TargetFolder}\n" +
@@ -82,9 +88,9 @@ namespace VDF.GUI.ViewModels {
 					$"{plan.Header.SourceFiles:N0} 文件 · {plan.Header.SourceBytes.BytesToString()} · 约 {plan.Header.SourceResources:N0} 资源\n\n" +
 					$"A ⇄ B  双向重叠 {plan.Header.MinimumFolderMatchPercent:0.#}%\n" +
 					$"目标覆盖 {plan.Header.TargetCoverage:0.#}% · 来源覆盖 {plan.Header.SourceCoverage:0.#}% · 匹配资源组 {plan.Header.DisplayedResourceGroups:N0}\n" +
-					$"明确 BEST {plan.Header.ConfirmedMatches:N0} · 人工复核 {plan.Header.ReviewOnlyMatches:N0}\n\n" +
+					$"确认 BEST {plan.Header.ConfirmedMatches:N0} · 推荐 BEST 待复核 {plan.Header.ReviewOnlyMatches:N0}\n\n" +
 					$"本对目录计划：＋新增 {plan.UniqueFiles.Count:N0} · ↑BEST移动 {plan.KeeperMoves:N0}（替换 {planReplacements:N0}） · " +
-					$"－清理副本 {planLosers:N0} / {planLoserBytes.BytesToString()}\n" +
+					$"－可清理副本 {planRemovable.Count:N0} / {planLoserBytes.BytesToString()}\n" +
 					$"保持原位：人工 {plan.ManualReviewGroupIds.Count:N0} · 路径冲突 {plan.PathConflictCount:N0} · 覆盖不足 {plan.UniqueFilesSkippedByCoverage:N0}\n" +
 					$"最终目标 → {plan.DestinationRoot}");
 				treeSections.Add(BuildOneTreeSection(plan.DestinationRoot, section));
@@ -100,8 +106,7 @@ namespace VDF.GUI.ViewModels {
 			int manual = plans.Sum(plan => plan.ManualReviewGroupIds.Count);
 			int conflicts = plans.Sum(plan => plan.PathConflictCount);
 			int skipped = plans.Sum(plan => plan.UniqueFilesSkippedByCoverage);
-			long loserBytes = loserPaths.Sum(path => original.TryGetValue(path, out long size) ? size : 0);
-			long reclaim = loserBytes;
+			long reclaim = removable.Values.Sum(item => item.Bytes);
 
 			string before =
 				$"涉及 {original.Count:N0} 个已索引文件\n" +
@@ -110,20 +115,39 @@ namespace VDF.GUI.ViewModels {
 			string changes =
 				$"＋ 新增到目标 {uniqueMoves:N0}\n" +
 				$"↑ BEST 迁入 {keeperMoves:N0}（原位替换 {replacements:N0}）\n" +
-				$"－ 重复副本 {loserPaths.Count:N0} · {loserBytes.BytesToString()}\n" +
+				$"－ 确认可清理副本 {removable.Count:N0} · {reclaim.BytesToString()}\n" +
 				$"⚠ 保持原位：人工 {manual:N0} · 冲突 {conflicts:N0} · 覆盖不足 {skipped:N0}";
 			string after =
 				$"最终目标树约 {final.Count:N0} 文件\n" +
 				$"约 {finalBytes.BytesToString()}\n" +
-				$"验证完成并清理副本后预计释放 {reclaim.BytesToString()}";
+				$"确认副本全部清理后预计释放 {reclaim.BytesToString()}";
 			string scope = plans.Count == 1
 				? $"1 对系列文件夹 · 双向重叠 {plans[0].Header.MinimumFolderMatchPercent:0.#}% · 目标 {plans[0].DestinationRoot}"
 				: $"{plans.Count:N0} 对系列文件夹 · 分别保留各自相对目录结构";
 			string tree = string.Join("\n\n", treeSections);
 			if (manual + conflicts + skipped > 0)
 				tree += $"\n\n⚠ 另有 {manual + conflicts + skipped:N0} 项未进入自动目标树，保持原位置供人工处理。";
+
+			var deletion = new StringBuilder();
+			deletion.Append("确认可清理：").Append(removable.Count.ToString("N0"))
+				.Append(" 个副本 · ").AppendLine(reclaim.BytesToString());
+			deletion.AppendLine("说明：目标位低质量副本会在 BEST 校验成功时立即替换；其余副本在合并成功后标记为待删除，可在结果页统一删除。");
+			if (removable.Count == 0) {
+				deletion.AppendLine().Append("当前没有已确认可释放的副本。人工复核完成后，此列表会即时更新。");
+			}
+			else {
+				int index = 1;
+				foreach (var entry in removable.OrderByDescending(pair => pair.Value.Bytes).ThenBy(pair => pair.Key, comparer)) {
+					deletion.AppendLine().Append(index++).Append(". ")
+						.Append(entry.Value.ImmediateReplace ? "[立即替换] " : "[待删除] ")
+						.Append(entry.Value.Bytes.BytesToString()).Append("  ").AppendLine(entry.Key)
+						.Append("   保留 → ").AppendLine(entry.Value.Keeper);
+				}
+			}
+
 			return new ResourceSeriesConsolidationPreview(
-				scope, before, changes, after, string.Join("\n\n────────────────────\n\n", relationLines), tree);
+				scope, before, changes, after,
+				string.Join("\n\n────────────────────\n\n", relationLines), tree, deletion.ToString().TrimEnd());
 		}
 
 		internal static string BuildOneTreeSection(
