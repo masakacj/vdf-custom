@@ -3,13 +3,18 @@ on:
   push:
     branches: [feature/best-recommendation-interactive-merge]
     paths: ['.github/workflows/v414-best-interactive-ui-patch.yml']
+  pull_request:
+    branches: [main]
 permissions:
   contents: write
 jobs:
   patch:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: feature/best-recommendation-interactive-merge
       - shell: bash
         run: |
           python - <<'PY'
@@ -23,8 +28,6 @@ jobs:
                   raise SystemExit(f'{path}: expected one match, got {s.count(old)} for {old[:80]!r}')
               p.write_text(s.replace(old, new, 1), encoding='utf-8', newline='')
 
-          # Results builder: keep the old PickBest seam for tests/compatibility, but allow
-          # richer recommendations carrying confidence + visible reason.
           p = Path('VDF.GUI/ViewModels/Results/ResultsListBuilder.cs')
           s = p.read_text(encoding='utf-8')
           needle = '\t\tpublic Func<IReadOnlyList<DuplicateItemVM>, (DuplicateItemVM? Best, string? Tooltip)>? PickBest { get; init; }\n'
@@ -75,9 +78,7 @@ jobs:
               raise SystemExit(f'ResultsListBuilder: BEST block replacements={n}')
           p.write_text(s, encoding='utf-8', newline='')
 
-          # Main results: use the always-present recommendation and make "keep best" use it too.
-          replace_once(
-              'VDF.GUI/ViewModels/MainWindowVM_Results.cs',
+          replace_once('VDF.GUI/ViewModels/MainWindowVM_Results.cs',
               '\t\t\t\tPickBest = members => PickDecisiveBestForResults(members),',
               '\t\t\t\tRecommendBest = members => RecommendBest(members),')
           p = Path('VDF.GUI/ViewModels/MainWindowVM_Results.cs')
@@ -102,18 +103,13 @@ jobs:
               raise SystemExit(f'MainWindowVM_Results: KeepBest replacements={n}')
           p.write_text(s, encoding='utf-8', newline='')
 
-          # Folder card: direct preview must use interactive workflow, and terminology reflects
-          # confirmed vs recommended BEST rather than "no BEST".
-          replace_once(
-              'VDF.GUI/ViewModels/Results/ResourceResultsBuilder.cs',
+          replace_once('VDF.GUI/ViewModels/Results/ResourceResultsBuilder.cs',
               '.ConsolidateSelectedResourceSeriesAsync(new[] { this }));',
               '.ConsolidateSelectedResourceSeriesInteractiveAsync(new[] { this }));')
-          replace_once(
-              'VDF.GUI/ViewModels/Results/ResourceResultsBuilder.cs',
+          replace_once('VDF.GUI/ViewModels/Results/ResourceResultsBuilder.cs',
               'public string BestReadinessText => $"明确 BEST {ConfirmedMatches:N0} · 人工复核 {ReviewOnlyMatches:N0}";',
               'public string BestReadinessText => $"确认 BEST {ConfirmedMatches:N0} · 推荐 BEST {ReviewOnlyMatches:N0}（需复核）";')
 
-          # Result row: show BEST reason visibly and distinguish recommendations needing review.
           p = Path('VDF.GUI/Views/DuplicateResultsView.xaml')
           s = p.read_text(encoding='utf-8')
           old = '''                  <Border IsVisible="{Binding IsBest}"
@@ -167,7 +163,6 @@ jobs:
           s = s.replace(action_anchor, action_new, 1)
           p.write_text(s, encoding='utf-8', newline='')
           PY
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/v414-best-interactive-ui-patch.yml
