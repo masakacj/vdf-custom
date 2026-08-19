@@ -99,7 +99,103 @@ public class ResourceResultsBuilderTests {
 
         Assert.Contains("Series A", header.TargetFolder);
         Assert.Contains("Misc", header.SourceFolder);
-        Assert.Equal("仅处理匹配资源", header.ActionLabel);
+        Assert.Equal("可处理匹配资源", header.ActionLabel);
+    }
+
+    [Fact]
+    public void SameSeriesMultipleSourceFolders_WithSharedResourceEvidence_UseOneHeader() {
+        var g1 = Guid.NewGuid();
+        var g2 = Guid.NewGuid();
+        var canonical = Canonical(
+            new List<DuplicateItemVM> {
+                Item(g1, @"D:\Series A\001.mkv"),
+                Item(g1, @"E:\Series A Copy\001.mkv"),
+                Item(g1, @"F:\Series A Archive\001.mkv"),
+            },
+            new List<DuplicateItemVM> {
+                Item(g2, @"D:\Series A\002.mkv"),
+                Item(g2, @"E:\Series A Copy\002.mkv"),
+                Item(g2, @"F:\Series A Archive\002.mkv"),
+            });
+        var groups = canonical.Groups.Select(h => h.Rows.Select(r => r.Item).ToList()).ToList();
+        var stats = new Dictionary<string, FolderMediaStats>(StringComparer.OrdinalIgnoreCase) {
+            [@"D:\Series A"] = new FolderMediaStats(2, 2_000),
+            [@"E:\Series A Copy"] = new FolderMediaStats(2, 1_800),
+            [@"F:\Series A Archive"] = new FolderMediaStats(2, 1_900),
+        };
+
+        var resource = ResourceResultsBuilder.Build(
+            canonical.Groups,
+            MainWindowVM.ComputePikPakFolderCoverageOptions(groups, stats));
+        var headers = resource.Rows.OfType<ResourceRelationHeader>().ToList();
+
+        var header = Assert.Single(headers);
+        Assert.Equal(2, header.SourceFolderCount);
+        Assert.Contains("Series A Copy", header.SourceStats);
+        Assert.Contains("Series A Archive", header.SourceStats);
+        Assert.Equal(2, header.DisplayedResourceGroups);
+        Assert.Equal(2, header.ConfirmedMatches);
+        Assert.Equal(0, header.ReviewOnlyMatches);
+    }
+
+    [Fact]
+    public void SameTargetWithoutSharedResourceEvidence_RemainsSeparate() {
+        var g1 = Guid.NewGuid();
+        var g2 = Guid.NewGuid();
+        var canonical = Canonical(
+            new List<DuplicateItemVM> {
+                Item(g1, @"D:\Series A\001.mkv"),
+                Item(g1, @"E:\Partial Copy One\001.mkv"),
+            },
+            new List<DuplicateItemVM> {
+                Item(g2, @"D:\Series A\002.mkv"),
+                Item(g2, @"F:\Partial Copy Two\002.mkv"),
+            });
+        var groups = canonical.Groups.Select(h => h.Rows.Select(r => r.Item).ToList()).ToList();
+        var stats = new Dictionary<string, FolderMediaStats>(StringComparer.OrdinalIgnoreCase) {
+            [@"D:\Series A"] = new FolderMediaStats(100, 100_000),
+            [@"E:\Partial Copy One"] = new FolderMediaStats(1, 1_000),
+            [@"F:\Partial Copy Two"] = new FolderMediaStats(1, 1_000),
+        };
+
+        var resource = ResourceResultsBuilder.Build(
+            canonical.Groups,
+            MainWindowVM.ComputePikPakFolderCoverageOptions(groups, stats));
+        var headers = resource.Rows.OfType<ResourceRelationHeader>().ToList();
+
+        Assert.Equal(2, headers.Count);
+        Assert.All(headers, header => Assert.Equal(1, header.SourceFolderCount));
+        Assert.Equal(2, resource.AssignedGroupCount);
+    }
+
+    [Fact]
+    public void SharedMiscFolder_DoesNotBridgeUnrelatedSeriesIntoOneHeader() {
+        var g1 = Guid.NewGuid();
+        var g2 = Guid.NewGuid();
+        var canonical = Canonical(
+            new List<DuplicateItemVM> {
+                Item(g1, @"D:\Series A\001.mkv"),
+                Item(g1, @"E:\Misc\A-001.mkv"),
+            },
+            new List<DuplicateItemVM> {
+                Item(g2, @"F:\Series B\001.mkv"),
+                Item(g2, @"E:\Misc\B-001.mkv"),
+            });
+        var groups = canonical.Groups.Select(h => h.Rows.Select(r => r.Item).ToList()).ToList();
+        var stats = new Dictionary<string, FolderMediaStats>(StringComparer.OrdinalIgnoreCase) {
+            [@"D:\Series A"] = new FolderMediaStats(100, 100_000),
+            [@"F:\Series B"] = new FolderMediaStats(100, 100_000),
+            [@"E:\Misc"] = new FolderMediaStats(2, 2_000),
+        };
+
+        var resource = ResourceResultsBuilder.Build(
+            canonical.Groups,
+            MainWindowVM.ComputePikPakFolderCoverageOptions(groups, stats));
+        var headers = resource.Rows.OfType<ResourceRelationHeader>().ToList();
+
+        Assert.Equal(2, headers.Count);
+        Assert.All(headers, header => Assert.Equal(1, header.SourceFolderCount));
+        Assert.Equal(2, resource.Rows.OfType<ResultsGroupHeader>().Select(h => h.GroupId).Distinct().Count());
     }
 
     [Fact]
@@ -136,7 +232,9 @@ public class ResourceResultsBuilderTests {
         var header = Assert.Single(resource.Rows.OfType<ResourceRelationHeader>());
 
         Assert.False(header.WholeSourceEligible);
-        Assert.Equal("仅处理匹配资源", header.ActionLabel);
+        Assert.Equal("含人工复核", header.ActionLabel);
         Assert.Equal(1, header.ReviewOnlyMatches);
+        Assert.Equal(0, header.ConfirmedMatches);
+        Assert.Contains("不会自动处理", header.ActionHint);
     }
 }
