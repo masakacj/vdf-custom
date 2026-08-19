@@ -13,4 +13,15 @@ namespace VDF.GUI.ViewModels {
 		IReadOnlyList<DuplicateItemVM> Candidates,
 		DuplicateItemVM RecommendedKeeper,
 		string RecommendationReason);
+
+	/// <summary>
+	/// One folder-merge group whose keeper passed the strict unattended BEST confidence gate.
+	/// These rows are shown in the collapsed automatic section of the merge preview so the
+	/// exact keeper and preselected loser/deletion set remain inspectable before execution.
+	/// </summary>
+	public sealed record ResourceSeriesConfirmedReview(
+		Guid GroupId,
+		IReadOnlyList<DuplicateItemVM> Candidates,
+		DuplicateItemVM ConfirmedKeeper,
+		string ConfirmationReason);
 }
