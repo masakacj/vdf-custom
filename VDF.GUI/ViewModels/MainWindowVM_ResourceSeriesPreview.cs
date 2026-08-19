@@ -72,14 +72,9 @@ namespace VDF.GUI.ViewModels {
 
 				int planReplacements = plan.Groups.Count(group => group.KeeperNeedsMove && group.Losers.Any(loser =>
 					comparer.Equals(FullPreviewPath(loser.ItemInfo.Path), FullPreviewPath(group.DestinationPath))));
-				var planRemovable = new Dictionary<string, long>(comparer);
-				foreach (DuplicateItemVM loser in plan.Groups.SelectMany(group => group.Losers)) {
-					string path = FullPreviewPath(loser.ItemInfo.Path);
-					long bytes = Math.Max(0, loser.ItemInfo.SizeLong);
-					if (!planRemovable.TryGetValue(path, out long old) || bytes > old)
-						planRemovable[path] = bytes;
-				}
-				long planLoserBytes = planRemovable.Values.Sum();
+				long planLoserBytes = ComputeConfirmedReclaimBytes(plan.Groups.SelectMany(group => group.Losers));
+				int planLoserCount = plan.Groups.SelectMany(group => group.Losers)
+					.Select(loser => FullPreviewPath(loser.ItemInfo.Path)).Distinct(comparer).Count();
 
 				relationLines.Add(
 					$"A  目标文件夹（合并后保留）\n{plan.Header.TargetFolder}\n" +
@@ -90,7 +85,7 @@ namespace VDF.GUI.ViewModels {
 					$"目标覆盖 {plan.Header.TargetCoverage:0.#}% · 来源覆盖 {plan.Header.SourceCoverage:0.#}% · 匹配资源组 {plan.Header.DisplayedResourceGroups:N0}\n" +
 					$"确认 BEST {plan.Header.ConfirmedMatches:N0} · 推荐 BEST 待复核 {plan.Header.ReviewOnlyMatches:N0}\n\n" +
 					$"本对目录计划：＋新增 {plan.UniqueFiles.Count:N0} · ↑BEST移动 {plan.KeeperMoves:N0}（替换 {planReplacements:N0}） · " +
-					$"－可清理副本 {planRemovable.Count:N0} / {planLoserBytes.BytesToString()}\n" +
+					$"－可清理副本 {planLoserCount:N0} / {planLoserBytes.BytesToString()}\n" +
 					$"保持原位：人工 {plan.ManualReviewGroupIds.Count:N0} · 路径冲突 {plan.PathConflictCount:N0} · 覆盖不足 {plan.UniqueFilesSkippedByCoverage:N0}\n" +
 					$"最终目标 → {plan.DestinationRoot}");
 				treeSections.Add(BuildOneTreeSection(plan.DestinationRoot, section));
@@ -106,7 +101,8 @@ namespace VDF.GUI.ViewModels {
 			int manual = plans.Sum(plan => plan.ManualReviewGroupIds.Count);
 			int conflicts = plans.Sum(plan => plan.PathConflictCount);
 			int skipped = plans.Sum(plan => plan.UniqueFilesSkippedByCoverage);
-			long reclaim = removable.Values.Sum(item => item.Bytes);
+			long reclaim = ComputeConfirmedReclaimBytes(
+				plans.SelectMany(plan => plan.Groups).SelectMany(group => group.Losers));
 
 			string before =
 				$"涉及 {original.Count:N0} 个已索引文件\n" +
