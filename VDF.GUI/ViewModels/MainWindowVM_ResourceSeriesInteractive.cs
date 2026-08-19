@@ -44,16 +44,20 @@ namespace VDF.GUI.ViewModels {
 			}
 
 			var manualReviews = BuildResourceSeriesManualReviews(headers);
+			var emptyOverrides = new Dictionary<Guid, DuplicateItemVM>();
+			var initialPlans = headers.Select(header => BuildResourceSeriesConsolidationPlanInteractive(
+				header, destinations[header.SelectionKey], emptyOverrides)).ToList();
+			var confirmedReviews = BuildResourceSeriesConfirmedReviews(initialPlans);
+
 			ResourceSeriesConsolidationPreview BuildPreview(IReadOnlyDictionary<Guid, DuplicateItemVM> overrides) {
 				var previewPlans = headers.Select(header => BuildResourceSeriesConsolidationPlanInteractive(
 					header, destinations[header.SelectionKey], overrides)).ToList();
 				return BuildResourceSeriesConsolidationPreview(previewPlans);
 			}
 
-			var emptyOverrides = new Dictionary<Guid, DuplicateItemVM>();
-			ResourceSeriesConsolidationPreview initialPreview = BuildPreview(emptyOverrides);
+			ResourceSeriesConsolidationPreview initialPreview = BuildResourceSeriesConsolidationPreview(initialPlans);
 			var previewDialog = new ResourceConsolidationPreviewDialog(
-				initialPreview, manualReviews, BuildPreview);
+				initialPreview, confirmedReviews, manualReviews, BuildPreview);
 			Dictionary<Guid, DuplicateItemVM>? keeperOverrides =
 				await previewDialog.ShowDialog<Dictionary<Guid, DuplicateItemVM>?>(ApplicationHelpers.MainWindow);
 			if (keeperOverrides == null)
@@ -85,6 +89,25 @@ namespace VDF.GUI.ViewModels {
 			finally {
 				IsBusy = false;
 			}
+		}
+
+		internal IReadOnlyList<ResourceSeriesConfirmedReview> BuildResourceSeriesConfirmedReviews(
+			IReadOnlyList<ResourceSeriesConsolidationPlan> plans) {
+			var result = new List<ResourceSeriesConfirmedReview>();
+			var seen = new HashSet<Guid>();
+			foreach (ResourceSeriesGroupPlan group in plans.SelectMany(plan => plan.Groups)) {
+				if (!seen.Add(group.GroupId)) continue;
+				var candidates = new[] { group.Keeper }.Concat(group.Losers)
+					.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
+					.ToList();
+				BestRecommendation recommendation = RecommendBest(candidates);
+				result.Add(new ResourceSeriesConfirmedReview(
+					group.GroupId,
+					candidates,
+					group.Keeper,
+					recommendation.Reason));
+			}
+			return result;
 		}
 
 		internal IReadOnlyList<ResourceSeriesManualReview> BuildResourceSeriesManualReviews(
