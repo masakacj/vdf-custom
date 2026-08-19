@@ -51,8 +51,10 @@ namespace VDF.GUI.ViewModels {
 
 		/// <summary>Localized "Group N" title, set by the builder from the active formats.</summary>
 		public string Title { get; internal set; } = string.Empty;
-		/// <summary>Localized "3 files · 1.9 GB · save up to 1.2 GB" line, set by the builder.</summary>
+		/// <summary>Localized summary line, including the visible BEST reason when available.</summary>
 		public string Summary { get; internal set; } = string.Empty;
+		/// <summary>Short visible BEST explanation appended to the group header summary.</summary>
+		public string BestSummary { get; internal set; } = string.Empty;
 
 		public string SimilarityRangeDisplay {
 			get {
