@@ -151,7 +151,8 @@ public class ConfidentBestFolderMatchTests {
         Assert.Equal(100d, header.MinimumFolderMatchPercent, 6);
         Assert.Equal(1, header.ReviewOnlyMatches);
         Assert.Contains("文件夹匹配", header.SourceStats);
-        Assert.Contains("人工复核", header.RelationStats);
+        Assert.Contains("推荐 BEST", header.RelationStats);
+        Assert.Contains("待复核", header.RelationStats);
         Assert.False(header.WholeSourceEligible);
     }
 }

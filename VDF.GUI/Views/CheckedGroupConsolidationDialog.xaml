@@ -1,0 +1,60 @@
+<Window
+    x:Class="VDF.GUI.Views.CheckedGroupConsolidationDialog"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="合并所勾选副本"
+    Width="760"
+    MinWidth="650"
+    CanResize="false"
+    SizeToContent="Height"
+    WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="18" Spacing="12">
+        <StackPanel Spacing="3">
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="合并所勾选副本" />
+            <TextBlock x:Name="SummaryText" FontSize="11.5" Opacity="0.68" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+            <TextBlock FontSize="12.5" FontWeight="SemiBold" Text="1. 选择需要保留的副本" />
+            <ComboBox x:Name="KeeperComboBox" MinHeight="36" SelectionChanged="OnChoiceChanged" />
+            <Border Padding="10" CornerRadius="7" Background="{DynamicResource VdfGoodSoftBrush}"
+                    BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1">
+                <TextBlock x:Name="BestReasonText" FontSize="11.3" TextWrapping="Wrap" />
+            </Border>
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+            <TextBlock FontSize="12.5" FontWeight="SemiBold" Text="2. 选择目标文件夹" />
+            <ComboBox x:Name="FolderComboBox" MinHeight="36" SelectionChanged="OnFolderChanged" />
+            <TextBlock FontSize="10.8" Opacity="0.62" Text="候选来自本次勾选副本所在的文件夹。切换后会优先沿用该文件夹内现有副本的文件名。" />
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+            <TextBlock FontSize="12.5" FontWeight="SemiBold" Text="3. 自定义保存目录（可选修改）" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBox x:Name="DestinationFolderTextBox" MinHeight="34" VerticalContentAlignment="Center"
+                         TextChanged="OnDestinationFolderTextChanged"
+                         Watermark="选择上方目录后可继续手工修改" />
+                <Button Grid.Column="1" MinWidth="82" Click="OnBrowseClicked" Content="浏览…" />
+            </Grid>
+        </StackPanel>
+
+        <Border Padding="11" CornerRadius="8" BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">
+            <StackPanel Spacing="5">
+                <TextBlock FontSize="11" Opacity="0.62" Text="最终保留位置" />
+                <TextBlock x:Name="FinalPathText" FontSize="12.3" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <TextBlock x:Name="ReleaseText" FontSize="11.3" Opacity="0.72" TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
+        <Border Padding="10" CornerRadius="7" Background="{DynamicResource VdfWarnSoftBrush}">
+            <TextBlock FontSize="11" TextWrapping="Wrap"
+                       Text="执行时会先把保留副本安全落到最终位置并校验；目标处若是本组低质量副本，可安全替换；如果是无关文件则停止，不会覆盖。其余本次勾选副本随后移入回收站/安全删除流程。" />
+        </Border>
+
+        <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+            <Button MinWidth="92" IsCancel="True" Click="OnCancelClicked" Content="取消" />
+            <Button MinWidth="126" Classes="accent" IsDefault="True" Click="OnOkClicked" Content="继续合并" />
+        </StackPanel>
+    </StackPanel>
+</Window>

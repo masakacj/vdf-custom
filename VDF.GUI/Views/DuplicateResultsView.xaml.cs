@@ -30,13 +30,44 @@ using VDF.GUI.ViewModels;
 namespace VDF.GUI.Views {
 	public partial class DuplicateResultsView : UserControl {
 		const string ConsolidateMenuTag = "vdf-single-resource-consolidate";
+		const string CheckedGroupMergeButtonName = "CheckedGroupMergeButton";
 
 		public DuplicateResultsView() {
 			AvaloniaXamlLoader.Load(this);
+			AddCheckedGroupMergeButton();
 			DataContextChanged += (_, _) => WireViewModel();
 			WireViewModel();
 			if (this.FindControl<Button>("AutoSelectButton")?.Flyout is MenuFlyout autoSelectFlyout)
 				autoSelectFlyout.Opening += (_, _) => RebuildSavedExpressionItems();
+		}
+
+		/// <summary>
+		/// Adds the same-group consolidation entry to the existing checked-items action bar
+		/// without making the large results XAML more coupled to this custom workflow.
+		/// The action bar already appears only while at least one file is checked; the command
+		/// itself validates that at least two checked items share one GroupId.
+		/// </summary>
+		void AddCheckedGroupMergeButton() {
+			if (this.FindControl<Button>(CheckedGroupMergeButtonName) != null) return;
+			if (Content is not Grid root) return;
+			Border? actionBar = root.Children.OfType<Border>()
+				.FirstOrDefault(child => Grid.GetRow(child) == 4);
+			if (actionBar?.Child is not DockPanel dock) return;
+			StackPanel? actions = dock.Children.OfType<StackPanel>()
+				.FirstOrDefault(panel => panel.Orientation == Avalonia.Layout.Orientation.Horizontal && panel.Children.OfType<Button>().Any());
+			if (actions == null) return;
+
+			var button = new Button {
+				Name = CheckedGroupMergeButtonName,
+				Content = "合并所勾选副本…",
+				FontSize = 12.5,
+				FontWeight = Avalonia.Media.FontWeight.SemiBold,
+				Padding = new Thickness(14, 5),
+			};
+			button.SetValue(ToolTip.TipProperty,
+				"同一相似组中勾选至少 2 个副本后，可选择保留副本、组内目标文件夹或自定义目录进行安全合并。");
+			button.Click += (_, _) => ViewModel?.ConsolidateCheckedGroupCommand.Execute().Subscribe();
+			actions.Children.Insert(0, button);
 		}
 
 		/// <summary>
@@ -57,10 +88,7 @@ namespace VDF.GUI.Views {
 		}
 
 		ListBox ResultsListControl => this.FindControl<ListBox>("ResultsList")!;
-
-		/// <summary>The control keyboard shortcuts are attached to (see ApplyKeyboardShortcuts).</summary>
 		internal ListBox ShortcutTarget => ResultsListControl;
-
 		MainWindowVM? ViewModel => DataContext as MainWindowVM;
 
 		void WireViewModel() {
@@ -76,7 +104,6 @@ namespace VDF.GUI.Views {
 			vm.ResultsScrollToRow = ScrollRowToViewportOffset;
 		}
 
-		/// <summary>Row whose realized container is topmost in the viewport (partially visible counts), plus its viewport offset.</summary>
 		ResultsScrollAnchor.Capture? CaptureScrollAnchor() {
 			if (resultsScrollViewer == null) return null;
 			object? best = null;
@@ -112,9 +139,6 @@ namespace VDF.GUI.Views {
 		void OnResultsSelectionChanged(object? sender, SelectionChangedEventArgs e) =>
 			selectionHeaderCleanup.Run(ResultsListControl.SelectedItems);
 
-		// Right-click also injects the custom single-resource consolidation action into
-		// the existing group/file context menu. This keeps the ordinary similarity view
-		// useful for one-off "better copy in Misc -> organized series path" upgrades.
 		void OnResultsPointerPressed(object? sender, PointerPressedEventArgs e) {
 			if (!e.GetCurrentPoint(ResultsListControl).Properties.IsRightButtonPressed) return;
 			if (e.Source is not Control source) return;

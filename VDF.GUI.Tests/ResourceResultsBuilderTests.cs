@@ -99,7 +99,7 @@ public class ResourceResultsBuilderTests {
 
         Assert.Contains("Series A", header.TargetFolder);
         Assert.Contains("Misc", header.SourceFolder);
-        Assert.Equal("含人工复核", header.ActionLabel);
+        Assert.Equal("含待复核推荐", header.ActionLabel);
         Assert.Equal(1, header.ReviewOnlyMatches);
     }
 
@@ -233,9 +233,10 @@ public class ResourceResultsBuilderTests {
         var header = Assert.Single(resource.Rows.OfType<ResourceRelationHeader>());
 
         Assert.False(header.WholeSourceEligible);
-        Assert.Equal("含人工复核", header.ActionLabel);
+        Assert.Equal("含待复核推荐", header.ActionLabel);
         Assert.Equal(1, header.ReviewOnlyMatches);
         Assert.Equal(0, header.ConfirmedMatches);
-        Assert.Contains("不会自动选 BEST", header.ActionHint);
+        Assert.Contains("推荐 BEST", header.ActionHint);
+        Assert.Contains("预览", header.ActionHint);
     }
 }

@@ -64,19 +64,14 @@ namespace VDF.GUI.ViewModels {
 
 		/// <summary>
 		/// The Clip offset column only exists when it can carry data: partial-clip
-		/// detection is enabled, or the current results (e.g. an imported scan from a
-		/// machine where it was enabled) actually contain partial clips.
+		/// detection is enabled, or the current results actually contain partial clips.
 		/// </summary>
 		public bool ResultsShowClipOffsetColumn =>
 			SettingsFile.Instance.EnablePartialClipDetection || resultsHavePartialClips;
 
-		// Seams the new results view control wires up when it attaches; the VM stays
-		// ignorant of the concrete ListBox.
 		internal Func<List<DuplicateItemVM>>? NewResultsSelectionProvider;
 		internal Action<ResultsItemRow>? NewResultsSelectAndScrollTo;
-		/// <summary>Topmost visible row + its viewport offset before a rebuild (scroll anchor, see <see cref="ResultsScrollAnchor"/>).</summary>
 		internal Func<ResultsScrollAnchor.Capture?>? ResultsAnchorProvider;
-		/// <summary>Scrolls the given row of the rebuilt list back to the captured viewport offset (#862).</summary>
 		internal Action<object, double>? ResultsScrollToRow;
 
 		public ResultsSortOption[] ResultsSortOptions { get; } = {
@@ -112,7 +107,6 @@ namespace VDF.GUI.ViewModels {
 			}
 		}
 
-		/// <summary>Shows the BEST-badged file at the top of each group, ahead of the sort order (#846).</summary>
 		public bool ResultsBestFirst {
 			get => SettingsFile.Instance.ResultsBestFirst;
 			set {
@@ -123,11 +117,6 @@ namespace VDF.GUI.ViewModels {
 			}
 		}
 
-		/// <summary>
-		/// BEST badge tooltip: names the criterion that produced the winner — the ranking
-		/// looked arbitrary without it (#839) — and points to where the order is configured.
-		/// Null criterion = the group stayed effectively tied through every criterion.
-		/// </summary>
 		internal static string BestBadgeTooltip(VDF.Core.Utils.QualityRanker.Criterion<DuplicateItemVM>? decidedBy) {
 			if (decidedBy == null)
 				return App.Lang["Results.Row.BestTipTied"];
@@ -150,8 +139,6 @@ namespace VDF.GUI.ViewModels {
 			ResultsScrollAnchor.Capture? anchor = ResultsAnchorProvider?.Invoke();
 			List<Guid> oldGroupOrder = resultsGroups.ConvertAll(g => g.GroupId);
 
-			// ALWAYS build the traditional file groups first. They are the source of truth and
-			// remain the model used by navigation/selection even while resource view is shown.
 			var result = ResultsListBuilder.Build(new ResultsBuildRequest {
 				Items = Duplicates.ToList(),
 				Filter = DuplicatesFilterCore,
@@ -160,17 +147,14 @@ namespace VDF.GUI.ViewModels {
 				BestFirst = SettingsFile.Instance.ResultsBestFirst,
 				CollapsedGroups = collapsedResultsGroups,
 				ExpandedDetails = expandedResultsDetails,
-				// The visible BEST badge uses the same conservative gate as destructive
-				// consolidation. File size and the legacy configurable quality order do not
-				// participate: ties/trade-offs simply show no BEST badge.
-				PickBest = members => PickDecisiveBestForResults(members),
+				// Every group receives one most-likely BEST recommendation. IsConfirmed is
+				// separately carried by the result row and remains the gate for unattended work.
+				RecommendBest = members => RecommendBest(members),
 				Formats = BuildGroupSummaryFormats(),
 			});
 			resultsGroups = result.Groups;
 			resultsHavePartialClips = result.HasPartialClips;
 
-			// The lightweight diagnostic is deliberately visible at group level even before
-			// expanding a row. Per-file reasons are appended to the expanded video detail line.
 			foreach (var group in resultsGroups) {
 				string warning = BuildLightweightQualityGroupSummary(group);
 				if (warning.Length > 0)
@@ -194,9 +178,6 @@ namespace VDF.GUI.ViewModels {
 			ResultsRows.AddRange(displayRows);
 			this.RaisePropertyChanged(nameof(ResultsShowClipOffsetColumn));
 
-			// Restore only canonical row anchors. Resource headers/switcher are presentation
-			// rows and may disappear when the mode changes; failing to restore them is safer
-			// than jumping to a semantically unrelated folder relation.
 			if (anchor is { } a && ResultsScrollAnchor.FindRestoreTarget(a.Row, oldGroupOrder, displayRows) is { } target)
 				ResultsScrollToRow?.Invoke(target, a.ViewportOffsetY);
 		}
@@ -221,13 +202,9 @@ namespace VDF.GUI.ViewModels {
 			return ComputePikPakFolderCoverageOptions(groups, stats);
 		}
 
-		/// <summary>Refreshes the results list after filter/sort/list changes.</summary>
 		internal void RefreshResultsView() => RebuildResultsList();
 
-		/// <summary>Builds the results list from scratch (scan done, import).</summary>
 		void BuildActiveResultsView(bool resetSessionStats = true) {
-			// Post-match only: this reads cached 32×32 samples from the in-memory VDF DB.
-			// It does not add a media-analysis phase and causes zero additional HDD seeks.
 			RunLightweightQualityDiagnostics();
 			RebuildResultsList();
 			if (resetSessionStats)
@@ -241,7 +218,6 @@ namespace VDF.GUI.ViewModels {
 			RebuildResultsList();
 		});
 
-		/// <summary>Expands/collapses the per-file details panel under a row (Tier 2 metadata).</summary>
 		public ReactiveCommand<DuplicateItemVM, Unit> ToggleItemDetailsCommand => ReactiveCommand.Create<DuplicateItemVM>(item => {
 			if (item == null) return;
 			if (!expandedResultsDetails.Remove(item))
@@ -267,16 +243,21 @@ namespace VDF.GUI.ViewModels {
 			if (header != null) CompareGroup(header.GroupId);
 		});
 
+		/// <summary>
+		/// Explicit user action: uses the current recommendation even when the system marks it
+		/// as review-needed. The user is deliberately choosing "keep recommended BEST" here.
+		/// </summary>
 		public ReactiveCommand<ResultsGroupHeader, Unit> KeepBestInGroupHeaderCommand => ReactiveCommand.Create<ResultsGroupHeader>(header => {
 			if (header == null) return;
 			var members = header.Rows.Select(row => row.Item).ToList();
-			if (!TryPickDecisiveQualityWinner(members, out DuplicateItemVM winner))
-				return;
+			if (members.Count < 2) return;
+			BestRecommendation recommendation = RecommendBest(members);
 			using (BeginSelectionUndoBatch()) {
 				foreach (DuplicateItemVM item in members)
-					item.Checked = !ReferenceEquals(item, winner);
+					item.Checked = !ReferenceEquals(item, recommendation.Winner);
 			}
 			RefreshGroupStats();
+			RebuildResultsList();
 		});
 
 		public ReactiveCommand<ResultsGroupHeader, Unit> MarkGroupHeaderNotAMatchCommand => ReactiveCommand.CreateFromTask<ResultsGroupHeader>(async header => {
@@ -295,7 +276,6 @@ namespace VDF.GUI.ViewModels {
 			SettingsFile.Instance.ResultsCompactRows = !SettingsFile.Instance.ResultsCompactRows;
 		});
 
-		/// <summary>Group navigation for the flattened view.</summary>
 		Guid? NavigateGroupNewView(bool forward, Guid? fromGroupId = null) {
 			if (resultsGroups.Count == 0) return null;
 

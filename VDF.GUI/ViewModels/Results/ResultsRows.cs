@@ -51,8 +51,10 @@ namespace VDF.GUI.ViewModels {
 
 		/// <summary>Localized "Group N" title, set by the builder from the active formats.</summary>
 		public string Title { get; internal set; } = string.Empty;
-		/// <summary>Localized "3 files · 1.9 GB · save up to 1.2 GB" line, set by the builder.</summary>
+		/// <summary>Localized summary line, including the visible BEST reason when available.</summary>
 		public string Summary { get; internal set; } = string.Empty;
+		/// <summary>Short visible BEST explanation appended to the group header summary.</summary>
+		public string BestSummary { get; internal set; } = string.Empty;
 
 		public string SimilarityRangeDisplay {
 			get {
@@ -69,9 +71,15 @@ namespace VDF.GUI.ViewModels {
 
 		public DuplicateItemVM Item { get; }
 		public ResultsGroupHeader Group { get; internal set; } = null!;
-		/// <summary>The member the quality ranker would keep; shown as the BEST badge.</summary>
+		/// <summary>The system's most-likely keeper. Every non-empty duplicate group gets exactly one.</summary>
 		public bool IsBest { get; internal set; }
-		/// <summary>BEST badge tooltip: which quality criterion decided (#839).</summary>
+		/// <summary>True only when the recommendation also passes the conservative unattended-action gate.</summary>
+		public bool IsBestConfirmed { get; internal set; }
+		public bool IsBestNeedsReview => IsBest && !IsBestConfirmed;
+		public string BestBadgeText => IsBestConfirmed ? "BEST" : "推荐 BEST";
+		/// <summary>Visible explanation of why the recommendation won and, when applicable, why it still needs review.</summary>
+		public string? BestReason { get; internal set; }
+		/// <summary>Full BEST explanation for hover.</summary>
 		public string? BestTooltip { get; internal set; }
 		/// <summary>
 		/// This member's HDR format beats at least one other member of the group — only
