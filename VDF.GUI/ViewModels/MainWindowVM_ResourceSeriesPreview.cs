@@ -23,28 +23,56 @@ namespace VDF.GUI.ViewModels {
 			var comparer = CoreUtils.IsWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 			var original = new Dictionary<string, long>(comparer);
 			var final = new Dictionary<string, (long Bytes, string Marker)>(comparer);
+			var explicitlyPlanned = new Dictionary<string, (long Bytes, string Marker)>(comparer);
 			var removable = new Dictionary<string, (long Bytes, string Keeper, bool ImmediateReplace)>(comparer);
 			var relationLines = new List<string>();
 			var treeSections = new List<string>();
+			bool inputEnumerationIncomplete = false;
+			bool destinationEnumerationIncomplete = false;
 
 			foreach (ResourceSeriesConsolidationPlan plan in plans) {
 				var roots = new[] { plan.Header.TargetFolder }.Concat(plan.Header.SourceFolders)
 					.Select(NormalizePikPakPath)
 					.Distinct(StringComparer.OrdinalIgnoreCase)
 					.ToList();
+
+				int enumeratedInputFiles = 0;
 				foreach (string root in roots) {
-					foreach (var file in Scanner.GetRecursiveFolderMediaFiles(root)) {
+					var files = Scanner.GetRecursiveFolderMediaFiles(root);
+					enumeratedInputFiles += files.Count;
+					foreach (var file in files) {
 						string full = FullPreviewPath(file.Path);
-						if (!original.ContainsKey(full)) original[full] = Math.Max(0, file.SizeBytes);
+						PutLargest(original, full, Math.Max(0, file.SizeBytes));
 					}
+				}
+				if (enumeratedInputFiles == 0 && plan.Header.TargetFiles + plan.Header.SourceFiles > 0)
+					inputEnumerationIncomplete = true;
+
+				// The execution plan already contains authoritative duplicate rows. Always fold
+				// them into the preview snapshot so a NAS/UNC enumeration failure can never turn
+				// known files/bytes into a misleading 0 files / 0 B summary.
+				foreach (ResourceSeriesGroupPlan group in plan.Groups) {
+					PutLargest(original, FullPreviewPath(group.Keeper.ItemInfo.Path), Math.Max(0, group.Keeper.ItemInfo.SizeLong));
+					foreach (DuplicateItemVM loser in group.Losers)
+						PutLargest(original, FullPreviewPath(loser.ItemInfo.Path), Math.Max(0, loser.ItemInfo.SizeLong));
+				}
+				foreach (ResourceSeriesFileMovePlan file in plan.UniqueFiles) {
+					string source = FullPreviewPath(file.SourcePath);
+					if (!original.ContainsKey(source)) original[source] = TryGetPreviewFileSize(source);
 				}
 
 				var section = new Dictionary<string, (long Bytes, string Marker)>(comparer);
-				foreach (var file in Scanner.GetRecursiveFolderMediaFiles(plan.DestinationRoot)) {
+				var destinationFiles = Scanner.GetRecursiveFolderMediaFiles(plan.DestinationRoot);
+				foreach (var file in destinationFiles) {
 					string full = FullPreviewPath(file.Path);
 					section[full] = (Math.Max(0, file.SizeBytes), "＝ 保留");
 				}
+				bool destinationIsIndexedTarget = comparer.Equals(
+					FullPreviewPath(plan.DestinationRoot), FullPreviewPath(plan.Header.TargetFolder));
+				if (destinationIsIndexedTarget && destinationFiles.Count == 0 && plan.Header.TargetFiles > 0)
+					destinationEnumerationIncomplete = true;
 
+				var planExplicit = new Dictionary<string, (long Bytes, string Marker)>(comparer);
 				foreach (ResourceSeriesGroupPlan group in plan.Groups) {
 					string keeperDestination = FullPreviewPath(group.DestinationPath);
 					foreach (DuplicateItemVM loser in group.Losers) {
@@ -58,15 +86,26 @@ namespace VDF.GUI.ViewModels {
 					bool replaces = group.KeeperNeedsMove && group.Losers.Any(loser =>
 						comparer.Equals(FullPreviewPath(loser.ItemInfo.Path), keeperDestination));
 					string marker = replaces ? "↑ BEST替换" : group.KeeperNeedsMove ? "＋ BEST迁入" : "＝ BEST保留";
-					section[keeperDestination] = (Math.Max(0, group.Keeper.ItemInfo.SizeLong), marker);
+					var entry = (Math.Max(0, group.Keeper.ItemInfo.SizeLong), marker);
+					section[keeperDestination] = entry;
+					planExplicit[keeperDestination] = entry;
+					explicitlyPlanned[keeperDestination] = entry;
 				}
 
 				foreach (ResourceSeriesFileMovePlan file in plan.UniqueFiles) {
 					string destination = FullPreviewPath(file.DestinationPath);
-					long size = original.TryGetValue(FullPreviewPath(file.SourcePath), out long known) ? known : 0;
-					section[destination] = (size, "＋ 新增");
+					string source = FullPreviewPath(file.SourcePath);
+					long size = original.TryGetValue(source, out long known) ? known : TryGetPreviewFileSize(source);
+					var entry = (size, "＋ 新增");
+					section[destination] = entry;
+					planExplicit[destination] = entry;
+					explicitlyPlanned[destination] = entry;
 				}
 
+				// Defensive invariant: an executable group must always appear in the final
+				// preview, even if the destination directory could not be enumerated.
+				foreach (var entry in planExplicit)
+					section[entry.Key] = entry.Value;
 				foreach (var entry in section)
 					final[entry.Key] = entry.Value;
 
@@ -91,7 +130,17 @@ namespace VDF.GUI.ViewModels {
 				treeSections.Add(BuildOneTreeSection(plan.DestinationRoot, section));
 			}
 
-			long originalBytes = original.Values.Sum();
+			// A second defensive invariant. This should normally be redundant with section,
+			// but guarantees the summary can never report 0 final files while the plan has
+			// explicit BEST/unique destinations.
+			foreach (var entry in explicitlyPlanned)
+				final[entry.Key] = entry.Value;
+
+			long liveOriginalBytes = original.Values.Sum();
+			long indexedFiles = plans.Sum(plan => (long)plan.Header.TargetFiles + plan.Header.SourceFiles);
+			long indexedBytes = plans.Sum(plan => plan.Header.TargetBytes + plan.Header.SourceBytes);
+			long beforeFiles = indexedFiles > 0 ? indexedFiles : original.Count;
+			long beforeBytes = indexedBytes > 0 ? indexedBytes : liveOriginalBytes;
 			long finalBytes = final.Values.Sum(item => item.Bytes);
 			int keeperMoves = plans.Sum(plan => plan.KeeperMoves);
 			int uniqueMoves = plans.Sum(plan => plan.UniqueFiles.Count);
@@ -104,19 +153,35 @@ namespace VDF.GUI.ViewModels {
 			long reclaim = ComputeConfirmedReclaimBytes(
 				plans.SelectMany(plan => plan.Groups).SelectMany(group => group.Losers));
 
+			string enumerationNote = inputEnumerationIncomplete
+				? "\n⚠ NAS/UNC 实时目录枚举未返回完整结果；范围数字改用 VDF 索引，文件级计划仍来自当前重复组。"
+				: string.Empty;
 			string before =
-				$"涉及 {original.Count:N0} 个已索引文件\n" +
-				$"合计 {originalBytes.BytesToString()}\n" +
-				$"对比系列 {plans.Count:N0} 个";
+				$"VDF 索引范围 {beforeFiles:N0} 个文件\n" +
+				$"合计 {beforeBytes.BytesToString()}\n" +
+				$"对比系列 {plans.Count:N0} 个" + enumerationNote;
 			string changes =
 				$"＋ 新增到目标 {uniqueMoves:N0}\n" +
 				$"↑ BEST 迁入 {keeperMoves:N0}（原位替换 {replacements:N0}）\n" +
 				$"－ 确认可清理副本 {removable.Count:N0} · {reclaim.BytesToString()}\n" +
 				$"⚠ 保持原位：人工 {manual:N0} · 冲突 {conflicts:N0} · 覆盖不足 {skipped:N0}";
-			string after =
-				$"最终目标树约 {final.Count:N0} 文件\n" +
-				$"约 {finalBytes.BytesToString()}\n" +
-				$"确认副本全部清理后预计释放 {reclaim.BytesToString()}";
+
+			string after;
+			if (destinationEnumerationIncomplete) {
+				long explicitBytes = explicitlyPlanned.Values.Sum(item => item.Bytes);
+				after =
+					$"计划已明确 {explicitlyPlanned.Count:N0} 个目标文件\n" +
+					$"已知计划体积 {explicitBytes.BytesToString()}\n" +
+					$"预计释放 {reclaim.BytesToString()}\n" +
+					"⚠ 原目标是已索引目录，但实时枚举未返回文件；因此不把最终总数错误显示为 0。";
+			}
+			else {
+				after =
+					$"最终目标树约 {final.Count:N0} 文件\n" +
+					$"约 {finalBytes.BytesToString()}\n" +
+					$"确认副本全部清理后预计释放 {reclaim.BytesToString()}";
+			}
+
 			string scope = plans.Count == 1
 				? $"1 对系列文件夹 · 双向重叠 {plans[0].Header.MinimumFolderMatchPercent:0.#}% · 目标 {plans[0].DestinationRoot}"
 				: $"{plans.Count:N0} 对系列文件夹 · 分别保留各自相对目录结构";
@@ -128,6 +193,8 @@ namespace VDF.GUI.ViewModels {
 			deletion.Append("确认可清理：").Append(removable.Count.ToString("N0"))
 				.Append(" 个副本 · ").AppendLine(reclaim.BytesToString());
 			deletion.AppendLine("说明：目标位低质量副本会在 BEST 校验成功时立即替换；其余副本在合并成功后标记为待删除，可在结果页统一删除。");
+			if (inputEnumerationIncomplete || destinationEnumerationIncomplete)
+				deletion.AppendLine("⚠ 网络目录实时枚举不完整不会降低文件级安全校验；这里的删除项和大小直接来自重复组 ItemInfo，而不是目录扫描回查。");
 			if (removable.Count == 0) {
 				deletion.AppendLine().Append("当前没有已确认可释放的副本。人工复核完成后，此列表会即时更新。");
 			}
@@ -144,6 +211,16 @@ namespace VDF.GUI.ViewModels {
 			return new ResourceSeriesConsolidationPreview(
 				scope, before, changes, after,
 				string.Join("\n\n────────────────────\n\n", relationLines), tree, deletion.ToString().TrimEnd());
+		}
+
+		static void PutLargest(Dictionary<string, long> target, string path, long bytes) {
+			if (!target.TryGetValue(path, out long old) || bytes > old)
+				target[path] = bytes;
+		}
+
+		static long TryGetPreviewFileSize(string path) {
+			try { return File.Exists(path) ? Math.Max(0, new FileInfo(path).Length) : 0; }
+			catch { return 0; }
 		}
 
 		internal static string BuildOneTreeSection(
@@ -177,6 +254,15 @@ namespace VDF.GUI.ViewModels {
 				if (entry.Bytes > 0) sb.Append("  ·  ").Append(entry.Bytes.BytesToString());
 				sb.AppendLine();
 				shown++;
+			}
+			if (shown == 0 && files.Count > 0) {
+				sb.AppendLine("   ⚠ 无法把计划路径换算成目标根目录下的相对路径，改列完整路径：");
+				foreach (var entry in files.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase).Take(maxFiles)) {
+					sb.Append("   └─ ").Append(entry.Value.Marker).Append(' ').Append(entry.Key);
+					if (entry.Value.Bytes > 0) sb.Append("  ·  ").Append(entry.Value.Bytes.BytesToString());
+					sb.AppendLine();
+					shown++;
+				}
 			}
 			if (files.Count > shown)
 				sb.Append("   … 还有 ").Append(files.Count - shown).AppendLine(" 个文件未展开");
