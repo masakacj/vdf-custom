@@ -69,9 +69,15 @@ namespace VDF.GUI.ViewModels {
 
 		public DuplicateItemVM Item { get; }
 		public ResultsGroupHeader Group { get; internal set; } = null!;
-		/// <summary>The member the quality ranker would keep; shown as the BEST badge.</summary>
+		/// <summary>The system's most-likely keeper. Every non-empty duplicate group gets exactly one.</summary>
 		public bool IsBest { get; internal set; }
-		/// <summary>BEST badge tooltip: which quality criterion decided (#839).</summary>
+		/// <summary>True only when the recommendation also passes the conservative unattended-action gate.</summary>
+		public bool IsBestConfirmed { get; internal set; }
+		public bool IsBestNeedsReview => IsBest && !IsBestConfirmed;
+		public string BestBadgeText => IsBestConfirmed ? "BEST" : "推荐 BEST";
+		/// <summary>Visible explanation of why the recommendation won and, when applicable, why it still needs review.</summary>
+		public string? BestReason { get; internal set; }
+		/// <summary>Full BEST explanation for hover.</summary>
 		public string? BestTooltip { get; internal set; }
 		/// <summary>
 		/// This member's HDR format beats at least one other member of the group — only
