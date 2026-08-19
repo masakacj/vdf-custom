@@ -111,6 +111,7 @@ namespace VDF.GUI.ViewModels {
 
 				int planReplacements = plan.Groups.Count(group => group.KeeperNeedsMove && group.Losers.Any(loser =>
 					comparer.Equals(FullPreviewPath(loser.ItemInfo.Path), FullPreviewPath(group.DestinationPath))));
+				int planKeepersInPlace = plan.Groups.Count(group => !group.KeeperNeedsMove);
 				long planLoserBytes = ComputeConfirmedReclaimBytes(plan.Groups.SelectMany(group => group.Losers));
 				int planLoserCount = plan.Groups.SelectMany(group => group.Losers)
 					.Select(loser => FullPreviewPath(loser.ItemInfo.Path)).Distinct(comparer).Count();
@@ -123,7 +124,7 @@ namespace VDF.GUI.ViewModels {
 					$"A ⇄ B  双向重叠 {plan.Header.MinimumFolderMatchPercent:0.#}%\n" +
 					$"目标覆盖 {plan.Header.TargetCoverage:0.#}% · 来源覆盖 {plan.Header.SourceCoverage:0.#}% · 匹配资源组 {plan.Header.DisplayedResourceGroups:N0}\n" +
 					$"确认 BEST {plan.Header.ConfirmedMatches:N0} · 推荐 BEST 待复核 {plan.Header.ReviewOnlyMatches:N0}\n\n" +
-					$"本对目录计划：＋新增 {plan.UniqueFiles.Count:N0} · ↑BEST移动 {plan.KeeperMoves:N0}（替换 {planReplacements:N0}） · " +
+					$"本对目录计划：＝BEST原位保留 {planKeepersInPlace:N0} · ＋新增 {plan.UniqueFiles.Count:N0} · ↑BEST移动 {plan.KeeperMoves:N0}（替换 {planReplacements:N0}） · " +
 					$"－可清理副本 {planLoserCount:N0} / {planLoserBytes.BytesToString()}\n" +
 					$"保持原位：人工 {plan.ManualReviewGroupIds.Count:N0} · 路径冲突 {plan.PathConflictCount:N0} · 覆盖不足 {plan.UniqueFilesSkippedByCoverage:N0}\n" +
 					$"最终目标 → {plan.DestinationRoot}");
@@ -142,6 +143,7 @@ namespace VDF.GUI.ViewModels {
 			long beforeFiles = indexedFiles > 0 ? indexedFiles : original.Count;
 			long beforeBytes = indexedBytes > 0 ? indexedBytes : liveOriginalBytes;
 			long finalBytes = final.Values.Sum(item => item.Bytes);
+			int keepersInPlace = plans.Sum(plan => plan.Groups.Count(group => !group.KeeperNeedsMove));
 			int keeperMoves = plans.Sum(plan => plan.KeeperMoves);
 			int uniqueMoves = plans.Sum(plan => plan.UniqueFiles.Count);
 			int replacements = plans.Sum(plan => plan.Groups.Count(group =>
@@ -161,6 +163,7 @@ namespace VDF.GUI.ViewModels {
 				$"合计 {beforeBytes.BytesToString()}\n" +
 				$"对比系列 {plans.Count:N0} 个" + enumerationNote;
 			string changes =
+				$"＝ BEST 原位保留 {keepersInPlace:N0}\n" +
 				$"＋ 新增到目标 {uniqueMoves:N0}\n" +
 				$"↑ BEST 迁入 {keeperMoves:N0}（原位替换 {replacements:N0}）\n" +
 				$"－ 确认可清理副本 {removable.Count:N0} · {reclaim.BytesToString()}\n" +
