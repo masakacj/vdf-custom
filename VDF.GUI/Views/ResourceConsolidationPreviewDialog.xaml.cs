@@ -22,6 +22,7 @@ namespace VDF.GUI.Views {
 		TextBox DeletionTextBox => this.FindControl<TextBox>("DeletionTextBox")!;
 		StackPanel ManualReviewPanel => this.FindControl<StackPanel>("ManualReviewPanel")!;
 		TabItem ManualTab => this.FindControl<TabItem>("ManualTab")!;
+		TabItem DeletionTab => this.FindControl<TabItem>("DeletionTab")!;
 		TabControl DetailTabs => this.FindControl<TabControl>("DetailTabs")!;
 
 		readonly Dictionary<Guid, DuplicateItemVM> keeperOverrides = new();
@@ -67,8 +68,9 @@ namespace VDF.GUI.Views {
 			BuildManualReviewCards(manualReviews);
 			ApplyPreview(preview);
 			UpdateManualTabHeader();
-			if (manualReviews.Count > 0)
-				DetailTabs.SelectedItem = ManualTab;
+			// If there is nothing to review, the useful next thing is the exact delete/reclaim
+			// list. Do not leave the user staring at an intentionally empty review tab.
+			DetailTabs.SelectedItem = manualReviews.Count > 0 ? ManualTab : DeletionTab;
 		}
 
 		void ConfigureWindow() {
