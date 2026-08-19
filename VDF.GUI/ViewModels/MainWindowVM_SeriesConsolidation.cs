@@ -58,7 +58,10 @@ namespace VDF.GUI.ViewModels {
 					? $"已选择系列：{headers[0].TargetFolder}"
 					: $"已选择 {headers.Count:N0} 个系列。",
 				initial,
-				headers.Count > 1);
+				headers.Count > 1,
+				headers.Count == 1
+					? new[] { headers[0].TargetFolder }.Concat(headers[0].SourceFolders).ToList()
+					: null);
 			string? selectedPath = await dialog.ShowDialog<string?>(ApplicationHelpers.MainWindow);
 			if (string.IsNullOrWhiteSpace(selectedPath))
 				return;
