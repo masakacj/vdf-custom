@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY; without even the implied warranty of
+//     but WITHOUT ANY WARRANTY without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -22,7 +22,7 @@ using ReactiveUI;
 namespace VDF.GUI {
 	public class LanguageService : ReactiveObject {
 		Dictionary<string, string> _translations = new();
-		string _currentLanguage = "zh-Hans";
+		string _currentLanguage = Data.SettingsFile.DefaultLanguageCode;
 
 		IReadOnlyList<string>? _availableLanguages;
 		public IReadOnlyList<string> AvailableLanguages => _availableLanguages ??= LoadAvailableLanguages();
@@ -47,9 +47,6 @@ namespace VDF.GUI {
 				foreach (var pair in selected) {
 					if (english.TryGetValue(pair.Key, out var fallback) &&
 						!CompositeFormatCompatible(fallback, pair.Value)) {
-						// A malformed translated format string can otherwise throw while the main
-						// window is being constructed, which looks like a silent language-specific
-						// startup failure. Fall back per-key instead of taking down the whole UI.
 						continue;
 					}
 					merged[pair.Key] = pair.Value;
@@ -57,6 +54,7 @@ namespace VDF.GUI {
 
 				ApplyProductOverrides(langCode, merged);
 				_translations = merged;
+				_currentLanguage = langCode;
 				this.RaisePropertyChanged("Item[]");
 			}
 			catch (Exception) {
@@ -81,25 +79,23 @@ namespace VDF.GUI {
 			if (!langCode.StartsWith("zh", StringComparison.OrdinalIgnoreCase))
 				return;
 
-			// Three fixed modes for the custom resource-consolidation build. Keeping the
-			// existing locale keys avoids breaking upstream locale parity while making the
-			// Chinese-first UX match the actual behavior.
 			values["Profile.Exact.Name"] = "精准去重";
 			values["Profile.Exact.Desc"] = "优先找完全副本、重命名和轻度重编码版本；适合高置信批量清理。";
 			values["Profile.Exact.Time"] = "最快 · 最安全";
 			values["Profile.Edited.Name"] = "高质量整合";
-			values["Profile.Edited.Desc"] = "找不同分辨率、码率、水印、黑边/白边、翻转等完整资源版本，并用于 BEST Quality 整合。";
+			values["Profile.Edited.Desc"] = "找不同分辨率、码率、水印、黑边/白边、翻转等完整资源版本，并用于严格 BEST 整合。";
 			values["Profile.Edited.Time"] = "推荐 · 默认";
 			values["Profile.Ai.Name"] = "深度同源";
 			values["Profile.Ai.Desc"] = "在高质量整合基础上加入本地 AI，寻找裁剪、缩放、严重调色或重剪的完整同源版本；结果建议人工复核。";
 			values["Profile.Ai.Time"] = "AI · 需复核";
+
+			// Product semantics: BEST is the conservative dominance decision, not the old
+			// configurable lexicographic ranker. File size remains visible metadata only.
+			values["Results.Row.Best"] = "严格 BEST";
+			values["Results.Group.KeepBest"] = "保留严格 BEST";
+			values["QualityCriteria.Size"] = "文件大小（仅信息，不参与 BEST）";
 		}
 
-		/// <summary>
-		/// Validates only .NET composite-format structure. Plain translated text is accepted
-		/// unchanged. The index sequence must match English so callers using string.Format
-		/// cannot crash because a translation dropped/added/malformed a placeholder.
-		/// </summary>
 		internal static bool CompositeFormatCompatible(string fallback, string translated) {
 			if (!fallback.Contains('{') && !fallback.Contains('}') && !translated.Contains('{') && !translated.Contains('}'))
 				return true;
@@ -150,10 +146,10 @@ namespace VDF.GUI {
 					.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
 					.ToList();
 
-				return assets.Count > 0 ? assets : new List<string> { "en" };
+				return assets.Count > 0 ? assets : new List<string> { Data.SettingsFile.DefaultLanguageCode, "en" };
 			}
 			catch (Exception) {
-				return new List<string> { "en" };
+				return new List<string> { Data.SettingsFile.DefaultLanguageCode, "en" };
 			}
 		}
 		public string this[string key] => _translations.TryGetValue(key, out var val) ? val : key;

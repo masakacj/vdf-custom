@@ -21,9 +21,10 @@ using System.Reactive;
 using ReactiveUI;
 
 namespace VDF.GUI.ViewModels {
-	// Key is the stored settings value ("Size"), Display the localized list entry
-	// ("Size (smaller file wins)") - they must stay separate so renaming a label
-	// never invalidates saved QualityCriteriaOrder settings.
+	// Key is the stored settings value; Display is localized. File size is intentionally
+	// excluded from this editor: current BEST selection uses the conservative dominance
+	// gate and never treats bytes-on-disk as a quality signal. Keeping the legacy Size
+	// entry visible as "smaller file wins" made the results UI contradict that rule.
 	public sealed record QualityCriterionOption(string Key, string Display);
 
 	public class QualityOrderVM : ReactiveObject {
@@ -33,15 +34,16 @@ namespace VDF.GUI.ViewModels {
 		public ReactiveCommand<int, Unit> MoveDownCommand { get; }
 
 		public QualityOrderVM() {
-			var saved = ApplicationHelpers.MainWindowDataContext.QualityCriteriaOrder;
+			var saved = ApplicationHelpers.MainWindowDataContext.QualityCriteriaOrder
+				.Where(key => !string.Equals(key, "Size", StringComparison.OrdinalIgnoreCase));
 			var merged = new List<string>(saved);
 			foreach (var name in MainWindowVM.QualityCriteriaMap.Keys)
-				if (!merged.Contains(name))
+				if (!string.Equals(name, "Size", StringComparison.OrdinalIgnoreCase) && !merged.Contains(name))
 					merged.Add(name);
 			CriteriaOrder = new ObservableCollection<QualityCriterionOption>(merged.Select(ToOption));
 			MoveUpCommand = ReactiveCommand.Create<int>(MoveUp);
 			MoveDownCommand = ReactiveCommand.Create<int>(MoveDown);
-			_selectedItem = CriteriaOrder[0];
+			_selectedItem = CriteriaOrder.Count > 0 ? CriteriaOrder[0] : new QualityCriterionOption(string.Empty, string.Empty);
 		}
 
 		static QualityCriterionOption ToOption(string key) {

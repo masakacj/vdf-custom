@@ -3,78 +3,96 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="文件夹合并预览"
-    Width="940"
-    Height="720"
-    MinWidth="760"
-    MinHeight="560"
+    Width="1080"
+    Height="780"
+    MinWidth="860"
+    MinHeight="620"
     CanResize="True"
     WindowStartupLocation="CenterOwner">
     <Grid Margin="18" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12">
-        <StackPanel Spacing="4">
-            <TextBlock FontSize="18" FontWeight="SemiBold" Text="文件夹合并预览" />
-            <TextBlock x:Name="ScopeText" FontSize="12" Opacity="0.72" TextWrapping="Wrap" />
-        </StackPanel>
+        <DockPanel LastChildFill="True">
+            <Border DockPanel.Dock="Right" Padding="9,4" CornerRadius="7"
+                    Background="{DynamicResource VdfGoodSoftBrush}"
+                    BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1">
+                <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource VdfGoodBrush}" Text="预演，不会立即改文件" />
+            </Border>
+            <StackPanel Spacing="4">
+                <TextBlock FontSize="19" FontWeight="SemiBold" Text="文件夹合并预览" />
+                <TextBlock x:Name="ScopeText" FontSize="12" Opacity="0.72" TextWrapping="Wrap" />
+            </StackPanel>
+        </DockPanel>
 
-        <Border Grid.Row="1" Padding="10" CornerRadius="7" Background="{DynamicResource VdfGoodSoftBrush}" BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1">
-            <TextBlock FontSize="11.5" TextWrapping="Wrap" Text="预览基于当前 VDF 数据库和已确认的重复关系生成。只有明确且无冲突的 BEST 才自动进入目标树；人工复核项保持原样。目标处属于当前重复组的低质量副本可以在完整校验后安全替换，无关文件绝不会覆盖。" />
+        <Border Grid.Row="1" Padding="11" CornerRadius="8"
+                Background="{DynamicResource VdfGoodSoftBrush}"
+                BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1">
+            <TextBlock FontSize="11.5" TextWrapping="Wrap"
+                       Text="先看清楚再合并：目标目录保留原有相对结构；明确 BEST 才能替换低质量副本；新增资源按来源相对路径迁入；重复副本只在 BEST 安全落盘并完成 SHA-256 校验后清理。人工复核、覆盖不足和路径冲突全部保持原位置。" />
         </Border>
 
         <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="10">
             <Border Padding="12" CornerRadius="8" BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">
                 <StackPanel Spacing="5">
-                    <TextBlock FontSize="11" Opacity="0.62" Text="合并前" />
+                    <TextBlock FontSize="11" Opacity="0.62" Text="① 合并前 · 涉及范围" />
                     <TextBlock x:Name="BeforeText" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
-            <Border Grid.Column="1" Padding="12" CornerRadius="8" Background="{DynamicResource VdfWarnSoftBrush}" BorderBrush="{DynamicResource VdfWarnBorderBrush}" BorderThickness="1">
+            <Border Grid.Column="1" Padding="12" CornerRadius="8"
+                    Background="{DynamicResource VdfWarnSoftBrush}"
+                    BorderBrush="{DynamicResource VdfWarnBorderBrush}" BorderThickness="1">
                 <StackPanel Spacing="5">
-                    <TextBlock FontSize="11" Opacity="0.7" Text="本次变化" />
+                    <TextBlock FontSize="11" Opacity="0.72" Text="② 本次增 / 换 / 删 / 跳过" />
                     <TextBlock x:Name="ChangesText" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
-            <Border Grid.Column="2" Padding="12" CornerRadius="8" Background="{DynamicResource VdfGoodSoftBrush}" BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1">
+            <Border Grid.Column="2" Padding="12" CornerRadius="8"
+                    Background="{DynamicResource VdfGoodSoftBrush}"
+                    BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1">
                 <StackPanel Spacing="5">
-                    <TextBlock FontSize="11" Opacity="0.7" Text="合并后目标树" />
+                    <TextBlock FontSize="11" Opacity="0.72" Text="③ 合并后 · 最终目标" />
                     <TextBlock x:Name="AfterText" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
         </Grid>
 
-        <Grid Grid.Row="3" ColumnDefinitions="0.95*,1.45*" ColumnSpacing="12" MinHeight="260">
+        <Grid Grid.Row="3" ColumnDefinitions="0.9*,1.55*" ColumnSpacing="12" MinHeight="320">
             <Border Padding="12" CornerRadius="8" BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">
-                <Grid RowDefinitions="Auto,*" RowSpacing="8">
-                    <TextBlock FontSize="13" FontWeight="SemiBold" Text="文件夹关系与增减" />
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <TextBlock x:Name="RelationText" FontSize="11.5" LineHeight="18" TextWrapping="Wrap" />
+                <Grid RowDefinitions="Auto,Auto,*" RowSpacing="8">
+                    <TextBlock FontSize="13.5" FontWeight="SemiBold" Text="A / B 文件夹对照" />
+                    <TextBlock Grid.Row="1" FontSize="10.8" Opacity="0.62" TextWrapping="Wrap"
+                               Text="路径、文件数、大小、双向重叠率和 BEST 可自动处理情况都在这里。目标 ← 来源表示实际合并方向。" />
+                    <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <TextBlock x:Name="RelationText" FontSize="11.7" LineHeight="19" TextWrapping="Wrap" />
                     </ScrollViewer>
                 </Grid>
             </Border>
+
             <Border Grid.Column="1" Padding="12" CornerRadius="8" BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">
-                <Grid RowDefinitions="Auto,*" RowSpacing="8">
+                <Grid RowDefinitions="Auto,Auto,*" RowSpacing="7">
                     <DockPanel LastChildFill="True">
-                        <TextBlock FontSize="13" FontWeight="SemiBold" Text="预计最终文件夹结构" />
-                        <TextBlock DockPanel.Dock="Right" FontSize="10.5" Opacity="0.58" Text="＋新增  ↑BEST替换  ＝保留" />
+                        <TextBlock FontSize="13.5" FontWeight="SemiBold" Text="最终文件夹结构树预览" />
+                        <TextBlock DockPanel.Dock="Right" FontSize="10.5" Opacity="0.62" Text="按最终相对路径排序" />
                     </DockPanel>
-                    <TextBox
-                        x:Name="TreeTextBox"
-                        Grid.Row="1"
-                        IsReadOnly="True"
-                        AcceptsReturn="True"
-                        TextWrapping="NoWrap"
-                        FontFamily="Cascadia Mono,Consolas,monospace"
-                        FontSize="11.5"
-                        Padding="10"
-                        ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                        ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                    <WrapPanel Grid.Row="1" Orientation="Horizontal">
+                        <TextBlock Margin="0,0,14,0" FontSize="10.8" Foreground="{DynamicResource VdfGoodBrush}" Text="＋ 新增" />
+                        <TextBlock Margin="0,0,14,0" FontSize="10.8" Foreground="{DynamicResource VdfGoodBrush}" Text="↑ BEST替换" />
+                        <TextBlock Margin="0,0,14,0" FontSize="10.8" Opacity="0.7" Text="＝ 保留" />
+                        <TextBlock FontSize="10.8" Foreground="{DynamicResource VdfWarnBrush}" Text="⚠ 人工/冲突不进入自动树" />
+                    </WrapPanel>
+                    <TextBox x:Name="TreeTextBox" Grid.Row="2"
+                             IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                             FontFamily="Cascadia Mono,Consolas,monospace" FontSize="11.5" Padding="10"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto" />
                 </Grid>
             </Border>
         </Grid>
 
         <DockPanel Grid.Row="4" LastChildFill="False">
-            <TextBlock DockPanel.Dock="Left" MaxWidth="610" VerticalAlignment="Center" FontSize="11" Opacity="0.62" TextWrapping="Wrap" Text="“最终结构”只描述目标目录的自动整合结果；人工复核、覆盖不足和真正路径冲突不会被偷偷塞进目标树。" />
+            <TextBlock DockPanel.Dock="Left" MaxWidth="710" VerticalAlignment="Center" FontSize="11" Opacity="0.64" TextWrapping="Wrap"
+                       Text="只有上方预览中明确列入自动计划的文件才会变化；目标路径出现无关文件、BEST 不明确或任何安全校验失败时，该项会停止并留给人工。" />
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
-                <Button MinWidth="96" IsCancel="True" Click="OnCancelClicked" Content="返回" />
-                <Button MinWidth="120" Classes="accent" IsDefault="True" Click="OnStartClicked" Content="开始安全合并" />
+                <Button MinWidth="100" IsCancel="True" Click="OnCancelClicked" Content="返回修改" />
+                <Button MinWidth="138" Classes="accent" IsDefault="True" Click="OnStartClicked" Content="确认并安全合并" />
             </StackPanel>
         </DockPanel>
     </Grid>
