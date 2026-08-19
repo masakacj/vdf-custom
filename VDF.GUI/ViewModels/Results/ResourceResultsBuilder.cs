@@ -87,10 +87,10 @@ namespace VDF.GUI.ViewModels {
 
 		public string Label => "显示方式";
 		public string FolderMatchLabel => "文件夹匹配 ≥";
-		public string FolderMatchTip => "文件夹匹配度 = min(A目录确认覆盖率, B目录确认覆盖率)。资源整合会优先把多个子目录提升到仍保持高包含率的系列根目录。";
+		public string FolderMatchTip => "文件夹匹配度 = min(A目录确认覆盖率, B目录确认覆盖率)。文件夹合并会优先把多个子目录提升到仍保持高包含率的系列根目录。";
 		public string Hint => Selected.Mode == ResultsDisplayMode.SimilarityGroups
 			? "传统 VDF：每个相似文件组独立显示。"
-			: "系列根目录整合：勾选系列后指定目标路径；日期、主题等子目录按原相对路径保留。不明确 BEST 或路径冲突不会自动处理。";
+			: "系列根目录合并：每组始终有推荐 BEST；低置信推荐需在预览中确认后才会执行。日期、主题等子目录按原相对路径保留。";
 	}
 
 	internal sealed class ResourceDirectedRelation {
@@ -212,10 +212,10 @@ namespace VDF.GUI.ViewModels {
 		public string OverlapText => $"{MinimumFolderMatchPercent:0.#}%";
 		public string OverlapCaption => $"重叠率 · {DisplayedResourceGroups:N0} 个资源组";
 		public string CoverageText => $"目标覆盖 {TargetCoverage:0.#}% · 来源覆盖 {SourceCoverage:0.#}%";
-		public string BestReadinessText => $"明确 BEST {ConfirmedMatches:N0} · 人工复核 {ReviewOnlyMatches:N0}";
+		public string BestReadinessText => $"确认 BEST {ConfirmedMatches:N0} · 推荐 BEST {ReviewOnlyMatches:N0}（需复核）";
 		public ReactiveCommand<Unit, Unit> PreviewConsolidationCommand =>
 			ReactiveCommand.CreateFromTask(() => ApplicationHelpers.MainWindowDataContext
-				.ConsolidateSelectedResourceSeriesAsync(new[] { this }));
+				.ConsolidateSelectedResourceSeriesInteractiveAsync(new[] { this }));
 
 		public string DirectionLine => SourceFolderCount == 1
 			? $"系列根目录：{TargetFolder}  ←  {SourceFolders[0]}"
@@ -226,15 +226,15 @@ namespace VDF.GUI.ViewModels {
 			: "来源副本：" + string.Join("；", sourceRelations.Select(r =>
 				$"{r.SourceFolder}（{r.SourceFiles:N0} 文件 / {r.SourceBytes.BytesToString()} / 匹配 {r.MatchPercent:0.#}% / 来源覆盖 {r.SourceCoverage:0.#}%）"));
 		public string RelationStats =>
-			$"本系列归入 {DisplayedResourceGroups:N0} 个相似资源组 · 最低文件夹匹配 {MinimumFolderMatchPercent:0.#}% · 明确 BEST {ConfirmedMatches:N0} · 人工复核 {ReviewOnlyMatches:N0}";
+			$"本系列归入 {DisplayedResourceGroups:N0} 个相似资源组 · 最低文件夹匹配 {MinimumFolderMatchPercent:0.#}% · 确认 BEST {ConfirmedMatches:N0} · 推荐 BEST待复核 {ReviewOnlyMatches:N0}";
 		public string ActionLabel => ReviewOnlyMatches > 0
-			? "含人工复核"
+			? "含待复核推荐"
 			: WholeSourceEligible ? "可整合集合" : "可处理匹配资源";
 		public string ActionHint => ReviewOnlyMatches > 0
-			? "质量指标打平、互有胜负或关键元数据不足时不会自动选 BEST；这些资源保留原样。其余明确资源整合时会保留系列根目录以下的相对路径。"
+			? "每个待复核组仍会给出推荐 BEST；进入合并预览后可直接接受推荐或改选其他副本，确认后立即纳入增/换/删计划。"
 			: WholeSourceEligible
 				? "来源树确认覆盖率 ≥ 90%，可连同来源独有的已索引媒体一起整合；所有日期、主题等子目录结构保留。"
-				: "只整合已匹配且存在明确 BEST 的资源；路径冲突不覆盖、不自动改名，留给人工处理。";
+				: "只自动处理确认 BEST；路径冲突不覆盖、不自动改名，留给人工处理。";
 
 		internal static bool ChooseTargetIsA(PikPakFolderCoverageOption option) {
 			bool aSubset = option.CoverageA >= MainWindowVM.WholeSourceCoverageThreshold;
