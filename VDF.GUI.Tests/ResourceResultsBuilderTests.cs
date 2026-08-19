@@ -99,7 +99,8 @@ public class ResourceResultsBuilderTests {
 
         Assert.Contains("Series A", header.TargetFolder);
         Assert.Contains("Misc", header.SourceFolder);
-        Assert.Equal("可处理匹配资源", header.ActionLabel);
+        Assert.Equal("含人工复核", header.ActionLabel);
+        Assert.Equal(1, header.ReviewOnlyMatches);
     }
 
     [Fact]
@@ -134,8 +135,8 @@ public class ResourceResultsBuilderTests {
         Assert.Contains("Series A Copy", header.SourceStats);
         Assert.Contains("Series A Archive", header.SourceStats);
         Assert.Equal(2, header.DisplayedResourceGroups);
-        Assert.Equal(2, header.ConfirmedMatches);
-        Assert.Equal(0, header.ReviewOnlyMatches);
+        Assert.Equal(0, header.ConfirmedMatches);
+        Assert.Equal(2, header.ReviewOnlyMatches);
     }
 
     [Fact]
