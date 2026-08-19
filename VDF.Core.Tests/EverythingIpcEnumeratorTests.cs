@@ -15,14 +15,14 @@ public class EverythingIpcEnumeratorTests {
 	static string Root => Path.Combine(Path.GetTempPath(), "vdf everything root");
 
 	[Fact]
-	public void BuildSearch_UsesPathForRecursiveAndParentForFlat() {
+	public void BuildSearch_UsesFileOnlyPathForRecursiveAndParentForFlat() {
 		string recursive = EverythingIpcEnumerator.BuildSearch(Root, true, [".mp4", ".mkv", ".jpg"]);
 		string flat = EverythingIpcEnumerator.BuildSearch(Root, false, [".mp4", ".mkv"]);
 
-		Assert.StartsWith("path:\"", recursive, StringComparison.Ordinal);
+		Assert.StartsWith("file: path:\"", recursive, StringComparison.Ordinal);
 		Assert.Contains("vdf everything root", recursive, StringComparison.Ordinal);
 		Assert.EndsWith("ext:mp4;mkv;jpg", recursive, StringComparison.Ordinal);
-		Assert.StartsWith("parent:\"", flat, StringComparison.Ordinal);
+		Assert.StartsWith("file: parent:\"", flat, StringComparison.Ordinal);
 		Assert.EndsWith("ext:mp4;mkv", flat, StringComparison.Ordinal);
 	}
 
