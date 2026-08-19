@@ -64,7 +64,7 @@ public class BestRecommendationInteractiveMergeTests {
     }
 
     [Fact]
-    public void HigherResolutionImage_IsConfirmedBest() {
+    public void HigherResolutionImage_IsRecommendedButStillRequiresHumanReview() {
         Guid group = Guid.NewGuid();
         string root = Path.Combine(Path.GetTempPath(), "vdf-image-resolution-best");
         var fullHd = Image(group, Path.Combine(root, "1080.jpg"), 3000, 5_000_000);
@@ -72,9 +72,11 @@ public class BestRecommendationInteractiveMergeTests {
 
         BestRecommendation recommendation = MainWindowVM.RecommendBest(new[] { fullHd, ultraHd });
 
-        Assert.True(recommendation.IsConfirmed);
+        Assert.False(recommendation.IsConfirmed);
         Assert.Same(ultraHd, recommendation.Winner);
         Assert.Contains("分辨率更高", recommendation.Reason);
+        Assert.Contains("人工", recommendation.Reason);
+        Assert.False(MainWindowVM.TryPickDecisiveQualityWinner(new[] { fullHd, ultraHd }, out _));
     }
 
     [Fact]
