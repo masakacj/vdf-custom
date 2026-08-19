@@ -27,8 +27,7 @@
         <ComboBox
             x:Name="AnchorComboBox"
             MinHeight="34"
-            SelectionChanged="OnAnchorSelectionChanged"
-            PlaceholderText="选择现有副本作为位置锚点（可不选）" />
+            SelectionChanged="OnAnchorSelectionChanged" />
 
         <TextBlock FontSize="12" FontWeight="SemiBold" Text="最终文件路径" />
         <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
