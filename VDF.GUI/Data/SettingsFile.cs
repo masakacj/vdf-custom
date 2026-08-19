@@ -28,6 +28,7 @@ namespace VDF.GUI.Data {
 	public enum ThumbnailDoubleClickAction { OpenFile, OpenThumbnailComparer }
 
 	public class SettingsFile : ReactiveObject {
+		public const string DefaultLanguageCode = "zh-Hans";
 		static SettingsFile? instance;
 		static string? settingsPath;
 
@@ -857,11 +858,11 @@ namespace VDF.GUI.Data {
 			return true;
 		}
 
-		static string ResolveDefaultLanguageCode() => "zh-Hans";
+		static string ResolveDefaultLanguageCode() => DefaultLanguageCode;
 
 		static string ResolveLanguageCode(string? languageCode) {
 			if (string.IsNullOrWhiteSpace(languageCode))
-				return "zh-Hans";
+				return DefaultLanguageCode;
 
 			string normalized = languageCode.Trim();
 			// VDF ships one Chinese translation today: Simplified Chinese. Normalize

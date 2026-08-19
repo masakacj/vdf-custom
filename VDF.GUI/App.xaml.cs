@@ -29,7 +29,9 @@ namespace VDF.GUI {
 		public static LanguageService Lang { get; } = new();
 
 		public override void Initialize() {
-			Lang.LoadLanguage("zh-Hans");
+			// Product default is Simplified Chinese. A user-selected language can still
+			// replace CurrentLanguage later through Settings; fresh installs start here.
+			Lang.LoadLanguage(SettingsFile.DefaultLanguageCode);
 			AvaloniaXamlLoader.Load(this);
 		}
 

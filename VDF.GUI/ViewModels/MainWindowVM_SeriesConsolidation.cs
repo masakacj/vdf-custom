@@ -19,6 +19,7 @@ namespace VDF.GUI.ViewModels {
 		internal required string SourceRoot { get; init; }
 		internal required string DestinationPath { get; init; }
 		internal required bool KeeperNeedsMove { get; init; }
+		internal DuplicateItemVM? DestinationMember { get; init; }
 	}
 
 	internal sealed class ResourceSeriesFileMovePlan {
@@ -79,21 +80,12 @@ namespace VDF.GUI.ViewModels {
 			int conflicts = plans.Sum(plan => plan.PathConflictCount);
 			int skippedUnique = plans.Sum(plan => plan.UniqueFilesSkippedByCoverage);
 
-			string preview =
-				$"系列：{plans.Count:N0}\n" +
-				$"明确 BEST 资源组：{groups:N0}\n" +
-				$"其中 BEST 需要移动：{keeperMoves:N0}\n" +
-				$"可安全带入的独有资源：{uniqueMoves:N0}\n" +
-				$"质量/关系待人工：{manual:N0}\n" +
-				$"目标路径冲突：{conflicts:N0}\n" +
-				$"因来源覆盖不足而不自动带入的独有资源：{skippedUnique:N0}\n\n" +
-				"所有移动都保留各自系列根目录以下的相对子目录；人工项和冲突项保持原样。\n\n确认执行整合？";
-			var confirm = await MessageBoxService.Show(
-				preview,
-				MessageBoxButtons.Yes | MessageBoxButtons.No,
-				"资源整合预览",
-				MessageBoxButtons.No);
-			if (confirm != MessageBoxButtons.Yes)
+			ResourceSeriesConsolidationPreview visualPreview = BuildResourceSeriesConsolidationPreview(plans);
+			var previewDialog = new ResourceConsolidationPreviewDialog(
+				visualPreview.Scope, visualPreview.Before, visualPreview.Changes, visualPreview.After,
+				visualPreview.Relations, visualPreview.Tree);
+			bool? confirmed = await previewDialog.ShowDialog<bool?>(ApplicationHelpers.MainWindow);
+			if (confirmed != true)
 				return;
 
 			IsBusyOverlayText = "正在按系列目录结构整合资源…";
@@ -163,7 +155,11 @@ namespace VDF.GUI.ViewModels {
 				}
 				string source = Path.GetFullPath(keeper.ItemInfo.Path);
 				bool samePath = source.Equals(destination, comparison);
-				if ((!samePath && (File.Exists(destination) || Directory.Exists(destination))) || !plannedDestinations.Add(destination)) {
+				DuplicateItemVM? destinationMember = candidates.FirstOrDefault(item =>
+					!ReferenceEquals(item, keeper) && Path.GetFullPath(item.ItemInfo.Path).Equals(destination, comparison));
+				bool destinationIsGroupDuplicate = destinationMember != null;
+				if ((!samePath && (Directory.Exists(destination) || (File.Exists(destination) && !destinationIsGroupDuplicate))) ||
+					!plannedDestinations.Add(destination)) {
 					plan.PathConflictCount++;
 					plan.ManualReviewGroupIds.Add(matchGroup.Key);
 					continue;
@@ -176,6 +172,7 @@ namespace VDF.GUI.ViewModels {
 					SourceRoot = sourceRoot,
 					DestinationPath = destination,
 					KeeperNeedsMove = !samePath,
+					DestinationMember = destinationMember,
 				});
 				plannedSources.Add(source);
 			}
@@ -219,6 +216,7 @@ namespace VDF.GUI.ViewModels {
 			ResourceSeriesConsolidationPlan plan) {
 			var result = new ResourceSeriesConsolidationResult();
 			var successfulLosers = new List<DuplicateItemVM>();
+			var replacedDestinationMembers = new List<DuplicateItemVM>();
 			var keeperPathUpdates = new List<(DuplicateItemVM Item, string Path)>();
 
 			await Task.Run(() => {
@@ -227,7 +225,10 @@ namespace VDF.GUI.ViewModels {
 					if (group.KeeperNeedsMove) {
 						string oldPath = group.Keeper.ItemInfo.Path;
 						ScanEngine.GetFromDatabase(oldPath, out FileEntry? dbEntry);
-						SafeMoveResult move = SafeFileTransfer.MoveVerifiedExact(oldPath, group.DestinationPath);
+						bool replacingGroupDuplicate = group.DestinationMember != null && File.Exists(group.DestinationPath);
+						SafeMoveResult move = replacingGroupDuplicate
+							? SafeFileTransfer.ReplaceVerifiedExact(oldPath, group.DestinationPath)
+							: SafeFileTransfer.MoveVerifiedExact(oldPath, group.DestinationPath);
 						if (!move.Success) {
 							Logger.Instance.Error($"Series consolidation could not move BEST '{oldPath}' -> '{group.DestinationPath}': {move.Error}");
 							result.GroupMoveFailures++;
@@ -235,14 +236,21 @@ namespace VDF.GUI.ViewModels {
 						}
 						else {
 							result.KeeperMovesSucceeded++;
-							if (dbEntry != null)
+							if (replacingGroupDuplicate && group.DestinationMember != null) {
+								if (!ScanEngine.CommitConsolidationDatabaseChange(
+									oldPath, move.NewPath, new[] { group.DestinationMember.ItemInfo.Path }, out string dbError))
+									Logger.Instance.Warn($"Series consolidation installed BEST but database replacement needs rescan: {dbError}");
+								replacedDestinationMembers.Add(group.DestinationMember);
+							}
+							else if (dbEntry != null)
 								ScanEngine.UpdateFilePathInDatabase(move.NewPath, dbEntry);
 							keeperPathUpdates.Add((group.Keeper, move.NewPath));
 						}
 					}
 					if (safe) {
 						result.GroupsPrepared++;
-						successfulLosers.AddRange(group.Losers);
+						successfulLosers.AddRange(group.Losers.Where(loser =>
+							!ReferenceEquals(loser, group.DestinationMember)));
 					}
 				}
 
@@ -265,6 +273,9 @@ namespace VDF.GUI.ViewModels {
 
 			foreach (var update in keeperPathUpdates)
 				update.Item.ItemInfo.Path = update.Path;
+			foreach (DuplicateItemVM replaced in replacedDestinationMembers
+				.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance))
+				Duplicates.Remove(replaced);
 
 			using (var undoBatch = BeginSelectionUndoBatch()) {
 				foreach (ResourceSeriesGroupPlan group in plan.Groups)

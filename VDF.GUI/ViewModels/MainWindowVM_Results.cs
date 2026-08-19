@@ -160,11 +160,10 @@ namespace VDF.GUI.ViewModels {
 				BestFirst = SettingsFile.Instance.ResultsBestFirst,
 				CollapsedGroups = collapsedResultsGroups,
 				ExpandedDetails = expandedResultsDetails,
-				PickBest = members => {
-					var (keep, decidedBy) = VDF.Core.Utils.QualityRanker.PickKeeperWithReason(
-						members.ToList(), ResolveCriteria(QualityCriteriaOrder), d => d.ItemInfo.IsImage);
-					return (keep, BestBadgeTooltip(decidedBy));
-				},
+				// The visible BEST badge uses the same conservative gate as destructive
+				// consolidation. File size and the legacy configurable quality order do not
+				// participate: ties/trade-offs simply show no BEST badge.
+				PickBest = members => PickDecisiveBestForResults(members),
 				Formats = BuildGroupSummaryFormats(),
 			});
 			resultsGroups = result.Groups;
@@ -269,7 +268,15 @@ namespace VDF.GUI.ViewModels {
 		});
 
 		public ReactiveCommand<ResultsGroupHeader, Unit> KeepBestInGroupHeaderCommand => ReactiveCommand.Create<ResultsGroupHeader>(header => {
-			if (header != null) KeepBestInGroup(header.GroupId);
+			if (header == null) return;
+			var members = header.Rows.Select(row => row.Item).ToList();
+			if (!TryPickDecisiveQualityWinner(members, out DuplicateItemVM winner))
+				return;
+			using (BeginSelectionUndoBatch()) {
+				foreach (DuplicateItemVM item in members)
+					item.Checked = !ReferenceEquals(item, winner);
+			}
+			RefreshGroupStats();
 		});
 
 		public ReactiveCommand<ResultsGroupHeader, Unit> MarkGroupHeaderNotAMatchCommand => ReactiveCommand.CreateFromTask<ResultsGroupHeader>(async header => {
