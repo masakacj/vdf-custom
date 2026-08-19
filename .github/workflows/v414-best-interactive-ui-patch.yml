@@ -1,0 +1,176 @@
+name: Apply v4.1.4 BEST and merge UI integration
+on:
+  push:
+    branches: [feature/best-recommendation-interactive-merge]
+    paths: ['.github/workflows/v414-best-interactive-ui-patch.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              s = p.read_text(encoding='utf-8')
+              if s.count(old) != 1:
+                  raise SystemExit(f'{path}: expected one match, got {s.count(old)} for {old[:80]!r}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8', newline='')
+
+          # Results builder: keep the old PickBest seam for tests/compatibility, but allow
+          # richer recommendations carrying confidence + visible reason.
+          p = Path('VDF.GUI/ViewModels/Results/ResultsListBuilder.cs')
+          s = p.read_text(encoding='utf-8')
+          needle = '\t\tpublic Func<IReadOnlyList<DuplicateItemVM>, (DuplicateItemVM? Best, string? Tooltip)>? PickBest { get; init; }\n'
+          if s.count(needle) != 1:
+              raise SystemExit('ResultsListBuilder: PickBest property anchor missing')
+          s = s.replace(needle, needle + '\t\t/// <summary>Preferred rich BEST recommendation seam: every group gets a winner plus confidence/reason.</summary>\n\t\tpublic Func<IReadOnlyList<DuplicateItemVM>, BestRecommendation>? RecommendBest { get; init; }\n', 1)
+          pattern = re.compile(r'\t\t\t\tif \(request\.PickBest != null && members\.Count >= 2\) \{.*?\n\t\t\t\t\}\n\n(?=\t\t\t\t// HDR chip highlight)', re.S)
+          replacement = '''\t\t\t\tif ((request.RecommendBest != null || request.PickBest != null) && members.Count >= 2) {
+\t\t\t\t\tDuplicateItemVM? best;
+\t\t\t\t\tstring? tooltip;
+\t\t\t\t\tstring? reason;
+\t\t\t\t\tbool confirmed;
+\t\t\t\t\tif (request.RecommendBest != null) {
+\t\t\t\t\t\tBestRecommendation recommendation = request.RecommendBest(members);
+\t\t\t\t\t\tbest = recommendation.Winner;
+\t\t\t\t\t\ttooltip = recommendation.Reason;
+\t\t\t\t\t\treason = recommendation.Reason;
+\t\t\t\t\t\tconfirmed = recommendation.IsConfirmed;
+\t\t\t\t\t}
+\t\t\t\t\telse {
+\t\t\t\t\t\tvar legacy = request.PickBest!(members);
+\t\t\t\t\t\tbest = legacy.Best;
+\t\t\t\t\t\ttooltip = legacy.Tooltip;
+\t\t\t\t\t\treason = legacy.Tooltip;
+\t\t\t\t\t\tconfirmed = true;
+\t\t\t\t\t}
+\t\t\t\t\tif (best != null) {
+\t\t\t\t\t\tforeach (var row in rows) {
+\t\t\t\t\t\t\trow.IsBest = ReferenceEquals(row.Item, best);
+\t\t\t\t\t\t\trow.IsBestConfirmed = row.IsBest && confirmed;
+\t\t\t\t\t\t\trow.BestTooltip = row.IsBest ? tooltip : null;
+\t\t\t\t\t\t\trow.BestReason = row.IsBest ? reason : null;
+\t\t\t\t\t\t}
+\t\t\t\t\t\tif (request.BestFirst) {
+\t\t\t\t\t\t\tint bestIndex = rows.FindIndex(r => r.IsBest);
+\t\t\t\t\t\t\tif (bestIndex > 0) {
+\t\t\t\t\t\t\t\tvar bestRow = rows[bestIndex];
+\t\t\t\t\t\t\t\trows.RemoveAt(bestIndex);
+\t\t\t\t\t\t\t\trows.Insert(0, bestRow);
+\t\t\t\t\t\t\t}
+\t\t\t\t\t\t}
+\t\t\t\t\t}
+\t\t\t\t}
+
+'''
+          s, n = pattern.subn(replacement, s, count=1)
+          if n != 1:
+              raise SystemExit(f'ResultsListBuilder: BEST block replacements={n}')
+          p.write_text(s, encoding='utf-8', newline='')
+
+          # Main results: use the always-present recommendation and make "keep best" use it too.
+          replace_once(
+              'VDF.GUI/ViewModels/MainWindowVM_Results.cs',
+              '\t\t\t\tPickBest = members => PickDecisiveBestForResults(members),',
+              '\t\t\t\tRecommendBest = members => RecommendBest(members),')
+          p = Path('VDF.GUI/ViewModels/MainWindowVM_Results.cs')
+          s = p.read_text(encoding='utf-8')
+          pattern = re.compile(r'\t\tpublic ReactiveCommand<ResultsGroupHeader, Unit> KeepBestInGroupHeaderCommand => ReactiveCommand\.Create<ResultsGroupHeader>\(header => \{.*?\n\t\t\}\);\n\n(?=\t\tpublic ReactiveCommand<ResultsGroupHeader, Unit> MarkGroupHeaderNotAMatchCommand)', re.S)
+          replacement = '''\t\tpublic ReactiveCommand<ResultsGroupHeader, Unit> KeepBestInGroupHeaderCommand => ReactiveCommand.Create<ResultsGroupHeader>(header => {
+\t\t\tif (header == null) return;
+\t\t\tvar members = header.Rows.Select(row => row.Item).ToList();
+\t\t\tif (members.Count < 2) return;
+\t\t\tBestRecommendation recommendation = RecommendBest(members);
+\t\t\tusing (BeginSelectionUndoBatch()) {
+\t\t\t\tforeach (DuplicateItemVM item in members)
+\t\t\t\t\titem.Checked = !ReferenceEquals(item, recommendation.Winner);
+\t\t\t}
+\t\t\tRefreshGroupStats();
+\t\t\tRebuildResultsList();
+\t\t});
+
+'''
+          s, n = pattern.subn(replacement, s, count=1)
+          if n != 1:
+              raise SystemExit(f'MainWindowVM_Results: KeepBest replacements={n}')
+          p.write_text(s, encoding='utf-8', newline='')
+
+          # Folder card: direct preview must use interactive workflow, and terminology reflects
+          # confirmed vs recommended BEST rather than "no BEST".
+          replace_once(
+              'VDF.GUI/ViewModels/Results/ResourceResultsBuilder.cs',
+              '.ConsolidateSelectedResourceSeriesAsync(new[] { this }));',
+              '.ConsolidateSelectedResourceSeriesInteractiveAsync(new[] { this }));')
+          replace_once(
+              'VDF.GUI/ViewModels/Results/ResourceResultsBuilder.cs',
+              'public string BestReadinessText => $"明确 BEST {ConfirmedMatches:N0} · 人工复核 {ReviewOnlyMatches:N0}";',
+              'public string BestReadinessText => $"确认 BEST {ConfirmedMatches:N0} · 推荐 BEST {ReviewOnlyMatches:N0}（需复核）";')
+
+          # Result row: show BEST reason visibly and distinguish recommendations needing review.
+          p = Path('VDF.GUI/Views/DuplicateResultsView.xaml')
+          s = p.read_text(encoding='utf-8')
+          old = '''                  <Border IsVisible="{Binding IsBest}"
+                          Background="{DynamicResource VdfGoodSoftBrush}"
+                          BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1"
+                          CornerRadius="3" Padding="5,0" VerticalAlignment="Center"
+                          ToolTip.Tip="{Binding BestTooltip}">
+                    <TextBlock Text="{Binding Source={x:Static local:App.Lang}, Path=[Results.Row.Best]}"
+                               FontSize="10" FontWeight="Bold"
+                               Foreground="{DynamicResource VdfGoodBrush}" />
+                  </Border>
+'''
+          new = '''                  <Border IsVisible="{Binding IsBest}"
+                          Background="{DynamicResource VdfGoodSoftBrush}"
+                          BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1"
+                          CornerRadius="3" Padding="5,0" VerticalAlignment="Center"
+                          ToolTip.Tip="{Binding BestTooltip}">
+                    <TextBlock Text="{Binding BestBadgeText}"
+                               FontSize="10" FontWeight="Bold"
+                               Foreground="{DynamicResource VdfGoodBrush}" />
+                  </Border>
+                  <Border IsVisible="{Binding IsBestNeedsReview}"
+                          Background="{DynamicResource VdfWarnSoftBrush}"
+                          BorderBrush="{DynamicResource VdfWarnBorderBrush}" BorderThickness="1"
+                          CornerRadius="3" Padding="5,0" VerticalAlignment="Center"
+                          ToolTip.Tip="{Binding BestTooltip}">
+                    <TextBlock Text="需复核" FontSize="10" FontWeight="Bold"
+                               Foreground="{DynamicResource VdfWarnBrush}" />
+                  </Border>
+                  <TextBlock IsVisible="{Binding IsBest}"
+                             MaxWidth="280" VerticalAlignment="Center"
+                             FontSize="10.5" Opacity="0.66"
+                             TextTrimming="CharacterEllipsis"
+                             Text="{Binding BestReason}"
+                             ToolTip.Tip="{Binding BestTooltip}" />
+'''
+          if s.count(old) != 1:
+              raise SystemExit(f'DuplicateResultsView: BEST badge matches={s.count(old)}')
+          s = s.replace(old, new, 1)
+
+          action_anchor = '        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8" Margin="16,0,0,0">\n          <Button\n              Background="{actipro:ThemeResource ControlBackgroundBrushSolidDanger}"'
+          action_new = '''        <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8" Margin="16,0,0,0">
+          <Button FontSize="12.5" FontWeight="SemiBold" Padding="14,5"
+                  Command="{Binding ConsolidateCheckedGroupCommand}"
+                  Content="合并所勾选副本…"
+                  ToolTip.Tip="同一相似组中勾选至少 2 个副本后，可选择保留副本和目标文件夹进行安全合并。" />
+          <Button
+              Background="{actipro:ThemeResource ControlBackgroundBrushSolidDanger}"'''
+          if s.count(action_anchor) != 1:
+              raise SystemExit(f'DuplicateResultsView: action anchor matches={s.count(action_anchor)}')
+          s = s.replace(action_anchor, action_new, 1)
+          p.write_text(s, encoding='utf-8', newline='')
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v414-best-interactive-ui-patch.yml
+          git add VDF.GUI
+          git commit -m "feat: integrate BEST recommendations and interactive merge UI"
+          git push origin HEAD:feature/best-recommendation-interactive-merge
