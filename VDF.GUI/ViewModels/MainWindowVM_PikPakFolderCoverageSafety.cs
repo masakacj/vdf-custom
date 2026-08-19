@@ -137,6 +137,16 @@ namespace VDF.GUI.ViewModels {
 			return true;
 		}
 
+		/// <summary>BEST presentation for the ordinary result list. No decisive winner means no badge.</summary>
+		internal static (DuplicateItemVM? Best, string? Tooltip) PickDecisiveBestForResults(
+			IReadOnlyList<DuplicateItemVM> candidates) {
+			if (!TryPickDecisiveQualityWinner(candidates, out DuplicateItemVM winner))
+				return (null, null);
+			return (winner,
+				"BEST：该副本对同组其他副本存在唯一且无冲突的质量优势。" +
+				"文件大小不参与 BEST 判定；质量打平、关键元数据不足或指标互有胜负时不会显示 BEST。");
+		}
+
 		static bool QualityDominates(
 			DuplicateItemVM candidate,
 			DuplicateItemVM other,

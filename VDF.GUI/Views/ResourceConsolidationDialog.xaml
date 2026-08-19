@@ -2,37 +2,48 @@
     x:Class="VDF.GUI.Views.ResourceConsolidationDialog"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="资源整合"
-    Width="620"
-    MinWidth="520"
+    Title="文件夹合并"
+    Width="680"
+    MinWidth="560"
     CanResize="false"
     SizeToContent="Height"
     WindowStartupLocation="CenterOwner">
     <StackPanel Margin="18" Spacing="12">
-        <TextBlock FontSize="14" FontWeight="SemiBold" Text="整合目标" />
+        <TextBlock FontSize="16" FontWeight="SemiBold" Text="选择合并目标" />
         <TextBlock x:Name="SummaryText" FontSize="11.5" Opacity="0.72" TextWrapping="Wrap" />
-        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
-            <TextBox
-                x:Name="DestinationTextBox"
+        <StackPanel x:Name="CandidatePanel" IsVisible="False" Spacing="5">
+            <TextBlock FontSize="11" Opacity="0.62" Text="候选目标（可直接选择左右文件夹）" />
+            <ComboBox
+                x:Name="CandidateComboBox"
                 MinHeight="34"
-                VerticalContentAlignment="Center"
-                Watermark="输入目标目录，或点击浏览选择" />
-            <Button
-                Grid.Column="1"
-                MinWidth="82"
-                Click="OnBrowseClicked"
-                Content="浏览…" />
-        </Grid>
+                HorizontalContentAlignment="Stretch"
+                SelectionChanged="OnCandidateSelectionChanged" />
+        </StackPanel>
+        <StackPanel Spacing="5">
+            <TextBlock FontSize="11" Opacity="0.62" Text="最终目标路径" />
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8">
+                <TextBox
+                    x:Name="DestinationTextBox"
+                    MinHeight="34"
+                    VerticalContentAlignment="Center"
+                    Watermark="输入目标目录，或点击浏览选择" />
+                <Button
+                    Grid.Column="1"
+                    MinWidth="82"
+                    Click="OnBrowseClicked"
+                    Content="浏览…" />
+            </Grid>
+        </StackPanel>
         <Border Padding="10" CornerRadius="6" Background="{DynamicResource VdfMutedSoftBrush}">
             <TextBlock
                 FontSize="11.5"
                 Opacity="0.75"
                 TextWrapping="Wrap"
-                Text="会保留每个系列根目录以下的相对目录结构，例如日期、主题、版本等子文件夹。目标路径已存在不同文件时不会覆盖，也不会自动改名；该项将留给人工处理。" />
+                Text="默认使用系统推荐的系列根目录。你可以一键切换到另一侧文件夹，也可以输入任意目标目录。日期、主题、版本等子目录按原相对结构保留；无关文件冲突不会覆盖。" />
         </Border>
         <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
             <Button MinWidth="92" IsCancel="True" Click="OnCancelClicked" Content="取消" />
-            <Button MinWidth="110" Classes="accent" IsDefault="True" Click="OnOkClicked" Content="预览整合" />
+            <Button MinWidth="120" Classes="accent" IsDefault="True" Click="OnOkClicked" Content="生成合并预览" />
         </StackPanel>
     </StackPanel>
 </Window>

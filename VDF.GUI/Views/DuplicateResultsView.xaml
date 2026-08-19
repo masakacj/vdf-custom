@@ -725,10 +725,9 @@
                 <Border Tag="size" Background="Transparent"
                         PointerEntered="OnMetricPointerEntered" PointerExited="OnMetricPointerExited">
                   <TextBlock FontSize="12" Classes="metric-diff"
-                             Classes.hi="{Binding Item.ItemInfo.IsBestSize}"
-                             Classes.lo="{Binding !Item.ItemInfo.IsBestSize}"
                              Classes.eq="{Binding Item.SizeDiff, Converter={StaticResource EqualDiffConverter}}"
-                             Classes.diffing="{Binding Item.SizeDiff, Converter={x:Static ObjectConverters.IsNotNull}}">
+                             Classes.diffing="{Binding Item.SizeDiff, Converter={x:Static ObjectConverters.IsNotNull}}"
+                             ToolTip.Tip="文件大小仅供参考，不参与 BEST 画质判定。">
                     <TextBlock.Text>
                       <MultiBinding Converter="{StaticResource MetricDisplayConverter}">
                         <Binding Path="Item.ItemInfo.Size" />

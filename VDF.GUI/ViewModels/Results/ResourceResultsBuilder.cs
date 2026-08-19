@@ -109,6 +109,7 @@ namespace VDF.GUI.ViewModels {
 		internal long SourceBytes => TargetIsA ? Option.TotalBytesB : Option.TotalBytesA;
 		internal int TargetResources => TargetIsA ? Option.EstimatedResourcesA : Option.EstimatedResourcesB;
 		internal int SourceResources => TargetIsA ? Option.EstimatedResourcesB : Option.EstimatedResourcesA;
+		internal double TargetCoverage => TargetIsA ? Option.CoverageA : Option.CoverageB;
 		internal double SourceCoverage => TargetIsA ? Option.CoverageB : Option.CoverageA;
 		internal double MatchPercent => Option.FolderMatchPercent;
 		internal bool WholeSourceEligible => MainWindowVM.MayMergeWholeSource(SourceCoverage, Option.AutoBestReviewOnlyGroupCount);
@@ -148,6 +149,7 @@ namespace VDF.GUI.ViewModels {
 			SourceFiles = sourceRelations.Sum(r => r.SourceFiles);
 			SourceBytes = sourceRelations.Sum(r => r.SourceBytes);
 			SourceResources = sourceRelations.Sum(r => r.SourceResources);
+			TargetCoverage = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.TargetCoverage);
 			SourceCoverage = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.SourceCoverage);
 			MinimumFolderMatchPercent = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.MatchPercent);
 			DisplayedResourceGroups = this.displayedGroupIds.Count;
@@ -181,6 +183,7 @@ namespace VDF.GUI.ViewModels {
 		public long SourceBytes { get; }
 		public int TargetResources { get; }
 		public int SourceResources { get; }
+		public double TargetCoverage { get; }
 		public double SourceCoverage { get; }
 		public double MinimumFolderMatchPercent { get; }
 		public bool WholeSourceEligible { get; }
@@ -201,6 +204,18 @@ namespace VDF.GUI.ViewModels {
 			if (value == _IsSelected) return;
 			this.RaiseAndSetIfChanged(ref _IsSelected, value, nameof(IsSelected));
 		}
+
+		public string TargetRoleLabel => "建议目标";
+		public string SourceRoleLabel => SourceFolderCount == 1 ? "来源副本" : $"{SourceFolderCount:N0} 个来源副本";
+		public string TargetMeta => $"{TargetFiles:N0} 文件 · {TargetBytes.BytesToString()} · 约 {TargetResources:N0} 资源";
+		public string SourceMeta => $"{SourceFiles:N0} 文件 · {SourceBytes.BytesToString()} · 约 {SourceResources:N0} 资源";
+		public string OverlapText => $"{MinimumFolderMatchPercent:0.#}%";
+		public string OverlapCaption => $"重叠率 · {DisplayedResourceGroups:N0} 个资源组";
+		public string CoverageText => $"目标覆盖 {TargetCoverage:0.#}% · 来源覆盖 {SourceCoverage:0.#}%";
+		public string BestReadinessText => $"明确 BEST {ConfirmedMatches:N0} · 人工复核 {ReviewOnlyMatches:N0}";
+		public ReactiveCommand<Unit, Unit> PreviewConsolidationCommand =>
+			ReactiveCommand.CreateFromTask(() => ApplicationHelpers.MainWindowDataContext
+				.ConsolidateSelectedResourceSeriesAsync(new[] { this }));
 
 		public string DirectionLine => SourceFolderCount == 1
 			? $"系列根目录：{TargetFolder}  ←  {SourceFolders[0]}"
