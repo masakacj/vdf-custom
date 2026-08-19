@@ -13,10 +13,9 @@ namespace VDF.GUI.Utils {
 	internal readonly record struct SafeMoveResult(bool Success, string NewPath, string? Error);
 
 	/// <summary>
-	/// Conservative move primitive for collection consolidation. Same-volume moves use
-	/// the filesystem rename operation. Cross-volume moves copy to a temporary sibling,
-	/// verify the complete SHA-256 of source and copy, atomically rename the verified copy
-	/// to its final name, and only then delete the source. Any failure leaves the source.
+	/// Conservative move primitives for collection consolidation. Same-volume moves use
+	/// filesystem rename. Cross-volume moves copy to a temporary sibling, verify complete
+	/// SHA-256, atomically rename the verified copy, and only then delete the source.
 	/// </summary>
 	internal static class SafeFileTransfer {
 		internal static string BuildDestinationPath(string sourcePath, string targetFolder, string? preferredFileName = null) {
@@ -42,8 +41,41 @@ namespace VDF.GUI.Utils {
 				return new SafeMoveResult(false, sourcePath, "source file does not exist");
 
 			string destination = BuildDestinationPath(sourcePath, targetFolder, preferredFileName);
+			return MoveVerifiedCore(sourcePath, destination, rejectExistingDestination: false);
+		}
+
+		/// <summary>
+		/// Moves to one exact destination path. Unlike <see cref="MoveVerified"/>, this method
+		/// never invents _bestN names and never overwrites an existing path. Resource-series
+		/// consolidation uses it so directory metadata and collision semantics stay explicit.
+		/// </summary>
+		internal static SafeMoveResult MoveVerifiedExact(string sourcePath, string destinationPath) {
+			if (!File.Exists(sourcePath))
+				return new SafeMoveResult(false, sourcePath, "source file does not exist");
+			if (string.IsNullOrWhiteSpace(destinationPath))
+				return new SafeMoveResult(false, sourcePath, "destination path is empty");
+
+			string sourceFull = Path.GetFullPath(sourcePath);
+			string destinationFull = Path.GetFullPath(destinationPath);
+			var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+			if (sourceFull.Equals(destinationFull, comparison))
+				return new SafeMoveResult(true, sourceFull, null);
+			if (File.Exists(destinationFull) || Directory.Exists(destinationFull))
+				return new SafeMoveResult(false, sourcePath, "destination already exists");
+
+			string? parent = Path.GetDirectoryName(destinationFull);
+			if (string.IsNullOrWhiteSpace(parent))
+				return new SafeMoveResult(false, sourcePath, "destination has no parent folder");
+			Directory.CreateDirectory(parent);
+			return MoveVerifiedCore(sourceFull, destinationFull, rejectExistingDestination: true);
+		}
+
+		static SafeMoveResult MoveVerifiedCore(string sourcePath, string destination, bool rejectExistingDestination) {
 			string? temp = null;
 			try {
+				if (rejectExistingDestination && (File.Exists(destination) || Directory.Exists(destination)))
+					throw new IOException("destination already exists");
+
 				if (SameVolume(sourcePath, destination)) {
 					File.Move(sourcePath, destination);
 					return new SafeMoveResult(true, destination, null);
@@ -57,6 +89,8 @@ namespace VDF.GUI.Utils {
 				if (!CryptographicOperations.FixedTimeEquals(sourceHash, copiedHash))
 					throw new IOException("full-file SHA-256 verification failed after cross-volume copy");
 
+				if (rejectExistingDestination && (File.Exists(destination) || Directory.Exists(destination)))
+					throw new IOException("destination appeared during transfer");
 				File.Move(temp, destination);
 				temp = null;
 				File.Delete(sourcePath);

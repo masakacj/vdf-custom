@@ -8,6 +8,11 @@ using VDF.Core;
 
 namespace VDF.GUI.ViewModels {
 	public partial class MainWindowVM : ReactiveObject {
+		// Ancestor candidates are useful only when they still represent a substantial
+		// portion of both trees. This floor prevents a broad category folder from replacing
+		// a precise series relation merely because it happens to contain a few duplicates.
+		internal const double PromotedSeriesRootMinimumMatchPercent = 50d;
+
 		internal List<PikPakFolderCoverageOption> BuildPikPakFolderCoverageOptions() {
 			var groups = GetPikPakVisibleGroupsInDisplayOrder();
 			if (groups.Count == 0)
@@ -19,6 +24,9 @@ namespace VDF.GUI.ViewModels {
 				.Where(folder => folder.Length > 0)
 				.Distinct(StringComparer.OrdinalIgnoreCase)
 				.ToList();
+			// The scanner returns the requested direct folders plus safe ancestor candidates
+			// below configured scan roots. ComputePikPakFolderCoverageOptions detects those
+			// extra keys and promotes coherent child relations into series-root relations.
 			var stats = Scanner.GetDirectFolderMediaStats(folders);
 			return ComputePikPakFolderCoverageOptions(groups, stats);
 		}
@@ -27,6 +35,26 @@ namespace VDF.GUI.ViewModels {
 			IReadOnlyList<List<DuplicateItemVM>> groups,
 			IReadOnlyDictionary<string, FolderMediaStats>? folderStats = null) {
 			var comparer = StringComparer.OrdinalIgnoreCase;
+			var directFolders = groups
+				.SelectMany(group => group)
+				.Select(PikPakItemFolder)
+				.Where(folder => folder.Length > 0)
+				.ToHashSet(comparer);
+
+			var normalizedStats = new Dictionary<string, FolderMediaStats>(comparer);
+			if (folderStats != null)
+				foreach (var pair in folderStats)
+					normalizedStats[NormalizePikPakPath(pair.Key)] = pair.Value;
+
+			// Manual/unit callers historically provide only exact direct-folder statistics;
+			// preserve that contract. Production scanner calls also provide ancestor keys,
+			// which activates series-root promotion without changing legacy pair actions.
+			var promotedRoots = normalizedStats.Keys
+				.Where(root => root.Length > 0 && !directFolders.Contains(root) &&
+					directFolders.Any(folder => PikPakPathIsWithin(folder, root)))
+				.ToHashSet(comparer);
+			bool promoteSeriesRoots = promotedRoots.Count > 0;
+
 			var participantCounts = new Dictionary<string, HashSet<DuplicateItemVM>>(comparer);
 			var accumulators = new Dictionary<string, FolderPairAccumulator>(comparer);
 
@@ -36,15 +64,25 @@ namespace VDF.GUI.ViewModels {
 
 				var byFolder = new Dictionary<string, List<DuplicateItemVM>>(comparer);
 				foreach (var item in group) {
-					string folder = PikPakItemFolder(item);
-					if (folder.Length == 0)
+					string direct = PikPakItemFolder(item);
+					if (direct.Length == 0)
 						continue;
-					if (!byFolder.TryGetValue(folder, out var list))
-						byFolder[folder] = list = new List<DuplicateItemVM>();
-					list.Add(item);
-					if (!participantCounts.TryGetValue(folder, out var participants))
-						participantCounts[folder] = participants = new HashSet<DuplicateItemVM>(ReferenceEqualityComparer<DuplicateItemVM>.Instance);
-					participants.Add(item);
+
+					var roots = new List<string> { direct };
+					if (promoteSeriesRoots) {
+						roots.AddRange(promotedRoots
+							.Where(root => PikPakPathIsWithin(direct, root))
+							.OrderByDescending(PikPakPathDepth)); // specific ancestor first; final ranking chooses the stable root
+					}
+
+					foreach (string folder in roots.Distinct(comparer)) {
+						if (!byFolder.TryGetValue(folder, out var list))
+							byFolder[folder] = list = new List<DuplicateItemVM>();
+						list.Add(item);
+						if (!participantCounts.TryGetValue(folder, out var participants))
+							participantCounts[folder] = participants = new HashSet<DuplicateItemVM>(ReferenceEqualityComparer<DuplicateItemVM>.Instance);
+						participants.Add(item);
+					}
 				}
 
 				if (byFolder.Count < 2)
@@ -55,6 +93,9 @@ namespace VDF.GUI.ViewModels {
 					for (int j = i + 1; j < folders.Count; j++) {
 						string a = folders[i];
 						string b = folders[j];
+						// Ancestor/descendant candidates are the same physical tree, not two copies.
+						if (PikPakPathIsWithin(a, b) || PikPakPathIsWithin(b, a))
+							continue;
 						string key = a + "\0" + b;
 						if (!accumulators.TryGetValue(key, out var acc))
 							accumulators[key] = acc = new FolderPairAccumulator(a, b);
@@ -62,11 +103,6 @@ namespace VDF.GUI.ViewModels {
 					}
 				}
 			}
-
-			var normalizedStats = new Dictionary<string, FolderMediaStats>(comparer);
-			if (folderStats != null)
-				foreach (var pair in folderStats)
-					normalizedStats[NormalizePikPakPath(pair.Key)] = pair.Value;
 
 			var result = new List<PikPakFolderCoverageOption>(accumulators.Count);
 			foreach (var acc in accumulators.Values) {
@@ -96,7 +132,7 @@ namespace VDF.GUI.ViewModels {
 							? totalA > totalB
 							: comparer.Compare(acc.FolderA, acc.FolderB) <= 0;
 
-				result.Add(new PikPakFolderCoverageOption(
+				var option = new PikPakFolderCoverageOption(
 					acc.FolderA,
 					acc.FolderB,
 					acc.Matches,
@@ -106,7 +142,27 @@ namespace VDF.GUI.ViewModels {
 					statsB.TotalBytes,
 					acc.MatchedFilesA.Count,
 					acc.MatchedFilesB.Count,
-					suggestA));
+					suggestA);
+
+				bool isPromoted = !directFolders.Contains(acc.FolderA) || !directFolders.Contains(acc.FolderB);
+				if (isPromoted && option.FolderMatchPercent + 0.0001d < PromotedSeriesRootMinimumMatchPercent)
+					continue;
+				result.Add(option);
+			}
+
+			// Once promotion is active, a series root that explains many child groups must be
+			// considered before each 100%-matching leaf folder. Among equally explanatory
+			// candidates, prefer the higher-level pair, then the stronger bilateral coverage.
+			if (promoteSeriesRoots) {
+				return result
+					.OrderByDescending(option => option.ConfirmedMatchedGroupCount)
+					.ThenByDescending(option => option.MatchedGroupCount)
+					.ThenBy(option => PikPakPathDepth(option.FolderA) + PikPakPathDepth(option.FolderB))
+					.ThenByDescending(option => option.FolderMatchPercent)
+					.ThenBy(option => option.ReviewOnlyGroupCount)
+					.ThenBy(option => option.FolderA, comparer)
+					.ThenBy(option => option.FolderB, comparer)
+					.ToList();
 			}
 
 			return result
@@ -119,6 +175,18 @@ namespace VDF.GUI.ViewModels {
 				.ThenBy(option => option.FolderB, comparer)
 				.ToList();
 		}
+
+		internal static bool PikPakPathIsWithin(string path, string root) {
+			string normalizedPath = NormalizePikPakPath(path);
+			string normalizedRoot = NormalizePikPakPath(root);
+			return normalizedPath.Equals(normalizedRoot, StringComparison.OrdinalIgnoreCase) ||
+				(normalizedPath.Length > normalizedRoot.Length &&
+				 normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase) &&
+				 normalizedPath[normalizedRoot.Length] == '/');
+		}
+
+		internal static int PikPakPathDepth(string path) =>
+			NormalizePikPakPath(path).Split('/', StringSplitOptions.RemoveEmptyEntries).Length;
 
 		sealed class FolderPairAccumulator {
 			readonly HashSet<Guid> groupIds = new();
