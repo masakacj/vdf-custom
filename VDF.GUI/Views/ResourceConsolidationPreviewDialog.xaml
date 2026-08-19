@@ -3,10 +3,10 @@
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="文件夹合并预览"
-    Width="1120"
-    Height="820"
-    MinWidth="900"
-    MinHeight="650"
+    Width="1240"
+    Height="860"
+    MinWidth="980"
+    MinHeight="680"
     CanResize="True"
     WindowStartupLocation="CenterOwner">
     <Grid Margin="18" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12">
@@ -14,7 +14,7 @@
             <Border DockPanel.Dock="Right" Padding="9,4" CornerRadius="7"
                     Background="{DynamicResource VdfGoodSoftBrush}"
                     BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1">
-                <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource VdfGoodBrush}" Text="预演 + 人工复核，不会立即改文件" />
+                <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource VdfGoodBrush}" Text="预演 + 人工审核，不会立即改文件" />
             </Border>
             <StackPanel Spacing="4">
                 <TextBlock FontSize="19" FontWeight="SemiBold" Text="文件夹合并预览" />
@@ -26,13 +26,13 @@
                 Background="{DynamicResource VdfGoodSoftBrush}"
                 BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1">
             <TextBlock FontSize="11.5" TextWrapping="Wrap"
-                       Text="每个资源组都有一个系统推荐 BEST。确认 BEST 会直接进入自动计划；置信不足的推荐 BEST 会进入“人工复核”，可在本窗口接受推荐或改选其他副本。人工选择完成后，释放空间、删除明细和最终目录树会立即重算。" />
+                       Text="自动区只包含通过严格置信门槛的“确认 BEST”，其余副本已预选为可清理；任何关键元数据缺失、质量指标冲突或其他疑点都会进入人工审核。人工区仍给出 ★ 推荐 BEST，但只有你明确确认保留副本后才会纳入合并。" />
         </Border>
 
         <Grid Grid.Row="2" ColumnDefinitions="*,*,*" ColumnSpacing="10">
             <Border Padding="12" CornerRadius="8" BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">
                 <StackPanel Spacing="5">
-                    <TextBlock FontSize="11" Opacity="0.62" Text="① 合并前 · VDF 索引范围" />
+                    <TextBlock FontSize="11" Opacity="0.62" Text="① 合并前 · 索引范围" />
                     <TextBlock x:Name="BeforeText" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
@@ -54,21 +54,43 @@
             </Border>
         </Grid>
 
-        <TabControl x:Name="DetailTabs" Grid.Row="3" MinHeight="360">
-            <TabItem x:Name="ManualTab" Header="人工复核">
-                <Grid Margin="8" RowDefinitions="Auto,*" RowSpacing="8">
-                    <TextBlock FontSize="11" Opacity="0.68" TextWrapping="Wrap"
-                               Text="推荐 BEST 已默认选中。只有勾选“采用此选择”或主动改选其他副本后，该组才会进入本次合并。未确认的组保持原样。" />
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <StackPanel x:Name="ManualReviewPanel" Spacing="9" />
-                    </ScrollViewer>
-                </Grid>
+        <TabControl x:Name="DetailTabs" Grid.Row="3" MinHeight="390">
+            <TabItem x:Name="ReviewTab" Header="合并审核">
+                <ScrollViewer Margin="8" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Spacing="10">
+                        <Expander x:Name="AutomaticExpander" IsExpanded="False">
+                            <Expander.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock x:Name="AutomaticHeader" FontWeight="SemiBold" Text="系统确认可合并" />
+                                    <TextBlock FontSize="11" Opacity="0.62" VerticalAlignment="Center" Text="默认收起 · loser 已预选删除" />
+                                </StackPanel>
+                            </Expander.Header>
+                            <StackPanel x:Name="AutomaticPanel" Margin="0,8,0,0" Spacing="9" />
+                        </Expander>
+
+                        <Border Height="1" Background="{DynamicResource VdfMutedBorderBrush}" />
+
+                        <Expander x:Name="ManualExpander" IsExpanded="True">
+                            <Expander.Header>
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock x:Name="ManualHeader" FontWeight="SemiBold" Text="需要人工选择" />
+                                    <TextBlock FontSize="11" Opacity="0.62" VerticalAlignment="Center" Text="默认展开 · 直接查看 thumbnail 和质量信息" />
+                                </StackPanel>
+                            </Expander.Header>
+                            <StackPanel Margin="0,8,0,0" Spacing="7">
+                                <TextBlock FontSize="11" Opacity="0.68" TextWrapping="Wrap"
+                                           Text="每组默认突出显示系统推荐 BEST，但不会自动确认。点击其他候选会直接切换保留副本；若仍采用推荐项，请点击“确认当前选择”。确认后该组的其余副本才进入可清理统计。" />
+                                <StackPanel x:Name="ManualReviewPanel" Spacing="9" />
+                            </StackPanel>
+                        </Expander>
+                    </StackPanel>
+                </ScrollViewer>
             </TabItem>
 
             <TabItem x:Name="DeletionTab" Header="确认删除 / 释放">
                 <Grid Margin="8" RowDefinitions="Auto,*" RowSpacing="8">
                     <TextBlock FontSize="11" Opacity="0.68" TextWrapping="Wrap"
-                               Text="这里只列系统当前确认可清理的重复副本。目标位旧副本在 BEST 校验成功后直接替换；其余副本在合并成功后标为待删除。人工复核选择变化时本页同步更新。" />
+                               Text="这里只列当前已经确认可清理的重复副本。系统确认区默认纳入；人工区只有你确认保留副本后才加入。目标位旧副本在 BEST 校验成功后直接替换，其余副本在合并成功后标记为待删除。" />
                     <TextBox x:Name="DeletionTextBox" Grid.Row="1"
                              IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
                              FontFamily="Cascadia Mono,Consolas,monospace" FontSize="11.5" Padding="10"
@@ -105,8 +127,8 @@
         </TabControl>
 
         <DockPanel Grid.Row="4" LastChildFill="False">
-            <TextBlock DockPanel.Dock="Left" MaxWidth="735" VerticalAlignment="Center" FontSize="11" Opacity="0.64" TextWrapping="Wrap"
-                       Text="只有预览中已经进入自动计划的文件才会变化。未接受的人工推荐、无关文件冲突、覆盖不足及任何安全校验失败项都保持原位置。" />
+            <TextBlock DockPanel.Dock="Left" MaxWidth="820" VerticalAlignment="Center" FontSize="11" Opacity="0.64" TextWrapping="Wrap"
+                       Text="只有系统确认 BEST 和你在人工区明确确认过的资源组才会变化。未审核的推荐项、无关文件冲突、覆盖不足及任何安全校验失败项都保持原位置。" />
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
                 <Button MinWidth="100" IsCancel="True" Click="OnCancelClicked" Content="返回修改" />
                 <Button MinWidth="150" Classes="accent" IsDefault="True" Click="OnStartClicked" Content="确认并安全合并" />
