@@ -8,6 +8,7 @@ using System.Reactive;
 using ReactiveUI;
 using VDF.Core;
 using VDF.Core.Utils;
+using VDF.GUI.Data;
 using VDF.GUI.Utils;
 using VDF.GUI.Views;
 
@@ -121,7 +122,6 @@ namespace VDF.GUI.ViewModels {
 			keeper.Checked = false;
 			foreach (DuplicateItemVM item in selected) {
 				if (ReferenceEquals(item, keeper) || !Duplicates.Contains(item)) continue;
-				// A failed cleanup remains checked so it stays obvious/actionable in the result list.
 				item.Checked = true;
 			}
 			bool anyOtherInGroup = Duplicates.Any(item =>
