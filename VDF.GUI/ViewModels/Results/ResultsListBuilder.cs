@@ -31,10 +31,14 @@ namespace VDF.GUI.ViewModels {
 		/// <summary>Items whose details panel is expanded (a details row follows their row).</summary>
 		public IReadOnlySet<DuplicateItemVM>? ExpandedDetails { get; init; }
 		/// <summary>
-		/// Picks the member the BEST badge goes to, plus the badge's tooltip text
-		/// (which criterion decided, #839). Null: no badges.
+		/// Legacy BEST seam retained for tests/backward compatibility. Prefer RecommendBest.
 		/// </summary>
 		public Func<IReadOnlyList<DuplicateItemVM>, (DuplicateItemVM? Best, string? Tooltip)>? PickBest { get; init; }
+		/// <summary>
+		/// Rich BEST recommendation: returns exactly one most-likely keeper plus whether the
+		/// choice is confirmed enough for unattended actions and the user-visible reason.
+		/// </summary>
+		public Func<IReadOnlyList<DuplicateItemVM>, BestRecommendation>? RecommendBest { get; init; }
 		/// <summary>Shows the BEST-badged member first in its group, ahead of the sort order (#846).</summary>
 		public bool BestFirst { get; init; }
 		/// <summary>Tombstone test, replaceable for tests. Defaults to <see cref="DuplicateItemVM.IsTombstone"/>.</summary>
@@ -90,9 +94,7 @@ namespace VDF.GUI.ViewModels {
 			foreach (var gid in groupOrder) {
 				var members = groupsById[gid];
 				// A duplicate group needs at least two visible members. Per-item filters
-				// can strand a single row (e.g. similarity 100-100 keeps only the member
-				// that carries exactly 100, #858), which rendered as a meaningless
-				// "group of one" — such groups vanish from the view entirely.
+				// can strand a single row, which is not a meaningful duplicate group.
 				if (members.Count < 2) continue;
 				SortMembers(members, request.SortMode, request.SortDescending);
 
@@ -136,15 +138,34 @@ namespace VDF.GUI.ViewModels {
 				foreach (var row in rows)
 					row.Group = header;
 
-				if (request.PickBest != null && members.Count >= 2) {
-					var (best, tooltip) = request.PickBest(members);
+				if ((request.RecommendBest != null || request.PickBest != null) && members.Count >= 2) {
+					DuplicateItemVM? best;
+					string? reason;
+					bool confirmed;
+					if (request.RecommendBest != null) {
+						BestRecommendation recommendation = request.RecommendBest(members);
+						best = recommendation.Winner;
+						reason = recommendation.Reason;
+						confirmed = recommendation.IsConfirmed;
+					}
+					else {
+						var legacy = request.PickBest!(members);
+						best = legacy.Best;
+						reason = legacy.Tooltip;
+						confirmed = true;
+					}
+
 					if (best != null) {
 						foreach (var row in rows) {
 							row.IsBest = ReferenceEquals(row.Item, best);
-							row.BestTooltip = row.IsBest ? tooltip : null;
+							row.IsBestConfirmed = row.IsBest && confirmed;
+							row.BestTooltip = row.IsBest ? reason : null;
+							row.BestReason = row.IsBest ? reason : null;
 						}
-						// "BEST first": the badge carrier moves to the top of its group, the
-						// remaining members keep the sort order (#846).
+						header.BestSummary = (confirmed ? "BEST：" : "推荐 BEST（需复核）：") + ShortReason(reason);
+
+						// BEST first moves the recommendation to the top even when it still needs
+						// review; confidence affects automation, not whether a recommendation exists.
 						if (request.BestFirst) {
 							int bestIndex = rows.FindIndex(r => r.IsBest);
 							if (bestIndex > 0) {
@@ -176,6 +197,8 @@ namespace VDF.GUI.ViewModels {
 				header.GroupNumber = i + 1;
 				header.Title = string.Format(request.Formats.GroupTitle, header.GroupNumber);
 				header.Summary = BuildSummary(header, request.Formats);
+				if (!string.IsNullOrWhiteSpace(header.BestSummary))
+					header.Summary += " · " + header.BestSummary;
 				flat.Add(header);
 				foreach (var row in header.Rows) {
 					hasPartialClips |= row.Item.ItemInfo.Flags.HasFlag(Core.DuplicateFlags.PartialClip);
@@ -190,11 +213,16 @@ namespace VDF.GUI.ViewModels {
 			return new ResultsBuildResult { Rows = flat, Groups = headers, HasPartialClips = hasPartialClips };
 		}
 
+		static string ShortReason(string? reason) {
+			if (string.IsNullOrWhiteSpace(reason)) return "系统按现有质量指标给出最可能副本";
+			string value = reason.Trim();
+			const int max = 130;
+			return value.Length <= max ? value : value[..max] + "…";
+		}
+
 		/// <summary>
 		/// Tombstone/offline classification with per-build caching: one existence probe
-		/// per path and one drive-readiness probe per volume root, shared by both
-		/// predicates. Same classification as <see cref="VDF.Core.ScanEngine.PathIsTombstone"/>
-		/// / PathIsOffline, minus the redundant filesystem hits.
+		/// per path and one drive-readiness probe per volume root, shared by both predicates.
 		/// </summary>
 		internal static (Func<DuplicateItemVM, bool> IsTombstone, Func<DuplicateItemVM, bool> IsOffline) CreateCachedPathStatus(
 			Func<string, bool> fileExists, Func<string, bool> driveReady) {
@@ -217,8 +245,7 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		/// <summary>
-		/// Composes the header info line, e.g. "3 files · 1.9 GB · save up to 1.2 GB" or
-		/// "2 files · 1 on disk · previously deleted content" for tombstone groups.
+		/// Composes the header info line, e.g. "3 files · 1.9 GB · save up to 1.2 GB".
 		/// </summary>
 		internal static string BuildSummary(ResultsGroupHeader header, GroupSummaryFormats formats) {
 			var parts = new List<string> {
@@ -243,7 +270,6 @@ namespace VDF.GUI.ViewModels {
 				ResultsSortMode.Duration => (a, b) => a.ItemInfo.Duration.CompareTo(b.ItemInfo.Duration),
 				ResultsSortMode.Resolution => (a, b) => a.ItemInfo.FrameSizeInt.CompareTo(b.ItemInfo.FrameSizeInt),
 				ResultsSortMode.FolderPath => (a, b) => string.Compare(a.ItemInfo.Path, b.ItemInfo.Path, StringComparison.OrdinalIgnoreCase),
-				// FileCount / GroupsWithCheckedItems have no meaningful member dimension.
 				_ => null,
 			};
 			if (comparison == null) return;
@@ -251,8 +277,6 @@ namespace VDF.GUI.ViewModels {
 				var inner = comparison;
 				comparison = (a, b) => inner(b, a);
 			}
-			// List.Sort is unstable; a manual insertion-style stable sort is overkill here,
-			// so sort an index-decorated copy to keep equal members in original order.
 			var decorated = members.Select((m, i) => (m, i)).ToList();
 			decorated.Sort((x, y) => {
 				int c = comparison(x.m, y.m);
