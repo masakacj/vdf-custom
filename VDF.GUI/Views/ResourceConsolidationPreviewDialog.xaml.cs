@@ -27,6 +27,8 @@ namespace VDF.GUI.Views {
 		StackPanel ManualReviewPanel => this.FindControl<StackPanel>("ManualReviewPanel")!;
 		TextBlock AutomaticHeader => this.FindControl<TextBlock>("AutomaticHeader")!;
 		TextBlock ManualHeader => this.FindControl<TextBlock>("ManualHeader")!;
+		Button ConfirmAllManualButton => this.FindControl<Button>("ConfirmAllManualButton")!;
+		Button ClearAllManualButton => this.FindControl<Button>("ClearAllManualButton")!;
 		Expander AutomaticExpander => this.FindControl<Expander>("AutomaticExpander")!;
 		Expander ManualExpander => this.FindControl<Expander>("ManualExpander")!;
 		TabItem ReviewTab => this.FindControl<TabItem>("ReviewTab")!;
@@ -34,9 +36,11 @@ namespace VDF.GUI.Views {
 		TabControl DetailTabs => this.FindControl<TabControl>("DetailTabs")!;
 
 		readonly Dictionary<Guid, DuplicateItemVM> keeperOverrides = new();
+		readonly List<CheckBox> manualAcceptBoxes = new();
 		Func<IReadOnlyDictionary<Guid, DuplicateItemVM>, ResourceSeriesConsolidationPreview>? previewFactory;
 		int manualReviewCount;
 		bool legacyBooleanResult;
+		bool suppressInteractivePreviewRefresh;
 
 		public ResourceConsolidationPreviewDialog() => InitializeComponent();
 
@@ -61,7 +65,7 @@ namespace VDF.GUI.Views {
 			AutomaticPanel.Children.Add(InfoBox("此旧版预览流程未提供系统确认组明细。"));
 			ManualReviewPanel.Children.Add(InfoBox("此旧版预览流程不支持在窗口内处理人工复核。"));
 			AutomaticHeader.Text = "系统确认可合并";
-			ManualHeader.Text = "需要人工选择";
+			UpdateReviewHeaders();
 		}
 
 		internal ResourceConsolidationPreviewDialog(
@@ -140,6 +144,7 @@ namespace VDF.GUI.Views {
 		}
 
 		void BuildManualReviewCards(IReadOnlyList<ResourceSeriesManualReview> reviews) {
+			manualAcceptBoxes.Clear();
 			if (reviews.Count == 0) {
 				ManualReviewPanel.Children.Add(InfoBox("当前没有需要人工审核的资源组。所有可自动处理的组都已达到确认 BEST 门槛。"));
 				return;
@@ -155,6 +160,7 @@ namespace VDF.GUI.Views {
 					Content = "确认当前保留选择；其余副本纳入本次清理",
 					FontWeight = FontWeight.SemiBold,
 				};
+				manualAcceptBoxes.Add(accept);
 				var status = new TextBlock {
 					Text = "尚未确认：该组保持原样",
 					FontSize = 11,
@@ -427,8 +433,29 @@ namespace VDF.GUI.Views {
 			},
 		};
 
+		void SetAllManualReviewsConfirmed(bool confirmed) {
+			if (manualAcceptBoxes.Count == 0) {
+				UpdateReviewHeaders();
+				return;
+			}
+
+			suppressInteractivePreviewRefresh = true;
+			try {
+				foreach (CheckBox accept in manualAcceptBoxes) {
+					if (accept.IsChecked != confirmed)
+						accept.IsChecked = confirmed;
+				}
+			}
+			finally {
+				suppressInteractivePreviewRefresh = false;
+			}
+
+			RefreshInteractivePreview();
+			UpdateReviewHeaders();
+		}
+
 		void RefreshInteractivePreview() {
-			if (previewFactory == null) return;
+			if (suppressInteractivePreviewRefresh || previewFactory == null) return;
 			ApplyPreview(previewFactory(keeperOverrides));
 			UpdateReviewHeaders();
 		}
@@ -437,6 +464,8 @@ namespace VDF.GUI.Views {
 			ManualHeader.Text = manualReviewCount == 0
 				? "需要人工选择 (0)"
 				: $"需要人工选择 ({keeperOverrides.Count:N0}/{manualReviewCount:N0} 已确认)";
+			ConfirmAllManualButton.IsEnabled = manualReviewCount > 0 && keeperOverrides.Count < manualReviewCount;
+			ClearAllManualButton.IsEnabled = keeperOverrides.Count > 0;
 		}
 
 		void ApplyPreview(ResourceSeriesConsolidationPreview preview) {
@@ -448,6 +477,10 @@ namespace VDF.GUI.Views {
 			TreeTextBox.Text = preview.Tree;
 			DeletionTextBox.Text = preview.DeletionDetails;
 		}
+
+		void OnConfirmAllManualClicked(object? sender, RoutedEventArgs e) => SetAllManualReviewsConfirmed(true);
+
+		void OnClearAllManualClicked(object? sender, RoutedEventArgs e) => SetAllManualReviewsConfirmed(false);
 
 		void OnStartClicked(object? sender, RoutedEventArgs e) {
 			if (legacyBooleanResult) {
