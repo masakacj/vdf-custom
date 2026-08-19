@@ -10,6 +10,7 @@
 using System.Linq;
 using ReactiveUI;
 using VDF.Core.Utils;
+using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
 	public enum ResultsDisplayMode {
@@ -33,13 +34,14 @@ namespace VDF.GUI.ViewModels {
 			IReadOnlyList<ResultsDisplayModeOption> options,
 			ResultsDisplayMode selected,
 			Action<ResultsDisplayMode> onChanged,
-			double folderMatchThresholdPercent = 0d,
+			double? folderMatchThresholdPercent = null,
 			Action<double>? onFolderMatchThresholdChanged = null) {
 			Options = options;
 			this.onChanged = onChanged;
 			this.onFolderMatchThresholdChanged = onFolderMatchThresholdChanged;
 			_Selected = options.FirstOrDefault(o => o.Mode == selected) ?? options[0];
-			_FolderMatchThresholdPercent = Math.Clamp(folderMatchThresholdPercent, 0d, 100d);
+			_FolderMatchThresholdPercent = Math.Clamp(
+				folderMatchThresholdPercent ?? ResourceFolderMatchPreference.MinimumPercent, 0d, 100d);
 		}
 
 		public IReadOnlyList<ResultsDisplayModeOption> Options { get; }
@@ -60,7 +62,13 @@ namespace VDF.GUI.ViewModels {
 				double clamped = Math.Clamp(value, 0d, 100d);
 				if (Math.Abs(clamped - _FolderMatchThresholdPercent) < 0.0001d) return;
 				this.RaiseAndSetIfChanged(ref _FolderMatchThresholdPercent, clamped);
-				onFolderMatchThresholdChanged?.Invoke(clamped);
+				if (onFolderMatchThresholdChanged != null) {
+					onFolderMatchThresholdChanged(clamped);
+				}
+				else {
+					ResourceFolderMatchPreference.MinimumPercent = clamped;
+					ApplicationHelpers.MainWindowDataContext.RefreshResultsView();
+				}
 			}
 		}
 
@@ -95,11 +103,6 @@ namespace VDF.GUI.ViewModels {
 		internal HashSet<Guid> GroupIds => Option.Matches.Select(match => match.GroupId).ToHashSet();
 	}
 
-	/// <summary>
-	/// Top-level header for one target series folder. Multiple source folders are combined only
-	/// when they share duplicate-resource evidence; generic Misc/Download folders cannot bridge
-	/// unrelated series merely through path connectivity.
-	/// </summary>
 	public sealed class ResourceRelationHeader {
 		readonly IReadOnlyList<ResourceDirectedRelation> sourceRelations;
 
@@ -134,9 +137,6 @@ namespace VDF.GUI.ViewModels {
 			MinimumFolderMatchPercent = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.MatchPercent);
 			DisplayedResourceGroups = displaySet.Count;
 
-			// Automatic BEST is stricter than folder-relation validity. Equal-quality copies,
-			// missing essential quality metadata, or conflicting signals stay in this series
-			// group but are counted as manual review instead of disappearing from overlap stats.
 			var reviewByGroup = new Dictionary<Guid, bool>();
 			foreach (var relation in relations) {
 				foreach (var match in relation.Option.Matches) {
@@ -229,12 +229,14 @@ namespace VDF.GUI.ViewModels {
 			IReadOnlyList<ResultsGroupHeader> canonicalGroups,
 			IReadOnlyList<PikPakFolderCoverageOption> options,
 			IReadOnlySet<DuplicateItemVM>? expandedDetails = null,
-			double minimumFolderMatchPercent = 0d) {
+			double minimumFolderMatchPercent = double.NaN) {
 			var byId = canonicalGroups.ToDictionary(g => g.GroupId);
 			var assigned = new HashSet<Guid>();
 			var rows = new List<object>();
 			int representedRelations = 0;
-			double threshold = Math.Clamp(minimumFolderMatchPercent, 0d, 100d);
+			double threshold = double.IsNaN(minimumFolderMatchPercent)
+				? ResourceFolderMatchPreference.MinimumPercent
+				: Math.Clamp(minimumFolderMatchPercent, 0d, 100d);
 
 			var directed = options
 				.Where(option => option.FolderMatchPercent + 0.0001d >= threshold)
