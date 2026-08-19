@@ -1,0 +1,33 @@
+name: Refine v4.1.3 folder merge labels
+on:
+  push:
+    branches: [feature/intuitive-folder-merge-decisive-best-zh]
+    paths: ['.github/workflows/v413-ux-label-fix.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          edits = [
+              ('VDF.GUI/ViewModels/MainWindowVM_Results.cs', 'new("资源整合", ResultsDisplayMode.ResourceConsolidation)', 'new("文件夹合并", ResultsDisplayMode.ResourceConsolidation)'),
+              ('VDF.GUI/App.xaml', 'Content="整合所选资源"', 'Content="合并所选文件夹"'),
+          ]
+          for filename, old, new in edits:
+              p = Path(filename)
+              s = p.read_text(encoding='utf-8')
+              if s.count(old) != 1:
+                  raise SystemExit(f'{filename}: expected one match for {old!r}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8', newline='')
+          PY
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/v413-ux-label-fix.yml
+          git add VDF.GUI
+          git commit -m "ux: call resource consolidation folder merge"
+          git push origin HEAD:feature/intuitive-folder-merge-decisive-best-zh
