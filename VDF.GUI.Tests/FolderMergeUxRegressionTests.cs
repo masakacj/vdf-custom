@@ -41,6 +41,14 @@ public class FolderMergeUxRegressionTests {
         return dir!.FullName;
     }
 
+    static ResultsBuildResult Canonical(params DuplicateItemVM[] items) => ResultsListBuilder.Build(new ResultsBuildRequest {
+        Items = items,
+        Filter = _ => true,
+        IsTombstone = _ => false,
+        IsOffline = _ => false,
+        PickBest = members => (members[0], "test BEST"),
+    });
+
     [Fact]
     public void DifferentFileSizeAlone_GetsLikelyBestButNeverStrictAutoBest() {
         var group = Guid.NewGuid();
@@ -57,6 +65,78 @@ public class FolderMergeUxRegressionTests {
         var presentation = MainWindowVM.PickDecisiveBestForResults(new[] { small, large });
         Assert.Same(large, presentation.Best);
         Assert.NotNull(presentation.Tooltip);
+    }
+
+    [Fact]
+    public void FolderMerge_DefaultsToLevelOne_AndExpandsIntoFoldersAndResourceGroups() {
+        ResourceSeriesSelectionSession.ResetForTests();
+        try {
+            var g1 = Guid.NewGuid();
+            var g2 = Guid.NewGuid();
+            var a1 = Video(g1, @"D:\Series\A\one.mkv", 1000);
+            var b1 = Video(g1, @"E:\Inbox\A\one.mkv", 1000);
+            var a2 = Video(g2, @"D:\Series\A\two.mkv", 2000);
+            var b2 = Video(g2, @"E:\Inbox\A\two.mkv", 2000);
+            var groups = new List<List<DuplicateItemVM>> { new() { a1, b1 }, new() { a2, b2 } };
+            var options = MainWindowVM.ComputePikPakFolderCoverageOptions(groups);
+            var canonical = Canonical(a1, b1, a2, b2);
+
+            var collapsed = ResourceResultsBuilder.Build(canonical.Groups, options, minimumFolderMatchPercent: 0);
+            var header = Assert.Single(collapsed.Rows.OfType<ResourceRelationHeader>());
+            Assert.False(header.IsExpanded);
+            Assert.Equal(2, header.DisplayedResourceGroups);
+            Assert.Empty(collapsed.Rows.OfType<ResourceFolderMemberRow>());
+            Assert.Empty(collapsed.Rows.OfType<ResultsGroupHeader>());
+
+            header.IsExpanded = true;
+            var expanded = ResourceResultsBuilder.Build(canonical.Groups, options, minimumFolderMatchPercent: 0);
+            var rebuiltHeader = Assert.Single(expanded.Rows.OfType<ResourceRelationHeader>());
+            Assert.True(rebuiltHeader.IsExpanded);
+            Assert.Equal(2, expanded.Rows.OfType<ResourceFolderMemberRow>().Count());
+            Assert.Equal(2, expanded.Rows.OfType<ResultsGroupHeader>().Count());
+            Assert.Single(expanded.Rows.OfType<ResourceDetailsSectionHeader>());
+        }
+        finally {
+            ResourceSeriesSelectionSession.ResetForTests();
+        }
+    }
+
+    [Fact]
+    public void FolderMerge_ParentSurvivesWhenOneVisibleResourceDetailIsGone() {
+        ResourceSeriesSelectionSession.ResetForTests();
+        try {
+            var g1 = Guid.NewGuid();
+            var g2 = Guid.NewGuid();
+            var a1 = Video(g1, @"D:\Series\A\one.mkv", 1000);
+            var b1 = Video(g1, @"E:\Inbox\A\one.mkv", 1000);
+            var a2 = Video(g2, @"D:\Series\A\two.mkv", 2000);
+            var b2 = Video(g2, @"E:\Inbox\A\two.mkv", 2000);
+            var allGroups = new List<List<DuplicateItemVM>> { new() { a1, b1 }, new() { a2, b2 } };
+            var stableOptions = MainWindowVM.ComputePikPakFolderCoverageOptions(allGroups);
+            var onlyOneVisible = Canonical(a2, b2);
+
+            var resource = ResourceResultsBuilder.Build(onlyOneVisible.Groups, stableOptions, minimumFolderMatchPercent: 0);
+            var header = Assert.Single(resource.Rows.OfType<ResourceRelationHeader>());
+
+            Assert.Equal(1, header.DisplayedResourceGroups);
+            Assert.Equal(2, header.RelationMatchedResourceGroups);
+            Assert.Contains("当前显示 1", header.VisibleGroupSummary, StringComparison.Ordinal);
+        }
+        finally {
+            ResourceSeriesSelectionSession.ResetForTests();
+        }
+    }
+
+    [Fact]
+    public void FolderMerge_UiUsesCompactExpandableHierarchy() {
+        string root = RepoRoot();
+        string xaml = File.ReadAllText(Path.Combine(root, "VDF.GUI", "App.xaml"));
+        string resultCode = File.ReadAllText(Path.Combine(root, "VDF.GUI", "ViewModels", "MainWindowVM_Results.cs"));
+
+        Assert.Contains("DataType=\"vm:ResourceFolderMemberRow\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Command=\"{Binding ToggleExpandedCommand}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("DataType=\"vm:ResourceDetailsSectionHeader\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("Duplicates\n\t\t\t\t.GroupBy(item => item.ItemInfo.GroupId)", resultCode, StringComparison.Ordinal);
     }
 
     [Fact]
