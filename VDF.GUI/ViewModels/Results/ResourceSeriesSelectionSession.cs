@@ -7,10 +7,12 @@ namespace VDF.GUI.ViewModels {
 	/// <summary>
 	/// Resource-series selection is intentionally independent of DuplicateItemVM.Checked:
 	/// a checked series means "include in consolidation", never "delete this file".
-	/// The key set survives results rebuilds while current header instances are replaced.
+	/// Selection and folder-group expansion survive results rebuilds while current header
+	/// instances are replaced.
 	/// </summary>
 	internal static class ResourceSeriesSelectionSession {
 		static readonly HashSet<string> selectedKeys = new(StringComparer.OrdinalIgnoreCase);
+		static readonly HashSet<string> expandedKeys = new(StringComparer.OrdinalIgnoreCase);
 		static readonly Dictionary<string, ResourceRelationHeader> currentHeaders = new(StringComparer.OrdinalIgnoreCase);
 		static WeakReference<ResultsViewSwitcherRow>? currentSwitcher;
 
@@ -53,10 +55,13 @@ namespace VDF.GUI.ViewModels {
 		internal static void Register(ResourceRelationHeader header) {
 			currentHeaders[header.SelectionKey] = header;
 			header.SetSelectedFromSession(selectedKeys.Contains(header.SelectionKey));
+			header.SetExpandedFromSession(expandedKeys.Contains(header.SelectionKey));
 		}
 
 		internal static void FinishBuild() {
 			// A hidden relation (threshold changed, scan result removed) is no longer selected.
+			// Expansion is intentionally NOT pruned: a temporary filter must not forget the
+			// user's hierarchy state when the same folder relation becomes visible again.
 			selectedKeys.RemoveWhere(key => !currentHeaders.ContainsKey(key));
 			RefreshSwitcher();
 		}
@@ -67,6 +72,13 @@ namespace VDF.GUI.ViewModels {
 			else
 				selectedKeys.Remove(header.SelectionKey);
 			RefreshSwitcher();
+		}
+
+		internal static void SetExpanded(ResourceRelationHeader header, bool expanded) {
+			if (expanded)
+				expandedKeys.Add(header.SelectionKey);
+			else
+				expandedKeys.Remove(header.SelectionKey);
 		}
 
 		internal static int SelectedCount => currentHeaders.Values.Count(header => header.IsSelected);
@@ -81,6 +93,13 @@ namespace VDF.GUI.ViewModels {
 			if (selected.Count == 0)
 				return;
 			await ApplicationHelpers.MainWindowDataContext.ConsolidateSelectedResourceSeriesInteractiveAsync(selected);
+		}
+
+		internal static void ResetForTests() {
+			selectedKeys.Clear();
+			expandedKeys.Clear();
+			currentHeaders.Clear();
+			currentSwitcher = null;
 		}
 
 		static void RefreshSwitcher() {
