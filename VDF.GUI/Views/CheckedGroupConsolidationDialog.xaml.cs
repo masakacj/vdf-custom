@@ -14,6 +14,7 @@ using VDF.GUI.ViewModels;
 
 namespace VDF.GUI.Views {
 	public class CheckedGroupConsolidationDialog : Window {
+		TextBlock HeadingText => this.FindControl<TextBlock>("HeadingText")!;
 		TextBlock SummaryText => this.FindControl<TextBlock>("SummaryText")!;
 		ComboBox KeeperComboBox => this.FindControl<ComboBox>("KeeperComboBox")!;
 		ComboBox FolderComboBox => this.FindControl<ComboBox>("FolderComboBox")!;
@@ -25,19 +26,24 @@ namespace VDF.GUI.Views {
 		readonly IReadOnlyList<DuplicateItemVM> candidates;
 		readonly BestRecommendation recommendation;
 		readonly List<string> folders;
+		readonly string actionTitle;
 
 		public CheckedGroupConsolidationDialog() {
 			candidates = Array.Empty<DuplicateItemVM>();
 			recommendation = null!;
 			folders = new List<string>();
+			actionTitle = "合并本组副本";
 			InitializeComponent();
 		}
 
 		public CheckedGroupConsolidationDialog(
 			IReadOnlyList<DuplicateItemVM> candidates,
-			BestRecommendation recommendation) {
+			BestRecommendation recommendation,
+			string actionTitle = "合并本组副本",
+			string? summary = null) {
 			this.candidates = candidates;
 			this.recommendation = recommendation;
+			this.actionTitle = string.IsNullOrWhiteSpace(actionTitle) ? "合并本组副本" : actionTitle;
 			folders = candidates.Select(CandidateFolder)
 				.Where(folder => !string.IsNullOrWhiteSpace(folder))
 				.Distinct(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
@@ -48,7 +54,9 @@ namespace VDF.GUI.Views {
 			if (!SettingsFile.Instance.DarkMode)
 				RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
 
-			SummaryText.Text = $"同一相似组中已勾选 {candidates.Count:N0} 个副本。默认选中系统推荐 BEST；你可以改选保留副本和目标文件夹。";
+			Title = this.actionTitle;
+			HeadingText.Text = this.actionTitle;
+			SummaryText.Text = summary ?? $"当前相似组共 {candidates.Count:N0} 个副本。默认选中系统推荐 BEST；你可以改选保留副本和目标文件夹。";
 			KeeperComboBox.ItemsSource = candidates.Select(CandidateDisplay).ToList();
 			int bestIndex = candidates.ToList().FindIndex(item => ReferenceEquals(item, recommendation.Winner));
 			KeeperComboBox.SelectedIndex = bestIndex >= 0 ? bestIndex : 0;
@@ -118,7 +126,7 @@ namespace VDF.GUI.Views {
 			}
 			FinalPathText.Text = destination;
 			long reclaim = candidates
-				.Where(item => !ReferenceEquals(item, keeper))
+				.Where(item => !ReferenceEquals(item, keeper) && File.Exists(item.ItemInfo.Path))
 				.Sum(item => Math.Max(0, item.ItemInfo.SizeLong));
 			ReleaseText.Text = $"本次会保留 1 个，处理其余 {Math.Max(0, candidates.Count - 1):N0} 个副本；全部成功清理后预计释放 {reclaim.BytesToString()}。目标目录：{folder}";
 		}
@@ -151,7 +159,7 @@ namespace VDF.GUI.Views {
 
 		async void OnOkClicked(object? sender, RoutedEventArgs e) {
 			if (!TryCurrentChoice(out DuplicateItemVM keeper, out string folder, out string destination)) {
-				await MessageBoxService.Show("请选择有效的保留副本和保存目录。", title: "合并所勾选副本");
+				await MessageBoxService.Show("请选择有效的保留副本和保存目录。", title: actionTitle);
 				return;
 			}
 			Close(new CheckedGroupConsolidationDialogResult(keeper, folder, destination));
