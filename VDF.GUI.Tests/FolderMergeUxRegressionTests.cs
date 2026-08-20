@@ -136,7 +136,8 @@ public class FolderMergeUxRegressionTests {
         Assert.Contains("DataType=\"vm:ResourceFolderMemberRow\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Command=\"{Binding ToggleExpandedCommand}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("DataType=\"vm:ResourceDetailsSectionHeader\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("Duplicates\n\t\t\t\t.GroupBy(item => item.ItemInfo.GroupId)", resultCode, StringComparison.Ordinal);
+        Assert.Contains("var groups = Duplicates", resultCode, StringComparison.Ordinal);
+        Assert.Contains(".GroupBy(item => item.ItemInfo.GroupId)", resultCode, StringComparison.Ordinal);
     }
 
     [Fact]
