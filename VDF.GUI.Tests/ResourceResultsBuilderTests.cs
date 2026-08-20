@@ -36,22 +36,35 @@ public class ResourceResultsBuilderTests {
 
     [Fact]
     public void ResourceView_AssignsEveryTraditionalGroupAtMostOnce() {
-        var g = Guid.NewGuid();
-        var canonical = Canonical(new List<DuplicateItemVM> {
-            Item(g, @"D:\Series A\001.mkv"),
-            Item(g, @"E:\Misc\001.mkv"),
-            Item(g, @"F:\Archive\001.mkv"),
-        });
-        var options = MainWindowVM.ComputePikPakFolderCoverageOptions(
-            canonical.Groups.Select(h => h.Rows.Select(r => r.Item).ToList()).ToList());
+        ResourceSeriesSelectionSession.ResetForTests();
+        try {
+            var g = Guid.NewGuid();
+            var canonical = Canonical(new List<DuplicateItemVM> {
+                Item(g, @"D:\Series A\001.mkv"),
+                Item(g, @"E:\Misc\001.mkv"),
+                Item(g, @"F:\Archive\001.mkv"),
+            });
+            var options = MainWindowVM.ComputePikPakFolderCoverageOptions(
+                canonical.Groups.Select(h => h.Rows.Select(r => r.Item).ToList()).ToList());
 
-        var resource = ResourceResultsBuilder.Build(canonical.Groups, options);
-        var renderedGroups = resource.Rows.OfType<ResultsGroupHeader>().ToList();
+            var collapsed = ResourceResultsBuilder.Build(canonical.Groups, options);
+            var parent = Assert.Single(collapsed.Rows.OfType<ResourceRelationHeader>());
 
-        Assert.Single(canonical.Groups);
-        Assert.Single(renderedGroups);
-        Assert.Equal(g, renderedGroups[0].GroupId);
-        Assert.Single(renderedGroups.Select(h => h.GroupId).Distinct());
+            Assert.Single(canonical.Groups);
+            Assert.Equal(1, collapsed.AssignedGroupCount);
+            Assert.Empty(collapsed.Rows.OfType<ResultsGroupHeader>());
+
+            parent.IsExpanded = true;
+            var expanded = ResourceResultsBuilder.Build(canonical.Groups, options);
+            var renderedGroups = expanded.Rows.OfType<ResultsGroupHeader>().ToList();
+
+            Assert.Single(renderedGroups);
+            Assert.Equal(g, renderedGroups[0].GroupId);
+            Assert.Single(renderedGroups.Select(h => h.GroupId).Distinct());
+        }
+        finally {
+            ResourceSeriesSelectionSession.ResetForTests();
+        }
     }
 
     [Fact]
@@ -99,7 +112,7 @@ public class ResourceResultsBuilderTests {
 
         Assert.Contains("Series A", header.TargetFolder);
         Assert.Contains("Misc", header.SourceFolder);
-        Assert.Equal("含待复核推荐", header.ActionLabel);
+        Assert.Equal("含待复核", header.ActionLabel);
         Assert.Equal(1, header.ReviewOnlyMatches);
     }
 
@@ -171,32 +184,43 @@ public class ResourceResultsBuilderTests {
 
     [Fact]
     public void SharedMiscFolder_DoesNotBridgeUnrelatedSeriesIntoOneHeader() {
-        var g1 = Guid.NewGuid();
-        var g2 = Guid.NewGuid();
-        var canonical = Canonical(
-            new List<DuplicateItemVM> {
-                Item(g1, @"D:\Series A\001.mkv"),
-                Item(g1, @"E:\Misc\A-001.mkv"),
-            },
-            new List<DuplicateItemVM> {
-                Item(g2, @"F:\Series B\001.mkv"),
-                Item(g2, @"E:\Misc\B-001.mkv"),
-            });
-        var groups = canonical.Groups.Select(h => h.Rows.Select(r => r.Item).ToList()).ToList();
-        var stats = new Dictionary<string, FolderMediaStats>(StringComparer.OrdinalIgnoreCase) {
-            [@"D:\Series A"] = new FolderMediaStats(100, 100_000),
-            [@"F:\Series B"] = new FolderMediaStats(100, 100_000),
-            [@"E:\Misc"] = new FolderMediaStats(2, 2_000),
-        };
+        ResourceSeriesSelectionSession.ResetForTests();
+        try {
+            var g1 = Guid.NewGuid();
+            var g2 = Guid.NewGuid();
+            var canonical = Canonical(
+                new List<DuplicateItemVM> {
+                    Item(g1, @"D:\Series A\001.mkv"),
+                    Item(g1, @"E:\Misc\A-001.mkv"),
+                },
+                new List<DuplicateItemVM> {
+                    Item(g2, @"F:\Series B\001.mkv"),
+                    Item(g2, @"E:\Misc\B-001.mkv"),
+                });
+            var groups = canonical.Groups.Select(h => h.Rows.Select(r => r.Item).ToList()).ToList();
+            var stats = new Dictionary<string, FolderMediaStats>(StringComparer.OrdinalIgnoreCase) {
+                [@"D:\Series A"] = new FolderMediaStats(100, 100_000),
+                [@"F:\Series B"] = new FolderMediaStats(100, 100_000),
+                [@"E:\Misc"] = new FolderMediaStats(2, 2_000),
+            };
+            var options = MainWindowVM.ComputePikPakFolderCoverageOptions(groups, stats);
 
-        var resource = ResourceResultsBuilder.Build(
-            canonical.Groups,
-            MainWindowVM.ComputePikPakFolderCoverageOptions(groups, stats));
-        var headers = resource.Rows.OfType<ResourceRelationHeader>().ToList();
+            var collapsed = ResourceResultsBuilder.Build(canonical.Groups, options);
+            var headers = collapsed.Rows.OfType<ResourceRelationHeader>().ToList();
 
-        Assert.Equal(2, headers.Count);
-        Assert.All(headers, header => Assert.Equal(1, header.SourceFolderCount));
-        Assert.Equal(2, resource.Rows.OfType<ResultsGroupHeader>().Select(h => h.GroupId).Distinct().Count());
+            Assert.Equal(2, headers.Count);
+            Assert.All(headers, header => Assert.Equal(1, header.SourceFolderCount));
+            Assert.Equal(2, collapsed.AssignedGroupCount);
+            Assert.Empty(collapsed.Rows.OfType<ResultsGroupHeader>());
+
+            foreach (var header in headers)
+                header.IsExpanded = true;
+            var expanded = ResourceResultsBuilder.Build(canonical.Groups, options);
+            Assert.Equal(2, expanded.Rows.OfType<ResultsGroupHeader>().Select(h => h.GroupId).Distinct().Count());
+        }
+        finally {
+            ResourceSeriesSelectionSession.ResetForTests();
+        }
     }
 
     [Fact]
@@ -233,7 +257,7 @@ public class ResourceResultsBuilderTests {
         var header = Assert.Single(resource.Rows.OfType<ResourceRelationHeader>());
 
         Assert.False(header.WholeSourceEligible);
-        Assert.Equal("含待复核推荐", header.ActionLabel);
+        Assert.Equal("含待复核", header.ActionLabel);
         Assert.Equal(1, header.ReviewOnlyMatches);
         Assert.Equal(0, header.ConfirmedMatches);
         Assert.Contains("推荐 BEST", header.ActionHint);
