@@ -68,7 +68,7 @@ public class FolderMergeUxRegressionTests {
     }
 
     [Fact]
-    public void FolderMerge_DefaultsToLevelOne_AndExpandsIntoFoldersAndResourceGroups() {
+    public void FolderMerge_DefaultsToLevelOne_AndExpandedViewStaysFolderFirst() {
         ResourceSeriesSelectionSession.ResetForTests();
         try {
             var g1 = Guid.NewGuid();
@@ -85,16 +85,22 @@ public class FolderMergeUxRegressionTests {
             var header = Assert.Single(collapsed.Rows.OfType<ResourceRelationHeader>());
             Assert.False(header.IsExpanded);
             Assert.Equal(2, header.DisplayedResourceGroups);
-            Assert.Empty(collapsed.Rows.OfType<ResourceFolderMemberRow>());
+            Assert.Empty(collapsed.Rows.OfType<ResourceFolderContentHeader>());
             Assert.Empty(collapsed.Rows.OfType<ResultsGroupHeader>());
+            Assert.Empty(collapsed.Rows.OfType<ResultsItemRow>());
 
             header.IsExpanded = true;
             var expanded = ResourceResultsBuilder.Build(canonical.Groups, options, minimumFolderMatchPercent: 0);
             var rebuiltHeader = Assert.Single(expanded.Rows.OfType<ResourceRelationHeader>());
             Assert.True(rebuiltHeader.IsExpanded);
-            Assert.Equal(2, expanded.Rows.OfType<ResourceFolderMemberRow>().Count());
-            Assert.Equal(2, expanded.Rows.OfType<ResultsGroupHeader>().Count());
-            Assert.Single(expanded.Rows.OfType<ResourceDetailsSectionHeader>());
+            Assert.Equal(2, expanded.Rows.OfType<ResourceFolderContentHeader>().Count());
+            Assert.Equal(4, expanded.Rows.OfType<ResultsItemRow>().Count());
+            Assert.Empty(expanded.Rows.OfType<ResultsGroupHeader>());
+
+            var folderHeaders = expanded.Rows.OfType<ResourceFolderContentHeader>().ToList();
+            Assert.Contains(folderHeaders, folder => folder.Path.Contains(@"D:\Series\A", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(folderHeaders, folder => folder.Path.Contains(@"E:\Inbox\A", StringComparison.OrdinalIgnoreCase));
+            Assert.All(folderHeaders, folder => Assert.Equal(2, folder.ResourceGroupCount));
         }
         finally {
             ResourceSeriesSelectionSession.ResetForTests();
@@ -128,14 +134,18 @@ public class FolderMergeUxRegressionTests {
     }
 
     [Fact]
-    public void FolderMerge_UiUsesCompactExpandableHierarchy() {
+    public void FolderMerge_UiUsesFolderHeadersInsteadOfTraditionalGroupHeaders() {
         string root = RepoRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "VDF.GUI", "App.xaml"));
         string resultCode = File.ReadAllText(Path.Combine(root, "VDF.GUI", "ViewModels", "MainWindowVM_Results.cs"));
+        string resourceCode = File.ReadAllText(Path.Combine(root, "VDF.GUI", "ViewModels", "Results", "ResourceResultsBuilder.cs"));
 
-        Assert.Contains("DataType=\"vm:ResourceFolderMemberRow\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("DataType=\"vm:ResourceFolderContentHeader\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Command=\"{Binding ToggleExpandedCommand}\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("DataType=\"vm:ResourceDetailsSectionHeader\"", xaml, StringComparison.Ordinal);
+        Assert.DoesNotContain("DataType=\"vm:ResourceDetailsSectionHeader\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("AppendFolderGroupedRows", resourceCode, StringComparison.Ordinal);
+        Assert.Contains("output.Add(new ResourceFolderContentHeader", resourceCode, StringComparison.Ordinal);
+        Assert.DoesNotContain("AppendCanonicalGroup", resourceCode, StringComparison.Ordinal);
         Assert.Contains("var groups = Duplicates", resultCode, StringComparison.Ordinal);
         Assert.Contains(".GroupBy(item => item.ItemInfo.GroupId)", resultCode, StringComparison.Ordinal);
     }

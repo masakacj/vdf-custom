@@ -35,7 +35,7 @@ public class ResourceResultsBuilderTests {
         });
 
     [Fact]
-    public void ResourceView_AssignsEveryTraditionalGroupAtMostOnce() {
+    public void ResourceView_AssignsEveryTraditionalGroupAtMostOnce_WithoutRenderingGroupHeaders() {
         ResourceSeriesSelectionSession.ResetForTests();
         try {
             var g = Guid.NewGuid();
@@ -53,14 +53,17 @@ public class ResourceResultsBuilderTests {
             Assert.Single(canonical.Groups);
             Assert.Equal(1, collapsed.AssignedGroupCount);
             Assert.Empty(collapsed.Rows.OfType<ResultsGroupHeader>());
+            Assert.Empty(collapsed.Rows.OfType<ResultsItemRow>());
 
             parent.IsExpanded = true;
             var expanded = ResourceResultsBuilder.Build(canonical.Groups, options);
-            var renderedGroups = expanded.Rows.OfType<ResultsGroupHeader>().ToList();
+            var renderedItems = expanded.Rows.OfType<ResultsItemRow>().ToList();
 
-            Assert.Single(renderedGroups);
-            Assert.Equal(g, renderedGroups[0].GroupId);
-            Assert.Single(renderedGroups.Select(h => h.GroupId).Distinct());
+            Assert.Empty(expanded.Rows.OfType<ResultsGroupHeader>());
+            Assert.Equal(3, renderedItems.Count);
+            Assert.Equal(3, renderedItems.Select(row => row.Item).Distinct().Count());
+            Assert.All(renderedItems, row => Assert.Equal(g, row.Group.GroupId));
+            Assert.Equal(3, expanded.Rows.OfType<ResourceFolderContentHeader>().Count());
         }
         finally {
             ResourceSeriesSelectionSession.ResetForTests();
@@ -216,7 +219,9 @@ public class ResourceResultsBuilderTests {
             foreach (var header in headers)
                 header.IsExpanded = true;
             var expanded = ResourceResultsBuilder.Build(canonical.Groups, options);
-            Assert.Equal(2, expanded.Rows.OfType<ResultsGroupHeader>().Select(h => h.GroupId).Distinct().Count());
+            Assert.Empty(expanded.Rows.OfType<ResultsGroupHeader>());
+            Assert.Equal(4, expanded.Rows.OfType<ResultsItemRow>().Select(row => row.Item).Distinct().Count());
+            Assert.True(expanded.Rows.OfType<ResourceFolderContentHeader>().Count() >= 3);
         }
         finally {
             ResourceSeriesSelectionSession.ResetForTests();
@@ -224,7 +229,7 @@ public class ResourceResultsBuilderTests {
     }
 
     [Fact]
-    public void SameFolderOnlyGroup_RemainsVisibleUnderOtherGroups() {
+    public void SameFolderOnlyGroup_RemainsVisibleButIsStillFolderGrouped() {
         var g = Guid.NewGuid();
         var canonical = Canonical(new List<DuplicateItemVM> {
             Item(g, @"D:\Series A\001.mkv"),
@@ -236,7 +241,12 @@ public class ResourceResultsBuilderTests {
         var other = Assert.Single(resource.Rows.OfType<ResourceUnassignedHeader>());
         Assert.Equal(1, other.GroupCount);
         Assert.Equal(2, other.FileCount);
-        Assert.Single(resource.Rows.OfType<ResultsGroupHeader>());
+        Assert.Empty(resource.Rows.OfType<ResultsGroupHeader>());
+        var folder = Assert.Single(resource.Rows.OfType<ResourceFolderContentHeader>());
+        Assert.Contains("Series A", folder.Path);
+        Assert.Equal(2, folder.FileCount);
+        Assert.Equal(1, folder.ResourceGroupCount);
+        Assert.Equal(2, resource.Rows.OfType<ResultsItemRow>().Count());
     }
 
     [Fact]
