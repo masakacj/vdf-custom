@@ -119,28 +119,26 @@
             </Border>
         </DataTemplate>
 
-        <!-- Level 2A: folders participating in the selected duplicate-folder group. -->
-        <DataTemplate DataType="vm:ResourceFolderMemberRow">
-            <Border Margin="42,0,10,1" Padding="9,6"
-                    Background="{actipro:ThemeResource Container1BackgroundBrush}"
-                    BorderBrush="{actipro:ThemeResource Container3BorderBrush}" BorderThickness="0,0,0,1">
-                <Grid ColumnDefinitions="55,*,Auto,Auto" ColumnSpacing="12">
-                    <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="10.8" FontWeight="SemiBold" Foreground="{DynamicResource VdfGoodBrush}" Text="{Binding RoleLabel}" />
-                    <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}" Text="{Binding Path}" />
+        <!-- Level 2: actual containing folder. File rows follow this header directly;
+             traditional ResultsGroupHeader never appears in folder-consolidation mode. -->
+        <DataTemplate DataType="vm:ResourceFolderContentHeader">
+            <Border Margin="42,5,10,0" Padding="9,7" CornerRadius="5"
+                    Background="{DynamicResource VdfMutedSoftBrush}"
+                    BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">
+                <Grid ColumnDefinitions="58,*,Auto,Auto" ColumnSpacing="12">
+                    <Border Grid.Column="0" Padding="6,2" CornerRadius="5"
+                            Background="{DynamicResource VdfGoodSoftBrush}" BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1"
+                            HorizontalAlignment="Left" VerticalAlignment="Center">
+                        <TextBlock FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource VdfGoodBrush}" Text="{Binding RoleLabel}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="1" VerticalAlignment="Center">
+                        <TextBlock FontSize="11.8" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}" Text="{Binding Path}" />
+                        <TextBlock FontSize="10" Opacity="0.52" TextTrimming="CharacterEllipsis"
+                                   IsVisible="{Binding HasDifferentRelationRoot}" ToolTip.Tip="{Binding RelationRoot}" Text="{Binding RootHint}" />
+                    </StackPanel>
                     <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="10.8" Opacity="0.76" Text="{Binding Meta}" />
-                    <TextBlock Grid.Column="3" VerticalAlignment="Center" FontSize="10.8" FontWeight="SemiBold" Text="{Binding RelationText}" />
+                    <TextBlock Grid.Column="3" VerticalAlignment="Center" FontSize="10.5" FontWeight="SemiBold" Text="{Binding BestMeta}" />
                 </Grid>
-            </Border>
-        </DataTemplate>
-
-        <!-- Level 2B: separator before the ordinary per-resource duplicate groups. -->
-        <DataTemplate DataType="vm:ResourceDetailsSectionHeader">
-            <Border Margin="42,6,10,2" Padding="9,5" CornerRadius="5"
-                    Background="{DynamicResource VdfMutedSoftBrush}" BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">
-                <DockPanel>
-                    <TextBlock DockPanel.Dock="Left" FontSize="11.5" FontWeight="SemiBold" Text="{Binding Title}" />
-                    <TextBlock Margin="14,0,0,0" FontSize="10.5" Opacity="0.6" Text="{Binding Hint}" />
-                </DockPanel>
             </Border>
         </DataTemplate>
 
