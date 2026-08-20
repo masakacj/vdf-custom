@@ -2,7 +2,7 @@
     x:Class="VDF.GUI.Views.CheckedGroupConsolidationDialog"
     xmlns="https://github.com/avaloniaui"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="合并所勾选副本"
+    Title="合并本组副本"
     Width="760"
     MinWidth="650"
     CanResize="false"
@@ -10,7 +10,7 @@
     WindowStartupLocation="CenterOwner">
     <StackPanel Margin="18" Spacing="12">
         <StackPanel Spacing="3">
-            <TextBlock FontSize="18" FontWeight="SemiBold" Text="合并所勾选副本" />
+            <TextBlock x:Name="HeadingText" FontSize="18" FontWeight="SemiBold" Text="合并本组副本" />
             <TextBlock x:Name="SummaryText" FontSize="11.5" Opacity="0.68" TextWrapping="Wrap" />
         </StackPanel>
 
@@ -26,7 +26,7 @@
         <StackPanel Spacing="6">
             <TextBlock FontSize="12.5" FontWeight="SemiBold" Text="2. 选择目标文件夹" />
             <ComboBox x:Name="FolderComboBox" MinHeight="36" SelectionChanged="OnFolderChanged" />
-            <TextBlock FontSize="10.8" Opacity="0.62" Text="候选来自本次勾选副本所在的文件夹。切换后会优先沿用该文件夹内现有副本的文件名。" />
+            <TextBlock FontSize="10.8" Opacity="0.62" Text="候选目录直接来自本组参与副本所在路径。切换目录后会优先沿用该目录内现有副本的文件名。" />
         </StackPanel>
 
         <StackPanel Spacing="6">
@@ -49,7 +49,7 @@
 
         <Border Padding="10" CornerRadius="7" Background="{DynamicResource VdfWarnSoftBrush}">
             <TextBlock FontSize="11" TextWrapping="Wrap"
-                       Text="执行时会先把保留副本安全落到最终位置并校验；目标处若是本组低质量副本，可安全替换；如果是无关文件则停止，不会覆盖。其余本次勾选副本随后移入回收站/安全删除流程。" />
+                       Text="执行时会先把保留副本安全落到最终位置并校验；目标处若是本组低质量副本，可安全替换；如果是无关文件则停止，不会覆盖。其余参与副本随后进入回收站/安全删除流程。" />
         </Border>
 
         <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
