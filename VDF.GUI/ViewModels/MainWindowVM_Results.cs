@@ -186,10 +186,19 @@ namespace VDF.GUI.ViewModels {
 			if (canonicalGroups.Count == 0)
 				return Array.Empty<PikPakFolderCoverageOption>();
 
-			var groups = canonicalGroups
-				.Select(header => header.Rows.Select(row => row.Item).ToList())
+			// Folder identity is a level above the current presentation/filter. Build relation
+			// evidence from the complete in-memory duplicate groups so hiding one item/group,
+			// changing sort order, or collapsing details cannot change whether two directories
+			// are considered the same collection. ResourceResultsBuilder intersects these
+			// stable relations with canonicalGroups when deciding which level-2 details to show.
+			var groups = Duplicates
+				.GroupBy(item => item.ItemInfo.GroupId)
+				.Select(group => group.ToList())
 				.Where(group => group.Count >= 2)
 				.ToList();
+			if (groups.Count == 0)
+				return Array.Empty<PikPakFolderCoverageOption>();
+
 			var folders = groups
 				.SelectMany(group => group)
 				.Select(item => string.IsNullOrWhiteSpace(item.ItemInfo.Folder)
