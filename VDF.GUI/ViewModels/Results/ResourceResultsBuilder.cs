@@ -87,10 +87,10 @@ namespace VDF.GUI.ViewModels {
 
 		public string Label => "显示方式";
 		public string FolderMatchLabel => "文件夹匹配 ≥";
-		public string FolderMatchTip => "文件夹匹配度 = min(A目录确认覆盖率, B目录确认覆盖率)。一级只显示文件夹重复组；展开后才显示目录成员和具体相似资源组。";
+		public string FolderMatchTip => "文件夹匹配度 = min(A目录确认覆盖率, B目录确认覆盖率)。一级显示文件夹重复组；展开后资源始终按实际所在文件夹分组，不再切回传统相似 Group。";
 		public string Hint => Selected.Mode == ResultsDisplayMode.SimilarityGroups
 			? "传统 VDF：每个相似文件组独立显示。"
-			: "文件夹合并：一级先看重复目录、大小、文件数和重叠率；展开后再处理具体资源组。";
+			: "文件夹合并：一级看重复目录关系；展开后按实际文件夹连续查看参与资源和 BEST。";
 	}
 
 	internal sealed class ResourceDirectedRelation {
@@ -116,7 +116,11 @@ namespace VDF.GUI.ViewModels {
 		internal HashSet<Guid> GroupIds => Option.Matches.Select(match => match.GroupId).ToHashSet();
 	}
 
-	/// <summary>One directory row shown only while its level-1 folder group is expanded.</summary>
+	/// <summary>
+	/// Relation-root metadata. This is retained on ResourceRelationHeader for planning,
+	/// but the expanded list now renders ResourceFolderContentHeader for each actual
+	/// containing folder instead of rendering these roots as standalone rows.
+	/// </summary>
 	public sealed class ResourceFolderMemberRow {
 		internal ResourceFolderMemberRow(bool isTarget, string path, int files, long bytes, int resources,
 			double coverage, double matchPercent) {
@@ -143,11 +147,43 @@ namespace VDF.GUI.ViewModels {
 			: $"确认覆盖 {Coverage:0.#}% · 双向重叠 {MatchPercent:0.#}%";
 	}
 
-	public sealed class ResourceDetailsSectionHeader {
-		public ResourceDetailsSectionHeader(int groupCount) => GroupCount = groupCount;
-		public int GroupCount { get; }
-		public string Title => $"重复资源细项 · {GroupCount:N0} 组";
-		public string Hint => "以下是这个文件夹重复组当前仍可见的具体相似资源；每组仍保留推荐 BEST / 确认 BEST 规则。";
+	/// <summary>
+	/// Visible level-2 folder header in resource-consolidation mode. Traditional
+	/// ResultsGroupHeader remains internal context only; every file row is emitted below
+	/// the actual folder that contains it.
+	/// </summary>
+	public sealed class ResourceFolderContentHeader {
+		internal ResourceFolderContentHeader(
+			string roleLabel,
+			string path,
+			string relationRoot,
+			IReadOnlyList<ResultsItemRow> itemRows) {
+			RoleLabel = roleLabel;
+			Path = path;
+			RelationRoot = relationRoot;
+			FileCount = itemRows.Count;
+			TotalBytes = itemRows.Sum(row => Math.Max(0, row.Item.ItemInfo.SizeLong));
+			ResourceGroupCount = itemRows.Select(row => row.Group.GroupId).Distinct().Count();
+			RecommendedBestCount = itemRows.Count(row => row.IsBest);
+			ConfirmedBestCount = itemRows.Count(row => row.IsBestConfirmed);
+			ReviewBestCount = itemRows.Count(row => row.IsBestNeedsReview);
+			HasDifferentRelationRoot = !MainWindowVM.NormalizePikPakPath(path)
+				.Equals(MainWindowVM.NormalizePikPakPath(relationRoot), StringComparison.OrdinalIgnoreCase);
+		}
+
+		public string RoleLabel { get; }
+		public string Path { get; }
+		public string RelationRoot { get; }
+		public int FileCount { get; }
+		public long TotalBytes { get; }
+		public int ResourceGroupCount { get; }
+		public int RecommendedBestCount { get; }
+		public int ConfirmedBestCount { get; }
+		public int ReviewBestCount { get; }
+		public bool HasDifferentRelationRoot { get; }
+		public string Meta => $"{FileCount:N0} 个参与文件 · {TotalBytes.BytesToString()} · 涉及 {ResourceGroupCount:N0} 个重复资源";
+		public string BestMeta => $"BEST {RecommendedBestCount:N0} · 确认 {ConfirmedBestCount:N0} · 待复核 {ReviewBestCount:N0}";
+		public string RootHint => HasDifferentRelationRoot ? $"所属比较根目录：{RelationRoot}" : string.Empty;
 	}
 
 	public sealed class ResourceRelationHeader : ReactiveObject {
@@ -276,7 +312,7 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		public string ExpandGlyph => IsExpanded ? "▾" : "▸";
-		public string ExpandActionText => IsExpanded ? "收起细项" : "展开细项";
+		public string ExpandActionText => IsExpanded ? "收起文件夹资源" : "展开文件夹资源";
 		public ReactiveCommand<Unit, Unit> ToggleExpandedCommand => ReactiveCommand.Create(() => {
 			IsExpanded = !IsExpanded;
 			ApplicationHelpers.MainWindowDataContext.RefreshResultsView();
@@ -308,12 +344,12 @@ namespace VDF.GUI.ViewModels {
 			: "来源副本：" + string.Join("；", sourceRelations.Select(r =>
 				$"{r.SourceFolder}（{r.SourceFiles:N0} 文件 / {r.SourceBytes.BytesToString()} / 匹配 {r.MatchPercent:0.#}% / 来源覆盖 {r.SourceCoverage:0.#}%）"));
 		public string RelationStats =>
-			$"本系列归入 {DisplayedResourceGroups:N0} 个相似资源组 · 最低文件夹匹配 {MinimumFolderMatchPercent:0.#}% · 确认 BEST {ConfirmedMatches:N0} · 推荐 BEST待复核 {ReviewOnlyMatches:N0}";
+			$"本系列归入 {DisplayedResourceGroups:N0} 个相似资源 · 最低文件夹匹配 {MinimumFolderMatchPercent:0.#}% · 确认 BEST {ConfirmedMatches:N0} · 推荐 BEST待复核 {ReviewOnlyMatches:N0}";
 		public string ActionLabel => ReviewOnlyMatches > 0
 			? "含待复核"
 			: WholeSourceEligible ? "可自动合并" : "可处理匹配项";
 		public string ActionHint => ReviewOnlyMatches > 0
-			? "展开可查看具体资源组；待复核项可在合并预览中接受推荐 BEST 或改选 keeper。"
+			? "展开后按实际文件夹查看资源；待复核项可在合并预览中接受推荐 BEST 或改选 keeper。"
 			: WholeSourceEligible
 				? "来源树确认覆盖率 ≥ 90%，可连同来源独有的已索引媒体一起整合；子目录结构保留。"
 				: "只自动处理确认 BEST；路径冲突不覆盖、不自动改名。";
@@ -347,8 +383,8 @@ namespace VDF.GUI.ViewModels {
 		public int GroupCount { get; }
 		public int FileCount { get; }
 		public long TotalBytes { get; }
-		public string Title => "其他相似文件组";
-		public string Summary => $"{GroupCount:N0} 组 · {FileCount:N0} 文件 · {TotalBytes.BytesToString()} · 未达到当前文件夹匹配阈值，或未形成可用的跨目录文件夹关系";
+		public string Title => "其他目录中的相似资源";
+		public string Summary => $"{GroupCount:N0} 个重复资源 · {FileCount:N0} 文件 · {TotalBytes.BytesToString()} · 未形成当前阈值下的文件夹重复关系；下面仍按实际文件夹分组显示";
 	}
 
 	public sealed class ResourceResultsBuildResult {
@@ -359,6 +395,14 @@ namespace VDF.GUI.ViewModels {
 	}
 
 	public static class ResourceResultsBuilder {
+		sealed class FolderBucket {
+			internal required string Path { get; init; }
+			internal required string RoleLabel { get; init; }
+			internal required string RelationRoot { get; init; }
+			internal required int RootOrder { get; init; }
+			internal List<ResultsItemRow> Rows { get; } = new();
+		}
+
 		public static ResourceResultsBuildResult Build(
 			IReadOnlyList<ResultsGroupHeader> canonicalGroups,
 			IReadOnlyList<PikPakFolderCoverageOption> options,
@@ -414,22 +458,19 @@ namespace VDF.GUI.ViewModels {
 					ResourceSeriesSelectionSession.Register(header);
 					rows.Add(header);
 
-					// Level 1 is the stable folder relationship summary. Only an explicit expand
-					// emits level-2 folder members and ordinary VDF resource groups underneath it.
-					if (header.IsExpanded) {
-						rows.AddRange(header.FolderRows.Cast<object>());
-						rows.Add(new ResourceDetailsSectionHeader(gids.Count));
-						foreach (var gid in gids.OrderBy(gid => byId[gid].GroupNumber))
-							AppendCanonicalGroup(rows, byId[gid], expandedDetails);
-					}
+					// Folder-consolidation mode is permanently folder-first. A traditional
+					// ResultsGroupHeader is never emitted here: once the level-1 relationship is
+					// expanded, every participating ResultsItemRow lives beneath its ACTUAL
+					// containing folder. GroupId remains only as invisible matching/action context.
+					if (header.IsExpanded)
+						AppendFolderGroupedRows(rows, header, gids, byId, expandedDetails);
 				}
 			}
 
 			var unassigned = canonicalGroups.Where(g => !assigned.Contains(g.GroupId)).ToList();
 			if (unassigned.Count > 0) {
 				rows.Add(new ResourceUnassignedHeader(unassigned));
-				foreach (var group in unassigned)
-					AppendCanonicalGroup(rows, group, expandedDetails);
+				AppendUnassignedFolderGroupedRows(rows, unassigned, expandedDetails);
 			}
 			ResourceSeriesSelectionSession.FinishBuild();
 
@@ -471,18 +512,95 @@ namespace VDF.GUI.ViewModels {
 			return components;
 		}
 
-		static void AppendCanonicalGroup(
-			List<object> rows,
-			ResultsGroupHeader header,
+		static void AppendFolderGroupedRows(
+			List<object> output,
+			ResourceRelationHeader header,
+			IReadOnlyList<Guid> groupIds,
+			IReadOnlyDictionary<Guid, ResultsGroupHeader> byId,
 			IReadOnlySet<DuplicateItemVM>? expandedDetails) {
-			rows.Add(header);
-			if (header.IsCollapsed)
-				return;
-			foreach (var row in header.Rows) {
-				rows.Add(row);
-				if (expandedDetails?.Contains(row.Item) == true)
-					rows.Add(new ResultsDetailsRow(row));
+			var roots = header.FolderRows
+				.Select((folder, index) => new { Folder = folder, Index = index })
+				.ToList();
+			var buckets = new Dictionary<string, FolderBucket>(StringComparer.OrdinalIgnoreCase);
+
+			foreach (Guid gid in groupIds.OrderBy(gid => byId[gid].GroupNumber)) {
+				foreach (ResultsItemRow row in byId[gid].Rows) {
+					string actualFolder = ItemFolder(row.Item);
+					var root = roots
+						.Where(candidate => MainWindowVM.PikPakPathIsWithin(actualFolder, candidate.Folder.Path))
+						.OrderByDescending(candidate => MainWindowVM.PikPakPathDepth(candidate.Folder.Path))
+						.ThenBy(candidate => candidate.Index)
+						.FirstOrDefault();
+					string role = root?.Folder.RoleLabel ?? "关联";
+					string relationRoot = root?.Folder.Path ?? actualFolder;
+					int rootOrder = root?.Index ?? int.MaxValue;
+					string key = MainWindowVM.NormalizePikPakPath(actualFolder);
+					if (!buckets.TryGetValue(key, out FolderBucket? bucket)) {
+						bucket = new FolderBucket {
+							Path = actualFolder,
+							RoleLabel = role,
+							RelationRoot = relationRoot,
+							RootOrder = rootOrder,
+						};
+						buckets[key] = bucket;
+					}
+					bucket.Rows.Add(row);
+				}
 			}
+
+			foreach (FolderBucket bucket in buckets.Values
+				.OrderBy(bucket => bucket.RootOrder)
+				.ThenBy(bucket => MainWindowVM.PikPakPathDepth(bucket.Path))
+				.ThenBy(bucket => bucket.Path, StringComparer.OrdinalIgnoreCase)) {
+				AppendFolderBucket(output, bucket, expandedDetails);
+			}
+		}
+
+		static void AppendUnassignedFolderGroupedRows(
+			List<object> output,
+			IReadOnlyList<ResultsGroupHeader> groups,
+			IReadOnlySet<DuplicateItemVM>? expandedDetails) {
+			var buckets = new Dictionary<string, FolderBucket>(StringComparer.OrdinalIgnoreCase);
+			foreach (ResultsGroupHeader group in groups.OrderBy(group => group.GroupNumber)) {
+				foreach (ResultsItemRow row in group.Rows) {
+					string folder = ItemFolder(row.Item);
+					string key = MainWindowVM.NormalizePikPakPath(folder);
+					if (!buckets.TryGetValue(key, out FolderBucket? bucket)) {
+						bucket = new FolderBucket {
+							Path = folder,
+							RoleLabel = "其他",
+							RelationRoot = folder,
+							RootOrder = int.MaxValue,
+						};
+						buckets[key] = bucket;
+					}
+					bucket.Rows.Add(row);
+				}
+			}
+
+			foreach (FolderBucket bucket in buckets.Values.OrderBy(bucket => bucket.Path, StringComparer.OrdinalIgnoreCase))
+				AppendFolderBucket(output, bucket, expandedDetails);
+		}
+
+		static void AppendFolderBucket(
+			List<object> output,
+			FolderBucket bucket,
+			IReadOnlySet<DuplicateItemVM>? expandedDetails) {
+			output.Add(new ResourceFolderContentHeader(bucket.RoleLabel, bucket.Path, bucket.RelationRoot, bucket.Rows));
+			foreach (ResultsItemRow row in bucket.Rows
+				.OrderBy(row => row.Group.GroupNumber)
+				.ThenByDescending(row => row.IsBest)
+				.ThenBy(row => row.Item.ItemInfo.Path, StringComparer.OrdinalIgnoreCase)) {
+				output.Add(row);
+				if (expandedDetails?.Contains(row.Item) == true)
+					output.Add(new ResultsDetailsRow(row));
+			}
+		}
+
+		static string ItemFolder(DuplicateItemVM item) {
+			if (!string.IsNullOrWhiteSpace(item.ItemInfo.Folder))
+				return item.ItemInfo.Folder;
+			return MainWindowVM.GetPikPakFolder(item.ItemInfo.Path);
 		}
 	}
 }
