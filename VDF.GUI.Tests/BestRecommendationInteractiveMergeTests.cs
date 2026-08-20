@@ -47,6 +47,14 @@ public class BestRecommendationInteractiveMergeTests {
         }
     };
 
+    static string RepoRoot() {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "Directory.Build.props")))
+            dir = dir.Parent;
+        Assert.NotNull(dir);
+        return dir!.FullName;
+    }
+
     [Fact]
     public void AmbiguousImageGroup_StillGetsRecommendedBest() {
         Guid group = Guid.NewGuid();
@@ -127,5 +135,24 @@ public class BestRecommendationInteractiveMergeTests {
 
         Assert.Equal(5_000_000, bytes);
         Assert.True(bytes > 0);
+    }
+
+    [Fact]
+    public void SimilarityGroupHeader_OffersDirectMergeWithBestAndGroupFolderChoices() {
+        string root = RepoRoot();
+        string vmCode = File.ReadAllText(Path.Combine(root, "VDF.GUI", "ViewModels", "MainWindowVM_CheckedGroupConsolidation.cs"));
+        string viewCode = File.ReadAllText(Path.Combine(root, "VDF.GUI", "Views", "DuplicateResultsView.xaml.cs"));
+        string dialogCode = File.ReadAllText(Path.Combine(root, "VDF.GUI", "Views", "CheckedGroupConsolidationDialog.xaml.cs"));
+        string dialogXaml = File.ReadAllText(Path.Combine(root, "VDF.GUI", "Views", "CheckedGroupConsolidationDialog.xaml"));
+
+        Assert.Contains("ConsolidateGroupHeaderCommand", vmCode, StringComparison.Ordinal);
+        Assert.Contains("item.ItemInfo.GroupId == header.GroupId", vmCode, StringComparison.Ordinal);
+        Assert.Contains("GroupMergeButtonContent = \"合并…\"", viewCode, StringComparison.Ordinal);
+        Assert.Contains("Command = vm.ConsolidateGroupHeaderCommand", viewCode, StringComparison.Ordinal);
+        Assert.Contains("folders = candidates.Select(CandidateFolder)", dialogCode, StringComparison.Ordinal);
+        Assert.Contains("KeeperComboBox.SelectedIndex = bestIndex", dialogCode, StringComparison.Ordinal);
+        Assert.Contains("FolderComboBox.ItemsSource = folders", dialogCode, StringComparison.Ordinal);
+        Assert.Contains("DestinationFolderTextBox.Text = folder", dialogCode, StringComparison.Ordinal);
+        Assert.Contains("候选目录直接来自本组参与副本所在路径", dialogXaml, StringComparison.Ordinal);
     }
 }
