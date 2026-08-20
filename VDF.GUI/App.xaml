@@ -82,77 +82,71 @@
             </Border>
         </DataTemplate>
 
+        <!-- Level 1: compact folder-duplicate group. Details are emitted only when expanded. -->
         <DataTemplate DataType="vm:ResourceRelationHeader">
-            <Border Margin="10,10,10,4" Padding="14" CornerRadius="10"
+            <Border Margin="8,7,8,1" Padding="10,8" CornerRadius="7"
                     Background="{actipro:ThemeResource Container2BackgroundBrush}"
                     BorderBrush="{actipro:ThemeResource Container3BorderBrush}" BorderThickness="1">
-                <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="12">
-                    <DockPanel LastChildFill="True">
-                        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
-                            <Border Padding="8,3" CornerRadius="6" BorderThickness="1"
-                                    BorderBrush="{DynamicResource VdfGoodBorderBrush}" Background="{DynamicResource VdfGoodSoftBrush}">
-                                <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource VdfGoodBrush}" Text="{Binding ActionLabel}" />
-                            </Border>
-                            <Button Classes="accent" Padding="13,4" FontSize="11.5" FontWeight="SemiBold"
-                                    Command="{Binding PreviewConsolidationCommand}" Content="查看增减与最终目录" />
-                        </StackPanel>
-                        <CheckBox DockPanel.Dock="Left" Margin="0,0,10,0" VerticalAlignment="Center"
+                <Grid RowDefinitions="Auto,Auto" RowSpacing="6">
+                    <Grid ColumnDefinitions="34,28,*,Auto" ColumnSpacing="7">
+                        <Button Grid.Column="0" Width="30" Height="28" Padding="0" FontSize="15"
+                                Command="{Binding ToggleExpandedCommand}" Content="{Binding ExpandGlyph}"
+                                ToolTip.Tip="{Binding ExpandActionText}" />
+                        <CheckBox Grid.Column="1" VerticalAlignment="Center"
                                   IsChecked="{Binding IsSelected, Mode=TwoWay}"
-                                  ToolTip.Tip="选择此文件夹关系参加批量合并；不会改变普通文件删除勾选" />
-                        <StackPanel>
-                            <TextBlock FontSize="13.5" FontWeight="SemiBold" Text="文件夹合并候选" />
-                            <TextBlock FontSize="10.8" Opacity="0.6" Text="整棵系列目录对比 · 保留日期/主题等相对目录结构" />
+                                  ToolTip.Tip="选择整个文件夹重复组参加批量合并；不会改变普通文件删除勾选" />
+                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
+                            <TextBlock FontSize="13" FontWeight="SemiBold" Text="{Binding HierarchySummary}" />
+                            <TextBlock FontSize="11" Opacity="0.72" TextTrimming="CharacterEllipsis" Text="{Binding DirectionLine}" />
                         </StackPanel>
-                    </DockPanel>
-
-                    <Grid Grid.Row="1" ColumnDefinitions="*,150,*" ColumnSpacing="12">
-                        <Border Padding="12" CornerRadius="8" BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1" Background="{DynamicResource VdfGoodSoftBrush}">
-                            <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="5">
-                                <DockPanel>
-                                    <TextBlock FontSize="10.5" Opacity="0.7" Text="合并后保留位置 / 建议目标" />
-                                    <TextBlock DockPanel.Dock="Right" FontSize="10" FontWeight="Bold" Foreground="{DynamicResource VdfGoodBrush}" Text="TARGET" />
-                                </DockPanel>
-                                <TextBlock Grid.Row="1" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding TargetFolder}" />
-                                <TextBlock Grid.Row="2" FontSize="11.5" TextWrapping="Wrap" Text="{Binding TargetMeta}" />
-                                <TextBlock Grid.Row="3" FontSize="10.8" Opacity="0.72" Text="{Binding TargetCoverage, StringFormat='确认覆盖 {0:0.#}%'}" />
-                            </Grid>
-                        </Border>
-
-                        <StackPanel Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Center" Spacing="4">
-                            <TextBlock HorizontalAlignment="Center" FontSize="10.5" Opacity="0.62" Text="双向重叠率" />
-                            <TextBlock HorizontalAlignment="Center" FontSize="25" FontWeight="Bold" Foreground="{DynamicResource VdfGoodBrush}" Text="{Binding OverlapText}" />
-                            <TextBlock HorizontalAlignment="Center" FontSize="10.5" Opacity="0.65" Text="{Binding OverlapCaption}" />
-                            <TextBlock HorizontalAlignment="Center" FontSize="20" FontWeight="Bold" Foreground="{DynamicResource VdfGoodBrush}" Text="←" />
-                            <TextBlock HorizontalAlignment="Center" FontSize="10.5" FontWeight="SemiBold" Text="来源并入目标" />
+                        <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+                            <Border Padding="7,3" CornerRadius="6" BorderThickness="1"
+                                    BorderBrush="{DynamicResource VdfGoodBorderBrush}" Background="{DynamicResource VdfGoodSoftBrush}">
+                                <TextBlock FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource VdfGoodBrush}" Text="{Binding ActionLabel}" />
+                            </Border>
+                            <Button Classes="accent" Padding="10,4" FontSize="11"
+                                    Command="{Binding PreviewConsolidationCommand}" Content="预览合并" />
                         </StackPanel>
-
-                        <Border Grid.Column="2" Padding="12" CornerRadius="8" BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">
-                            <Grid RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="5">
-                                <DockPanel>
-                                    <TextBlock FontSize="10.5" Opacity="0.7" Text="待并入目录 / 来源副本" />
-                                    <TextBlock DockPanel.Dock="Right" FontSize="10" FontWeight="Bold" Opacity="0.58" Text="SOURCE" />
-                                </DockPanel>
-                                <TextBlock Grid.Row="1" FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding SourceFolder}" />
-                                <TextBlock Grid.Row="2" FontSize="11.5" TextWrapping="Wrap" Text="{Binding SourceMeta}" />
-                                <TextBlock Grid.Row="3" FontSize="10.8" Opacity="0.72" Text="{Binding SourceCoverage, StringFormat='确认覆盖 {0:0.#}%'}" />
-                            </Grid>
-                        </Border>
                     </Grid>
 
-                    <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="14">
-                        <Border Padding="8,3" CornerRadius="6" Background="{DynamicResource VdfGoodSoftBrush}" BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1">
-                            <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource VdfGoodBrush}" Text="{Binding BestReadinessText}" />
-                        </Border>
-                        <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11" FontWeight="SemiBold" Text="{Binding CoverageText}" />
-                        <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="10.8" Opacity="0.62" TextWrapping="Wrap" Text="{Binding ActionHint}" />
+                    <Grid Grid.Row="1" Margin="69,0,0,0" ColumnDefinitions="Auto,Auto,Auto,*" ColumnSpacing="16">
+                        <TextBlock FontSize="10.8" FontWeight="SemiBold" Foreground="{DynamicResource VdfGoodBrush}" Text="{Binding VisibleGroupSummary}" />
+                        <TextBlock Grid.Column="1" FontSize="10.8" Text="{Binding CoverageText}" />
+                        <TextBlock Grid.Column="2" FontSize="10.8" Text="{Binding BestReadinessText}" />
+                        <TextBlock Grid.Column="3" FontSize="10.5" Opacity="0.58" TextTrimming="CharacterEllipsis" Text="{Binding ActionHint}" />
                     </Grid>
                 </Grid>
             </Border>
         </DataTemplate>
 
+        <!-- Level 2A: folders participating in the selected duplicate-folder group. -->
+        <DataTemplate DataType="vm:ResourceFolderMemberRow">
+            <Border Margin="42,0,10,1" Padding="9,6"
+                    Background="{actipro:ThemeResource Container1BackgroundBrush}"
+                    BorderBrush="{actipro:ThemeResource Container3BorderBrush}" BorderThickness="0,0,0,1">
+                <Grid ColumnDefinitions="55,*,Auto,Auto" ColumnSpacing="12">
+                    <TextBlock Grid.Column="0" VerticalAlignment="Center" FontSize="10.8" FontWeight="SemiBold" Foreground="{DynamicResource VdfGoodBrush}" Text="{Binding RoleLabel}" />
+                    <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Path}" Text="{Binding Path}" />
+                    <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="10.8" Opacity="0.76" Text="{Binding Meta}" />
+                    <TextBlock Grid.Column="3" VerticalAlignment="Center" FontSize="10.8" FontWeight="SemiBold" Text="{Binding RelationText}" />
+                </Grid>
+            </Border>
+        </DataTemplate>
+
+        <!-- Level 2B: separator before the ordinary per-resource duplicate groups. -->
+        <DataTemplate DataType="vm:ResourceDetailsSectionHeader">
+            <Border Margin="42,6,10,2" Padding="9,5" CornerRadius="5"
+                    Background="{DynamicResource VdfMutedSoftBrush}" BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Left" FontSize="11.5" FontWeight="SemiBold" Text="{Binding Title}" />
+                    <TextBlock Margin="14,0,0,0" FontSize="10.5" Opacity="0.6" Text="{Binding Hint}" />
+                </DockPanel>
+            </Border>
+        </DataTemplate>
+
         <DataTemplate DataType="vm:ResourceUnassignedHeader">
-            <Border Margin="0,8,0,0" Padding="12,8" Background="{actipro:ThemeResource Container2BackgroundBrush}"
-                    BorderBrush="{actipro:ThemeResource Container3BorderBrush}" BorderThickness="0,1,0,1">
+            <Border Margin="8,10,8,0" Padding="12,8" Background="{actipro:ThemeResource Container2BackgroundBrush}"
+                    BorderBrush="{actipro:ThemeResource Container3BorderBrush}" BorderThickness="1">
                 <StackPanel Spacing="3">
                     <TextBlock FontSize="13" FontWeight="SemiBold" Text="{Binding Title}" />
                     <TextBlock FontSize="11.5" Opacity="0.7" TextWrapping="Wrap" Text="{Binding Summary}" />
