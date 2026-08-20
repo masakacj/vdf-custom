@@ -75,7 +75,7 @@ namespace VDF.GUI.ViewModels {
 		public bool ShowConsolidateControls => ShowFolderMatchThreshold;
 		public int SelectedSeriesCount => ResourceSeriesSelectionSession.SelectedCount;
 		public bool CanConsolidate => SelectedSeriesCount > 0;
-		public string SelectedSeriesText => SelectedSeriesCount == 0 ? "未选择系列" : $"已选 {SelectedSeriesCount:N0} 个系列";
+		public string SelectedSeriesText => SelectedSeriesCount == 0 ? "未选择文件夹组" : $"已选 {SelectedSeriesCount:N0} 个文件夹组";
 		public ReactiveCommand<Unit, Unit> ConsolidateSelectedCommand =>
 			ReactiveCommand.CreateFromTask(ResourceSeriesSelectionSession.ConsolidateSelectedAsync);
 
@@ -87,10 +87,10 @@ namespace VDF.GUI.ViewModels {
 
 		public string Label => "显示方式";
 		public string FolderMatchLabel => "文件夹匹配 ≥";
-		public string FolderMatchTip => "文件夹匹配度 = min(A目录确认覆盖率, B目录确认覆盖率)。文件夹合并会优先把多个子目录提升到仍保持高包含率的系列根目录。";
+		public string FolderMatchTip => "文件夹匹配度 = min(A目录确认覆盖率, B目录确认覆盖率)。一级只显示文件夹重复组；展开后才显示目录成员和具体相似资源组。";
 		public string Hint => Selected.Mode == ResultsDisplayMode.SimilarityGroups
 			? "传统 VDF：每个相似文件组独立显示。"
-			: "系列根目录合并：每组始终有推荐 BEST；低置信推荐需在预览中确认后才会执行。日期、主题等子目录按原相对路径保留。";
+			: "文件夹合并：一级先看重复目录、大小、文件数和重叠率；展开后再处理具体资源组。";
 	}
 
 	internal sealed class ResourceDirectedRelation {
@@ -116,10 +116,45 @@ namespace VDF.GUI.ViewModels {
 		internal HashSet<Guid> GroupIds => Option.Matches.Select(match => match.GroupId).ToHashSet();
 	}
 
+	/// <summary>One directory row shown only while its level-1 folder group is expanded.</summary>
+	public sealed class ResourceFolderMemberRow {
+		internal ResourceFolderMemberRow(bool isTarget, string path, int files, long bytes, int resources,
+			double coverage, double matchPercent) {
+			IsTarget = isTarget;
+			Path = path;
+			Files = files;
+			Bytes = Math.Max(0, bytes);
+			Resources = resources;
+			Coverage = coverage;
+			MatchPercent = matchPercent;
+		}
+
+		public bool IsTarget { get; }
+		public string RoleLabel => IsTarget ? "目标" : "来源";
+		public string Path { get; }
+		public int Files { get; }
+		public long Bytes { get; }
+		public int Resources { get; }
+		public double Coverage { get; }
+		public double MatchPercent { get; }
+		public string Meta => $"{Files:N0} 文件 · {Bytes.BytesToString()} · 约 {Resources:N0} 资源";
+		public string RelationText => IsTarget
+			? $"确认覆盖 {Coverage:0.#}%"
+			: $"确认覆盖 {Coverage:0.#}% · 双向重叠 {MatchPercent:0.#}%";
+	}
+
+	public sealed class ResourceDetailsSectionHeader {
+		public ResourceDetailsSectionHeader(int groupCount) => GroupCount = groupCount;
+		public int GroupCount { get; }
+		public string Title => $"重复资源细项 · {GroupCount:N0} 组";
+		public string Hint => "以下是这个文件夹重复组当前仍可见的具体相似资源；每组仍保留推荐 BEST / 确认 BEST 规则。";
+	}
+
 	public sealed class ResourceRelationHeader : ReactiveObject {
 		readonly IReadOnlyList<ResourceDirectedRelation> sourceRelations;
 		readonly HashSet<Guid> displayedGroupIds;
 		bool _IsSelected;
+		bool _IsExpanded;
 
 		internal ResourceRelationHeader(
 			IReadOnlyList<ResourceDirectedRelation> relations,
@@ -153,6 +188,11 @@ namespace VDF.GUI.ViewModels {
 			SourceCoverage = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.SourceCoverage);
 			MinimumFolderMatchPercent = sourceRelations.Count == 0 ? 0d : sourceRelations.Min(r => r.MatchPercent);
 			DisplayedResourceGroups = this.displayedGroupIds.Count;
+			RelationMatchedResourceGroups = sourceRelations
+				.SelectMany(r => r.Option.Matches)
+				.Select(match => match.GroupId)
+				.Distinct()
+				.Count();
 
 			var reviewByGroup = new Dictionary<Guid, bool>();
 			foreach (var relation in relations) {
@@ -167,6 +207,13 @@ namespace VDF.GUI.ViewModels {
 			ReviewOnlyMatches = reviewByGroup.Count(pair => pair.Value);
 			ConfirmedMatches = reviewByGroup.Count - ReviewOnlyMatches;
 			WholeSourceEligible = ReviewOnlyMatches == 0 && sourceRelations.Count > 0 && sourceRelations.All(r => r.WholeSourceEligible);
+
+			var folderRows = new List<ResourceFolderMemberRow> {
+				new(true, TargetFolder, TargetFiles, TargetBytes, TargetResources, TargetCoverage, MinimumFolderMatchPercent),
+			};
+			folderRows.AddRange(sourceRelations.Select(r => new ResourceFolderMemberRow(
+				false, r.SourceFolder, r.SourceFiles, r.SourceBytes, r.SourceResources, r.SourceCoverage, r.MatchPercent)));
+			FolderRows = folderRows;
 		}
 
 		internal PikPakFolderCoverageOption Option => sourceRelations[0].Option;
@@ -174,9 +221,11 @@ namespace VDF.GUI.ViewModels {
 		internal IReadOnlyCollection<Guid> DisplayedGroupIds => displayedGroupIds;
 		internal string SelectionKey { get; }
 		public int DisplayedResourceGroups { get; }
+		public int RelationMatchedResourceGroups { get; }
 		public string TargetFolder { get; }
 		public string SourceFolder => string.Join("；", SourceFolders);
 		public IReadOnlyList<string> SourceFolders { get; }
+		public IReadOnlyList<ResourceFolderMemberRow> FolderRows { get; }
 		public int TargetFiles { get; }
 		public int SourceFiles { get; }
 		public long TargetBytes { get; }
@@ -190,6 +239,9 @@ namespace VDF.GUI.ViewModels {
 		public int ConfirmedMatches { get; }
 		public int ReviewOnlyMatches { get; }
 		public int SourceFolderCount => SourceFolders.Count;
+		public int FolderCount => SourceFolderCount + 1;
+		public int TotalComparedFiles => TargetFiles + SourceFiles;
+		public long TotalComparedBytes => Math.Max(0, TargetBytes) + Math.Max(0, SourceBytes);
 
 		public bool IsSelected {
 			get => _IsSelected;
@@ -200,26 +252,56 @@ namespace VDF.GUI.ViewModels {
 			}
 		}
 
+		public bool IsExpanded {
+			get => _IsExpanded;
+			set {
+				if (value == _IsExpanded) return;
+				this.RaiseAndSetIfChanged(ref _IsExpanded, value);
+				this.RaisePropertyChanged(nameof(ExpandGlyph));
+				this.RaisePropertyChanged(nameof(ExpandActionText));
+				ResourceSeriesSelectionSession.SetExpanded(this, value);
+			}
+		}
+
 		internal void SetSelectedFromSession(bool value) {
 			if (value == _IsSelected) return;
 			this.RaiseAndSetIfChanged(ref _IsSelected, value, nameof(IsSelected));
 		}
+
+		internal void SetExpandedFromSession(bool value) {
+			if (value == _IsExpanded) return;
+			this.RaiseAndSetIfChanged(ref _IsExpanded, value, nameof(IsExpanded));
+			this.RaisePropertyChanged(nameof(ExpandGlyph));
+			this.RaisePropertyChanged(nameof(ExpandActionText));
+		}
+
+		public string ExpandGlyph => IsExpanded ? "▾" : "▸";
+		public string ExpandActionText => IsExpanded ? "收起细项" : "展开细项";
+		public ReactiveCommand<Unit, Unit> ToggleExpandedCommand => ReactiveCommand.Create(() => {
+			IsExpanded = !IsExpanded;
+			ApplicationHelpers.MainWindowDataContext.RefreshResultsView();
+		});
 
 		public string TargetRoleLabel => "建议目标";
 		public string SourceRoleLabel => SourceFolderCount == 1 ? "来源副本" : $"{SourceFolderCount:N0} 个来源副本";
 		public string TargetMeta => $"{TargetFiles:N0} 文件 · {TargetBytes.BytesToString()} · 约 {TargetResources:N0} 资源";
 		public string SourceMeta => $"{SourceFiles:N0} 文件 · {SourceBytes.BytesToString()} · 约 {SourceResources:N0} 资源";
 		public string OverlapText => $"{MinimumFolderMatchPercent:0.#}%";
-		public string OverlapCaption => $"重叠率 · {DisplayedResourceGroups:N0} 个资源组";
+		public string OverlapCaption => $"双向重叠 · 当前 {DisplayedResourceGroups:N0} 组";
 		public string CoverageText => $"目标覆盖 {TargetCoverage:0.#}% · 来源覆盖 {SourceCoverage:0.#}%";
-		public string BestReadinessText => $"确认 BEST {ConfirmedMatches:N0} · 推荐 BEST {ReviewOnlyMatches:N0}（需复核）";
+		public string BestReadinessText => $"确认 BEST {ConfirmedMatches:N0} · 待复核 {ReviewOnlyMatches:N0}";
+		public string HierarchySummary =>
+			$"{FolderCount:N0} 个文件夹 · {TotalComparedFiles:N0} 文件 · {TotalComparedBytes.BytesToString()} · 双向重叠 {MinimumFolderMatchPercent:0.#}%";
+		public string VisibleGroupSummary => RelationMatchedResourceGroups == DisplayedResourceGroups
+			? $"匹配资源 {DisplayedResourceGroups:N0} 组"
+			: $"匹配资源 {RelationMatchedResourceGroups:N0} 组 · 当前显示 {DisplayedResourceGroups:N0} 组";
 		public ReactiveCommand<Unit, Unit> PreviewConsolidationCommand =>
 			ReactiveCommand.CreateFromTask(() => ApplicationHelpers.MainWindowDataContext
 				.ConsolidateSelectedResourceSeriesInteractiveAsync(new[] { this }));
 
 		public string DirectionLine => SourceFolderCount == 1
-			? $"系列根目录：{TargetFolder}  ←  {SourceFolders[0]}"
-			: $"系列根目录：{TargetFolder}  ←  {SourceFolderCount:N0} 个候选副本根目录";
+			? $"{TargetFolder}  ←  {SourceFolders[0]}"
+			: $"{TargetFolder}  ←  {SourceFolderCount:N0} 个来源目录";
 		public string TargetStats => $"目标树：{TargetFiles:N0} 文件 · {TargetBytes.BytesToString()} · 约 {TargetResources:N0} 资源";
 		public string SourceStats => SourceFolderCount == 1
 			? $"来源树：{sourceRelations[0].SourceFolder} · {sourceRelations[0].SourceFiles:N0} 文件 · {sourceRelations[0].SourceBytes.BytesToString()} · 约 {sourceRelations[0].SourceResources:N0} 资源 · 文件夹匹配 {sourceRelations[0].MatchPercent:0.#}% · 来源覆盖 {sourceRelations[0].SourceCoverage:0.#}%"
@@ -228,13 +310,13 @@ namespace VDF.GUI.ViewModels {
 		public string RelationStats =>
 			$"本系列归入 {DisplayedResourceGroups:N0} 个相似资源组 · 最低文件夹匹配 {MinimumFolderMatchPercent:0.#}% · 确认 BEST {ConfirmedMatches:N0} · 推荐 BEST待复核 {ReviewOnlyMatches:N0}";
 		public string ActionLabel => ReviewOnlyMatches > 0
-			? "含待复核推荐"
-			: WholeSourceEligible ? "可整合集合" : "可处理匹配资源";
+			? "含待复核"
+			: WholeSourceEligible ? "可自动合并" : "可处理匹配项";
 		public string ActionHint => ReviewOnlyMatches > 0
-			? "每个待复核组仍会给出推荐 BEST；进入合并预览后可直接接受推荐或改选其他副本，确认后立即纳入增/换/删计划。"
+			? "展开可查看具体资源组；待复核项可在合并预览中接受推荐 BEST 或改选 keeper。"
 			: WholeSourceEligible
-				? "来源树确认覆盖率 ≥ 90%，可连同来源独有的已索引媒体一起整合；所有日期、主题等子目录结构保留。"
-				: "只自动处理确认 BEST；路径冲突不覆盖、不自动改名，留给人工处理。";
+				? "来源树确认覆盖率 ≥ 90%，可连同来源独有的已索引媒体一起整合；子目录结构保留。"
+				: "只自动处理确认 BEST；路径冲突不覆盖、不自动改名。";
 
 		internal static bool ChooseTargetIsA(PikPakFolderCoverageOption option) {
 			bool aSubset = option.CoverageA >= MainWindowVM.WholeSourceCoverageThreshold;
@@ -266,7 +348,7 @@ namespace VDF.GUI.ViewModels {
 		public int FileCount { get; }
 		public long TotalBytes { get; }
 		public string Title => "其他相似文件组";
-		public string Summary => $"{GroupCount:N0} 组 · {FileCount:N0} 文件 · {TotalBytes.BytesToString()} · 未达到当前文件夹匹配阈值，或未形成可用的跨目录系列关系";
+		public string Summary => $"{GroupCount:N0} 组 · {FileCount:N0} 文件 · {TotalBytes.BytesToString()} · 未达到当前文件夹匹配阈值，或未形成可用的跨目录文件夹关系";
 	}
 
 	public sealed class ResourceResultsBuildResult {
@@ -331,8 +413,15 @@ namespace VDF.GUI.ViewModels {
 					var header = new ResourceRelationHeader(usedRelations, gids);
 					ResourceSeriesSelectionSession.Register(header);
 					rows.Add(header);
-					foreach (var gid in gids.OrderBy(gid => byId[gid].GroupNumber))
-						AppendCanonicalGroup(rows, byId[gid], expandedDetails);
+
+					// Level 1 is the stable folder relationship summary. Only an explicit expand
+					// emits level-2 folder members and ordinary VDF resource groups underneath it.
+					if (header.IsExpanded) {
+						rows.AddRange(header.FolderRows.Cast<object>());
+						rows.Add(new ResourceDetailsSectionHeader(gids.Count));
+						foreach (var gid in gids.OrderBy(gid => byId[gid].GroupNumber))
+							AppendCanonicalGroup(rows, byId[gid], expandedDetails);
+					}
 				}
 			}
 
