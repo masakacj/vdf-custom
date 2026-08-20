@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -30,11 +30,15 @@ using VDF.GUI.ViewModels;
 namespace VDF.GUI.Views {
 	public partial class DuplicateResultsView : UserControl {
 		const string ConsolidateMenuTag = "vdf-single-resource-consolidate";
+		const string GroupMergeMenuTag = "vdf-group-merge";
 		const string CheckedGroupMergeButtonName = "CheckedGroupMergeButton";
+		const string GroupMergeButtonContent = "合并…";
+		bool groupMergeButtonRefreshPending;
 
 		public DuplicateResultsView() {
 			AvaloniaXamlLoader.Load(this);
 			AddCheckedGroupMergeButton();
+			ResultsListControl.LayoutUpdated += (_, _) => ScheduleGroupMergeButtons();
 			DataContextChanged += (_, _) => WireViewModel();
 			WireViewModel();
 			if (this.FindControl<Button>("AutoSelectButton")?.Flyout is MenuFlyout autoSelectFlyout)
@@ -71,6 +75,43 @@ namespace VDF.GUI.Views {
 		}
 
 		/// <summary>
+		/// Group headers are virtualized. Inject the direct merge button into realized
+		/// traditional group headers after layout instead of duplicating the large result-row
+		/// template. New containers created while scrolling receive the same button.
+		/// </summary>
+		void ScheduleGroupMergeButtons() {
+			if (groupMergeButtonRefreshPending) return;
+			groupMergeButtonRefreshPending = true;
+			Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+				groupMergeButtonRefreshPending = false;
+				EnsureGroupMergeButtons();
+			}, Avalonia.Threading.DispatcherPriority.Loaded);
+		}
+
+		void EnsureGroupMergeButtons() {
+			if (ViewModel is not MainWindowVM vm) return;
+			foreach (var container in ResultsListControl.GetRealizedContainers()) {
+				if (container.DataContext is not ResultsGroupHeader group) continue;
+				var panels = container.GetVisualDescendants().OfType<StackPanel>();
+				StackPanel? actionPanel = panels.FirstOrDefault(panel =>
+					panel.Orientation == Avalonia.Layout.Orientation.Horizontal &&
+					panel.Children.OfType<Button>().Count() >= 2);
+				if (actionPanel == null || actionPanel.Children.OfType<Button>().Any(button => Equals(button.Content, GroupMergeButtonContent)))
+					continue;
+
+				var mergeButton = new Button {
+					Content = GroupMergeButtonContent,
+					Command = vm.ConsolidateGroupHeaderCommand,
+					CommandParameter = group,
+				};
+				mergeButton.Classes.Add("group-action");
+				mergeButton.SetValue(ToolTip.TipProperty,
+					"合并当前相似组：默认保留推荐 BEST，并从本组已有目录中选择最终目标文件夹。");
+				actionPanel.Children.Add(mergeButton);
+			}
+		}
+
+		/// <summary>
 		/// Saved Expression Builder presets in the Auto-select menu (#850). Rebuilt each
 		/// time the flyout opens so preset adds/renames/deletes show up immediately;
 		/// the submenu hides entirely while no presets exist.
@@ -102,6 +143,7 @@ namespace VDF.GUI.Views {
 			};
 			vm.ResultsAnchorProvider = CaptureScrollAnchor;
 			vm.ResultsScrollToRow = ScrollRowToViewportOffset;
+			ScheduleGroupMergeButtons();
 		}
 
 		ResultsScrollAnchor.Capture? CaptureScrollAnchor() {
@@ -169,6 +211,15 @@ namespace VDF.GUI.Views {
 				current = current.GetVisualParent() as Control;
 			}
 			if (menu == null) return;
+			if (!menu.Items.OfType<MenuItem>().Any(item => Equals(item.Tag, GroupMergeMenuTag))) {
+				menu.Items.Insert(0, new MenuItem {
+					Header = "合并本组副本…",
+					Tag = GroupMergeMenuTag,
+					Command = vm.ConsolidateGroupHeaderCommand,
+					CommandParameter = group,
+				});
+				menu.Items.Insert(1, new Separator());
+			}
 			if (menu.Items.OfType<MenuItem>().Any(item => Equals(item.Tag, ConsolidateMenuTag)))
 				return;
 			menu.Items.Insert(0, new MenuItem {
@@ -219,6 +270,7 @@ namespace VDF.GUI.Views {
 				};
 			}
 			SyncHeaderInset();
+			ScheduleGroupMergeButtons();
 		}
 
 		void SyncHeaderInset() {
