@@ -44,6 +44,18 @@ namespace VDF.GUI.ViewModels {
 		/// </summary>
 		List<ResultsGroupHeader> resultsGroups = new();
 		bool resultsHavePartialClips;
+		ResultsViewSwitcherRow? resultsViewSwitcher;
+
+		/// <summary>
+		/// Stable, fixed-toolbar controller for switching between similarity groups and
+		/// folder consolidation. It used to be recreated as the first scrollable result
+		/// row on every rebuild, which made the list less stable and hid the mode control
+		/// once the user scrolled down.
+		/// </summary>
+		public ResultsViewSwitcherRow ResultsViewSwitcher => resultsViewSwitcher ??= new(
+			ResultsDisplayModeOptions,
+			ActiveResultsDisplayMode,
+			SetResultsDisplayMode);
 
 		ResultsDisplayMode _ActiveResultsDisplayMode = ResultsDisplayMode.SimilarityGroups;
 		public ResultsDisplayMode ActiveResultsDisplayMode {
@@ -136,7 +148,6 @@ namespace VDF.GUI.ViewModels {
 
 		/// <summary>Rebuilds the flattened list from the current duplicates, filter and sort.</summary>
 		internal void RebuildResultsList() {
-			ResultsScrollAnchor.Capture? anchor = ResultsAnchorProvider?.Invoke();
 			List<Guid> oldGroupOrder = resultsGroups.ConvertAll(g => g.GroupId);
 
 			var result = ResultsListBuilder.Build(new ResultsBuildRequest {
@@ -152,6 +163,10 @@ namespace VDF.GUI.ViewModels {
 				RecommendBest = members => RecommendBest(members),
 				Formats = BuildGroupSummaryFormats(),
 			});
+			// Preserve ResultsItemRow identity before any presentation-specific grouping
+			// consumes the canonical rows. This lets the virtualized ListBox retain realized
+			// file containers through ordinary selection/BEST/status refreshes.
+			ResultsRowReconciler.ReuseItemRows(ResultsRows, result, expandedResultsDetails);
 			resultsGroups = result.Groups;
 			resultsHavePartialClips = result.HasPartialClips;
 
@@ -161,9 +176,7 @@ namespace VDF.GUI.ViewModels {
 					group.Summary += " · " + warning;
 			}
 
-			var displayRows = new List<object> {
-				new ResultsViewSwitcherRow(ResultsDisplayModeOptions, ActiveResultsDisplayMode, SetResultsDisplayMode)
-			};
+			var displayRows = new List<object>();
 
 			if (ActiveResultsDisplayMode == ResultsDisplayMode.ResourceConsolidation) {
 				var options = BuildResourceCoverageOptions(result.Groups);
@@ -174,8 +187,13 @@ namespace VDF.GUI.ViewModels {
 				displayRows.AddRange(result.Rows);
 			}
 
-			ResultsRows.Clear();
-			ResultsRows.AddRange(displayRows);
+			// Presentation-only refreshes (for example checkbox/BEST state changes) keep
+			// the same logical row sequence. In that case there is no reason to capture or
+			// force a scroll position at all. Structural changes still use the anchor as a
+			// fallback, but the collection itself is reconciled incrementally rather than reset.
+			bool sameStructure = ResultsRowReconciler.HasSameStructure(ResultsRows, displayRows);
+			ResultsScrollAnchor.Capture? anchor = sameStructure ? null : ResultsAnchorProvider?.Invoke();
+			ResultsRowReconciler.Apply(ResultsRows, displayRows);
 			this.RaisePropertyChanged(nameof(ResultsShowClipOffsetColumn));
 
 			if (anchor is { } a && ResultsScrollAnchor.FindRestoreTarget(a.Row, oldGroupOrder, displayRows) is { } target)
