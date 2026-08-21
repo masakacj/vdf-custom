@@ -54,8 +54,13 @@ namespace VDF.GUI.ViewModels {
 			var selected = new List<DuplicateItemVM>();
 
 			foreach (var group in allItems.GroupBy(item => item.ItemInfo.GroupId)) {
+				// Match ResultsListBuilder semantics exactly: the visible results list applies
+				// the active filter BEFORE it computes BEST. Computing BEST from the full hidden
+				// group here could make a visible row wear the BEST badge in the list while this
+				// selector still treated it as a loser because a better hidden member existed.
 				var members = group
 					.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
+					.Where(eligible)
 					.ToList();
 				if (members.Count < 2) continue;
 
@@ -66,7 +71,7 @@ namespace VDF.GUI.ViewModels {
 				if (best == null) continue;
 
 				foreach (DuplicateItemVM item in members) {
-					if (ReferenceEquals(item, best) || !eligible(item)) continue;
+					if (ReferenceEquals(item, best)) continue;
 					if (MatchesSmartSelectionKeywords(item, fileNameKeywords, pathKeywords))
 						selected.Add(item);
 				}
