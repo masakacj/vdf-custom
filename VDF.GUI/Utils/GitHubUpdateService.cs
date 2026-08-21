@@ -8,6 +8,7 @@ using System.IO.Compression;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading;
 using VDF.Core.Utils;
 
 namespace VDF.GUI.Utils {

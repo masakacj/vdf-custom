@@ -4,6 +4,7 @@
 // */
 
 using System.Diagnostics;
+using System.Threading;
 
 namespace VDF.GUI.Utils {
 	/// <summary>
