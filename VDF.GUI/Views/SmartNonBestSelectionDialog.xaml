@@ -1,0 +1,42 @@
+<Window
+    x:Class="VDF.GUI.Views.SmartNonBestSelectionDialog"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="智能选择非 BEST"
+    Width="680"
+    MinWidth="600"
+    CanResize="false"
+    SizeToContent="Height"
+    WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="18" Spacing="12">
+        <StackPanel Spacing="4">
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="智能选择非 BEST" />
+            <TextBlock FontSize="11.5" Opacity="0.7" TextWrapping="Wrap"
+                       Text="每个重复组始终保留系统推荐 BEST 不勾选；不填写关键词时勾选该组其余所有副本。填写筛选后，只勾选命中的非 BEST。" />
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+            <TextBlock FontSize="12.5" FontWeight="SemiBold" Text="文件名关键词（可选）" />
+            <TextBox x:Name="FileNameKeywordsTextBox" MinHeight="68" AcceptsReturn="True" TextWrapping="Wrap"
+                     Watermark="例如：copy，low，预览版（多个关键词可用逗号、分号或换行分隔）" />
+            <TextBlock FontSize="10.8" Opacity="0.6" Text="只匹配文件名，不包含目录路径；同一输入框内任一关键词命中即可。" />
+        </StackPanel>
+
+        <StackPanel Spacing="6">
+            <TextBlock FontSize="12.5" FontWeight="SemiBold" Text="路径关键词（可选）" />
+            <TextBox x:Name="PathKeywordsTextBox" MinHeight="68" AcceptsReturn="True" TextWrapping="Wrap"
+                     Watermark="例如：\\Downloads\\，临时，低清（匹配文件所在目录）" />
+            <TextBlock FontSize="10.8" Opacity="0.6" Text="只匹配目录路径；如果文件名和路径条件都填写，则两类条件都必须满足。" />
+        </StackPanel>
+
+        <Border Padding="10" CornerRadius="7" Background="{DynamicResource VdfWarnSoftBrush}">
+            <TextBlock FontSize="11" TextWrapping="Wrap"
+                       Text="该动作会重新计算当前结果筛选范围内的勾选：BEST 和未命中的文件会取消勾选，符合条件的非 BEST 会勾选。主界面筛选隐藏的文件保持原勾选状态不变。" />
+        </Border>
+
+        <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+            <Button MinWidth="90" IsCancel="True" Click="OnCancelClicked" Content="取消" />
+            <Button MinWidth="120" Classes="accent" IsDefault="True" Click="OnApplyClicked" Content="应用智能选择" />
+        </StackPanel>
+    </StackPanel>
+</Window>
