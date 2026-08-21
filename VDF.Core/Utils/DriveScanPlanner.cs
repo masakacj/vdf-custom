@@ -61,9 +61,12 @@ namespace VDF.Core.Utils {
 		}
 
 		readonly Counter[] counters;
+		readonly Func<string, HddProtectionSnapshot?>? protectionSnapshot;
 
 		/// <param name="classified">false for the strictly-serial path, where drives are never probed — speed class is then unknown.</param>
-		internal DriveProgressTracker(IReadOnlyList<DriveScanGroup> groups, Func<FileEntry, bool> countsTowardProgress, bool classified) {
+		internal DriveProgressTracker(IReadOnlyList<DriveScanGroup> groups, Func<FileEntry, bool> countsTowardProgress, bool classified,
+			Func<string, HddProtectionSnapshot?>? protectionSnapshot = null) {
+			this.protectionSnapshot = protectionSnapshot;
 			counters = new Counter[groups.Count];
 			for (int i = 0; i < groups.Count; i++) {
 				var counter = new Counter(groups[i].Root, classified ? groups[i].SpeedClass == DriveSpeedClass.Fast : null);
@@ -91,6 +94,7 @@ namespace VDF.Core.Utils {
 				Counter counter = counters[i];
 				if (counter.TotalFiles == 0)
 					continue;
+				HddProtectionSnapshot? protection = protectionSnapshot?.Invoke(counter.Root);
 				snapshot[next++] = new DriveProgress {
 					Root = counter.Root,
 					TotalBytes = counter.TotalBytes,
@@ -98,6 +102,12 @@ namespace VDF.Core.Utils {
 					TotalFiles = counter.TotalFiles,
 					DoneFiles = Volatile.Read(ref counter.doneFiles),
 					IsFastDrive = counter.IsFast,
+					HddProtectionEnabled = protection != null,
+					PhysicalDiskSlot = protection?.DiskSlot,
+					TemperatureC = protection?.TemperatureC,
+					HddProtectionBlocked = protection?.IsBlocked == true,
+					HddProtectionCooling = protection?.IsCooling == true,
+					HddProtectionWaitingForTemperature = protection?.IsWaitingForTemperature == true,
 				};
 			}
 			return snapshot;
@@ -364,6 +374,24 @@ namespace VDF.Core.Utils {
 		/// it. A global setting of exactly 1 keeps the documented "strictly one file at a time"
 		/// promise: every group serial (the engine then also runs the groups sequentially).
 		/// </summary>
+		/// <summary>
+		/// Applies the explicit long-running HDD protection plan after normal drive
+		/// classification/concurrency assignment. Protected roots are always one heavy
+		/// reader per physical disk and path-sorted; separate roots still run concurrently.
+		/// </summary>
+		internal static void ApplyHddProtection(IReadOnlyList<DriveScanGroup> groups, IReadOnlyDictionary<string, int> mappings) {
+			if (mappings.Count == 0)
+				return;
+			foreach (DriveScanGroup group in groups) {
+				if (!HddProtectionMappings.TryGetSlot(mappings, group.Root, out int slot))
+					continue;
+				group.Entries.Sort((a, b) => StringComparer.OrdinalIgnoreCase.Compare(a.Path, b.Path));
+				group.SpeedClass = DriveSpeedClass.Slow;
+				group.DegreeOfParallelism = 1;
+				group.ClassSource = $"HDD protection / QNAP Disk {slot}";
+			}
+		}
+
 		internal static void AssignParallelism(IReadOnlyList<DriveScanGroup> groups, int maxDegreeOfParallelism, int hddMaxDegreeOfParallelism, int processorCount) {
 			if (maxDegreeOfParallelism == 1) {
 				foreach (DriveScanGroup group in groups)

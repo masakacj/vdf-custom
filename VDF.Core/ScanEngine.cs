@@ -1220,33 +1220,67 @@ namespace VDF.Core {
 				// held back by a slow one. Probe candidates are restricted to files this scan
 				// may read anyway — classification must not spin up out-of-scope drives.
 				List<DriveScanGroup> driveGroups = DriveScanPlanner.PartitionByDrive(DatabaseUtils.Database);
-				if (Settings.MaxDegreeOfParallelism == 1) {
-					// Documented promise: 1 = strictly one file at a time. Drives run
-					// sequentially, no probing needed (speed class stays unknown).
-					driveProgressTracker = new DriveProgressTracker(driveGroups, CountsTowardDriveProgress, classified: false);
-					for (int i = 0; i < driveGroups.Count; i++) {
-						DriveProgressTracker.Counter counter = driveProgressTracker.CounterFor(i);
-						await Parallel.ForEachAsync(driveGroups[i].Entries, new ParallelOptions { CancellationToken = cancelationTokenSource.Token, MaxDegreeOfParallelism = 1 },
-							(entry, token) => ProcessEntry(entry, counter, token));
+				Dictionary<string, int> hddMappings = Settings.EnableHddProtection
+					? HddProtectionMappings.Parse(Settings.HddProtectionDriveMappings)
+					: new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+				HddProtectionController? hddProtection = HddProtectionController.TryCreate(Settings, driveGroups);
+				Func<string, HddProtectionSnapshot?>? hddProtectionSnapshot = hddProtection == null ? null : hddProtection.GetSnapshot;
+				try {
+					if (Settings.MaxDegreeOfParallelism == 1) {
+						// Documented promise: 1 = strictly one file at a time. Drives run
+						// sequentially, no probing needed (speed class stays unknown). HDD
+						// protection still path-sorts and temperature-gates mapped roots.
+						DriveScanPlanner.ApplyHddProtection(driveGroups, hddMappings);
+						driveProgressTracker = new DriveProgressTracker(driveGroups, CountsTowardDriveProgress, classified: false,
+							hddProtectionSnapshot);
+						if (hddProtection != null)
+							await hddProtection.StartAsync(cancelationTokenSource.Token);
+						for (int i = 0; i < driveGroups.Count; i++) {
+							DriveScanGroup group = driveGroups[i];
+							DriveProgressTracker.Counter counter = driveProgressTracker.CounterFor(i);
+							await Parallel.ForEachAsync(group.Entries,
+								new ParallelOptions { CancellationToken = cancelationTokenSource.Token, MaxDegreeOfParallelism = 1 },
+								async (entry, token) => {
+									if (hddProtection != null)
+										await hddProtection.WaitUntilAllowedAsync(group.Root, token);
+									await ProcessEntry(entry, counter, token);
+								});
+						}
+					}
+					else {
+						DriveScanPlanner.ClassifyGroups(driveGroups, Settings.DriveTypeOverrides,
+							DriveScanPlanner.IsNetworkRoot,
+							group => DriveScanPlanner.ProbeSeekLatencyMs(
+								group.Entries.Where(CountsTowardDriveProgress)),
+							DriveScanPlanner.QueryHasSeekPenalty);
+						DriveScanPlanner.AssignParallelism(driveGroups, Settings.MaxDegreeOfParallelism, Settings.HddMaxDegreeOfParallelism, Environment.ProcessorCount);
+						// The explicit protection mapping wins over auto classification and the normal
+						// HDD cap: one reader per physical spindle, path ordered. Separate drive groups
+						// are still launched concurrently below.
+						DriveScanPlanner.ApplyHddProtection(driveGroups, hddMappings);
+						driveProgressTracker = new DriveProgressTracker(driveGroups, CountsTowardDriveProgress, classified: true,
+							hddProtectionSnapshot);
+						if (hddProtection != null)
+							await hddProtection.StartAsync(cancelationTokenSource.Token);
+						var driveTasks = new List<Task>(driveGroups.Count);
+						for (int i = 0; i < driveGroups.Count; i++) {
+							DriveScanGroup group = driveGroups[i];
+							DriveProgressTracker.Counter counter = driveProgressTracker.CounterFor(i);
+							Logger.Instance.Info($"Drive '{group.Root}': {group.Entries.Count:N0} file(s), concurrency {group.DegreeOfParallelism} ({(group.SpeedClass == DriveSpeedClass.Fast ? "fast" : "slow")}, {group.ClassSource})");
+							driveTasks.Add(Parallel.ForEachAsync(group.Entries,
+								new ParallelOptions { CancellationToken = cancelationTokenSource.Token, MaxDegreeOfParallelism = group.DegreeOfParallelism },
+								async (entry, token) => {
+									if (hddProtection != null)
+										await hddProtection.WaitUntilAllowedAsync(group.Root, token);
+									await ProcessEntry(entry, counter, token);
+								}));
+						}
+						await Task.WhenAll(driveTasks);
 					}
 				}
-				else {
-					DriveScanPlanner.ClassifyGroups(driveGroups, Settings.DriveTypeOverrides,
-						DriveScanPlanner.IsNetworkRoot,
-						group => DriveScanPlanner.ProbeSeekLatencyMs(
-							group.Entries.Where(CountsTowardDriveProgress)),
-						DriveScanPlanner.QueryHasSeekPenalty);
-					DriveScanPlanner.AssignParallelism(driveGroups, Settings.MaxDegreeOfParallelism, Settings.HddMaxDegreeOfParallelism, Environment.ProcessorCount);
-					driveProgressTracker = new DriveProgressTracker(driveGroups, CountsTowardDriveProgress, classified: true);
-					var driveTasks = new List<Task>(driveGroups.Count);
-					for (int i = 0; i < driveGroups.Count; i++) {
-						DriveScanGroup group = driveGroups[i];
-						DriveProgressTracker.Counter counter = driveProgressTracker.CounterFor(i);
-						Logger.Instance.Info($"Drive '{group.Root}': {group.Entries.Count:N0} file(s), concurrency {group.DegreeOfParallelism} ({(group.SpeedClass == DriveSpeedClass.Fast ? "fast" : "slow")}, {group.ClassSource})");
-						driveTasks.Add(Parallel.ForEachAsync(group.Entries, new ParallelOptions { CancellationToken = cancelationTokenSource.Token, MaxDegreeOfParallelism = group.DegreeOfParallelism },
-							(entry, token) => ProcessEntry(entry, counter, token)));
-					}
-					await Task.WhenAll(driveTasks);
+				finally {
+					if (hddProtection != null)
+						await hddProtection.DisposeAsync();
 				}
 			}
 			catch (OperationCanceledException) { }
@@ -2240,7 +2274,27 @@ namespace VDF.Core {
 			int beforeCount = assignments.Count;
 			int dropped = 0;
 			var verified = new ConcurrentBag<(int, int, float, int, Guid)>();
+			HddProtectionController? hddProtection = null;
+			string[]? driveRootByVideo = null;
 			try {
+				// Visual verification is an on-demand media-read phase too. When HDD/NAS
+				// protection is enabled, build the same physical-drive view used by GatherInfos
+				// and acquire a per-HDD heavy-read lease around each source+clip decode. A pair
+				// that spans two disks locks both roots in deterministic order; unrelated disks
+				// remain free to verify in parallel.
+				if (Settings.EnableHddProtection) {
+					List<DriveScanGroup> groups = DriveScanPlanner.PartitionByDrive(videos);
+					hddProtection = HddProtectionController.TryCreate(Settings, groups);
+					if (hddProtection != null) {
+						driveRootByVideo = new string[videos.Count];
+						int[][] groupIndexes = DriveScanPlanner.MapEntryIndexes(videos, groups);
+						for (int g = 0; g < groups.Count; g++)
+							foreach (int i in groupIndexes[g])
+								driveRootByVideo[i] = groups[g].Root;
+						hddProtection.StartAsync(cancelationTokenSource.Token).GetAwaiter().GetResult();
+					}
+				}
+
 				// Storage-tuned degree, NOT MatchingParallelDegree: unlike the audio
 				// fingerprint pass above (pure CPU over in-memory fingerprints), the visual
 				// gate decodes frames live off disk via GetGrayFrames, so it must respect the
@@ -2262,19 +2316,39 @@ namespace VDF.Core {
 						return;
 					}
 
-					var (pass, visualSim) = verify(videos[a.sourceIdx], videos[a.clipIdx], a.offsetSec);
-					if (pass) {
-						verified.Add(a);
+					IDisposable? heavyReadLease = null;
+					try {
+						if (hddProtection != null && driveRootByVideo != null) {
+							heavyReadLease = hddProtection.EnterHeavyReadAsync(
+								new[] { driveRootByVideo[a.sourceIdx], driveRootByVideo[a.clipIdx] },
+								cancelationTokenSource.Token).GetAwaiter().GetResult();
+							// The temperature wait may have lasted minutes; honour a user Pause that
+							// arrived while cooling before actually starting FFmpeg.
+							if (!pauseTokenSource.TryWaitWhilePaused(cancelationTokenSource.Token))
+								return;
+						}
+
+						var (pass, visualSim) = verify(videos[a.sourceIdx], videos[a.clipIdx], a.offsetSec);
+						if (pass) {
+							verified.Add(a);
+						}
+						else {
+							Interlocked.Increment(ref dropped);
+							if (Settings.ExtendedFFToolsLogging)
+								Logger.Instance.Info($"[Partial] Visual gate dropped {System.IO.Path.GetFileName(videos[a.clipIdx].Path)} in {System.IO.Path.GetFileName(videos[a.sourceIdx].Path)}: visualSim={visualSim:P1} (threshold {Settings.PartialClipVisualThreshold:P0})");
+						}
+						IncrementProgress(System.IO.Path.GetFileName(videos[a.clipIdx].Path));
 					}
-					else {
-						Interlocked.Increment(ref dropped);
-						if (Settings.ExtendedFFToolsLogging)
-							Logger.Instance.Info($"[Partial] Visual gate dropped {System.IO.Path.GetFileName(videos[a.clipIdx].Path)} in {System.IO.Path.GetFileName(videos[a.sourceIdx].Path)}: visualSim={visualSim:P1} (threshold {Settings.PartialClipVisualThreshold:P0})");
+					finally {
+						heavyReadLease?.Dispose();
 					}
-					IncrementProgress(System.IO.Path.GetFileName(videos[a.clipIdx].Path));
 				});
 			}
 			catch (OperationCanceledException) { }
+			finally {
+				if (hddProtection != null)
+					hddProtection.DisposeAsync().AsTask().GetAwaiter().GetResult();
+			}
 			var kept = verified.OrderBy(a => a.Item1).ThenBy(a => a.Item2).ToList();
 			Logger.Instance.Info($"Partial clip detection: visual gate kept {kept.Count}/{beforeCount} assignment(s), dropped {dropped}");
 			return kept;

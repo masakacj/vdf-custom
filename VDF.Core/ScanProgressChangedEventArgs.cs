@@ -46,5 +46,17 @@ namespace VDF.Core {
 		public int DoneFiles;
 		/// <summary>true = fast (SSD/NVMe), false = slow (HDD/network share), null = not classified (strictly serial scan).</summary>
 		public bool? IsFastDrive;
+		/// <summary>True when this root participates in QNAP HDD temperature protection.</summary>
+		public bool HddProtectionEnabled;
+		/// <summary>QNAP physical disk slot mapped to this Windows/network-drive root.</summary>
+		public int? PhysicalDiskSlot;
+		/// <summary>Latest fresh SNMP disk temperature; null while SNMP is unavailable/stale.</summary>
+		public int? TemperatureC;
+		/// <summary>New heavy reads are currently blocked for this disk.</summary>
+		public bool HddProtectionBlocked;
+		/// <summary>The disk crossed the pause threshold and is cooling.</summary>
+		public bool HddProtectionCooling;
+		/// <summary>SNMP has not produced a fresh temperature yet, so protected IO is fail-safe blocked.</summary>
+		public bool HddProtectionWaitingForTemperature;
 	}
 }

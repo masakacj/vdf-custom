@@ -102,6 +102,24 @@ namespace VDF.Core {
 		/// </summary>
 		public int MatchingMaxDegreeOfParallelism;
 
+		/// <summary>
+		/// Protect mapped standalone HDDs during long NAS scans: force one heavy media-read
+		/// worker per protected drive, process that drive in path order, and gate new reads
+		/// using QNAP SNMPv3 disk temperatures.
+		/// </summary>
+		public bool EnableHddProtection;
+		public string HddProtectionSnmpHost = string.Empty;
+		public int HddProtectionSnmpPort = 161;
+		public string HddProtectionSnmpUser = string.Empty;
+		/// <summary>Drive/share root → QNAP slot, e.g. <c>Y:=2; Z:=3</c>.</summary>
+		public string HddProtectionDriveMappings = string.Empty;
+		public int HddProtectionPollSeconds = 60;
+		public int HddProtectionWarnTemperatureC = 48;
+		public int HddProtectionPauseTemperatureC = 50;
+		public int HddProtectionResumeTemperatureC = 45;
+		public int HddProtectionMinimumCooldownMinutes = 5;
+		public int HddProtectionResumeConsecutivePolls = 2;
+
 		Dictionary<string, string> driveTypeOverrides = new(StringComparer.OrdinalIgnoreCase);
 		/// <summary>
 		/// Storage-type overrides for scan concurrency, keyed by drive root (e.g. <c>D:\</c>,

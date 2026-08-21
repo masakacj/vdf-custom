@@ -235,6 +235,76 @@
               </views:SettingRow>
 
               <views:SettingRow
+                  Title="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtection.Title]}"
+                  Description="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtection.Desc]}"
+                  SearchTags="hdd protection qnap nas snmp temperature cooling">
+                <ToggleSwitch Classes="plain"
+                              IsChecked="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=EnableHddProtection}" />
+              </views:SettingRow>
+
+              <views:SettingRow
+                  IsVisible="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=EnableHddProtection}"
+                  Title="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtectionSnmp.Title]}"
+                  Description="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtectionSnmp.Desc]}"
+                  SearchTags="qnap snmp v3 host port">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBox Width="190" Watermark="192.168.1.10"
+                           Text="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=HddProtectionSnmpHost}" />
+                  <NumericUpDown Width="92" Classes="stepper" Minimum="1" Maximum="65535"
+                                 Value="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=HddProtectionSnmpPort}" />
+                </StackPanel>
+              </views:SettingRow>
+
+              <views:SettingRow
+                  IsVisible="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=EnableHddProtection}"
+                  Title="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtectionUser.Title]}"
+                  Description="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtectionUser.Desc]}">
+                <TextBox Width="290" Watermark="vdfmonitor"
+                         Text="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=HddProtectionSnmpUser}" />
+              </views:SettingRow>
+
+              <views:SettingRow
+                  IsVisible="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=EnableHddProtection}"
+                  Title="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtectionMappings.Title]}"
+                  Description="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtectionMappings.Desc]}">
+                <TextBox Width="290" MinHeight="58" AcceptsReturn="True" TextWrapping="Wrap"
+                         Watermark="Y:=2; Z:=3; X:=4"
+                         Text="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=HddProtectionDriveMappings}" />
+              </views:SettingRow>
+
+              <views:SettingRow
+                  IsVisible="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=EnableHddProtection}"
+                  Title="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtectionTemperatures.Title]}"
+                  Description="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtectionTemperatures.Desc]}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <NumericUpDown Width="76" Classes="stepper" Minimum="20" Maximum="80"
+                                 Value="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=HddProtectionWarnTemperatureC}" />
+                  <TextBlock VerticalAlignment="Center" Text="/" Opacity="0.45" />
+                  <NumericUpDown Width="76" Classes="stepper" Minimum="20" Maximum="80"
+                                 Value="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=HddProtectionPauseTemperatureC}" />
+                  <TextBlock VerticalAlignment="Center" Text="/" Opacity="0.45" />
+                  <NumericUpDown Width="76" Classes="stepper" Minimum="20" Maximum="80"
+                                 Value="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=HddProtectionResumeTemperatureC}" />
+                </StackPanel>
+              </views:SettingRow>
+
+              <views:SettingRow
+                  IsVisible="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=EnableHddProtection}"
+                  Title="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtectionTiming.Title]}"
+                  Description="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.HddProtectionTiming.Desc]}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <NumericUpDown Width="82" Classes="stepper" Minimum="5" Maximum="3600"
+                                 Value="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=HddProtectionPollSeconds}" />
+                  <TextBlock VerticalAlignment="Center" Text="/" Opacity="0.45" />
+                  <NumericUpDown Width="76" Classes="stepper" Minimum="0" Maximum="120"
+                                 Value="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=HddProtectionMinimumCooldownMinutes}" />
+                  <TextBlock VerticalAlignment="Center" Text="/" Opacity="0.45" />
+                  <NumericUpDown Width="76" Classes="stepper" Minimum="1" Maximum="10"
+                                 Value="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=HddProtectionResumeConsecutivePolls}" />
+                </StackPanel>
+              </views:SettingRow>
+
+              <views:SettingRow
                   Title="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.MatchingParallelism.Title]}"
                   Description="{Binding Source={x:Static local:App.Lang}, Path=[Settings.Row.MatchingParallelism.Desc]}"
                   SearchTags="parallelism cpu cores threads compare matching headroom">

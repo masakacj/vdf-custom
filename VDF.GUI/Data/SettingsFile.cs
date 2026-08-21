@@ -193,6 +193,74 @@ namespace VDF.GUI.Data {
 			get => _HddMaxDegreeOfParallelism;
 			set => this.RaiseAndSetIfChanged(ref _HddMaxDegreeOfParallelism, value);
 		}
+
+		bool _EnableHddProtection;
+		[JsonPropertyName("EnableHddProtection")]
+		public bool EnableHddProtection {
+			get => _EnableHddProtection;
+			set => this.RaiseAndSetIfChanged(ref _EnableHddProtection, value);
+		}
+		string _HddProtectionSnmpHost = string.Empty;
+		[JsonPropertyName("HddProtectionSnmpHost")]
+		public string HddProtectionSnmpHost {
+			get => _HddProtectionSnmpHost;
+			set => this.RaiseAndSetIfChanged(ref _HddProtectionSnmpHost, value ?? string.Empty);
+		}
+		int _HddProtectionSnmpPort = 161;
+		[JsonPropertyName("HddProtectionSnmpPort")]
+		public int HddProtectionSnmpPort {
+			get => _HddProtectionSnmpPort;
+			set => this.RaiseAndSetIfChanged(ref _HddProtectionSnmpPort, Math.Clamp(value, 1, 65535));
+		}
+		string _HddProtectionSnmpUser = string.Empty;
+		[JsonPropertyName("HddProtectionSnmpUser")]
+		public string HddProtectionSnmpUser {
+			get => _HddProtectionSnmpUser;
+			set => this.RaiseAndSetIfChanged(ref _HddProtectionSnmpUser, value ?? string.Empty);
+		}
+		string _HddProtectionDriveMappings = string.Empty;
+		[JsonPropertyName("HddProtectionDriveMappings")]
+		public string HddProtectionDriveMappings {
+			get => _HddProtectionDriveMappings;
+			set => this.RaiseAndSetIfChanged(ref _HddProtectionDriveMappings, value ?? string.Empty);
+		}
+		int _HddProtectionPollSeconds = 60;
+		[JsonPropertyName("HddProtectionPollSeconds")]
+		public int HddProtectionPollSeconds {
+			get => _HddProtectionPollSeconds;
+			set => this.RaiseAndSetIfChanged(ref _HddProtectionPollSeconds, Math.Max(5, value));
+		}
+		int _HddProtectionWarnTemperatureC = 48;
+		[JsonPropertyName("HddProtectionWarnTemperatureC")]
+		public int HddProtectionWarnTemperatureC {
+			get => _HddProtectionWarnTemperatureC;
+			set => this.RaiseAndSetIfChanged(ref _HddProtectionWarnTemperatureC, Math.Clamp(value, 20, 80));
+		}
+		int _HddProtectionPauseTemperatureC = 50;
+		[JsonPropertyName("HddProtectionPauseTemperatureC")]
+		public int HddProtectionPauseTemperatureC {
+			get => _HddProtectionPauseTemperatureC;
+			set => this.RaiseAndSetIfChanged(ref _HddProtectionPauseTemperatureC, Math.Clamp(value, 20, 80));
+		}
+		int _HddProtectionResumeTemperatureC = 45;
+		[JsonPropertyName("HddProtectionResumeTemperatureC")]
+		public int HddProtectionResumeTemperatureC {
+			get => _HddProtectionResumeTemperatureC;
+			set => this.RaiseAndSetIfChanged(ref _HddProtectionResumeTemperatureC, Math.Clamp(value, 20, 80));
+		}
+		int _HddProtectionMinimumCooldownMinutes = 5;
+		[JsonPropertyName("HddProtectionMinimumCooldownMinutes")]
+		public int HddProtectionMinimumCooldownMinutes {
+			get => _HddProtectionMinimumCooldownMinutes;
+			set => this.RaiseAndSetIfChanged(ref _HddProtectionMinimumCooldownMinutes, Math.Clamp(value, 0, 120));
+		}
+		int _HddProtectionResumeConsecutivePolls = 2;
+		[JsonPropertyName("HddProtectionResumeConsecutivePolls")]
+		public int HddProtectionResumeConsecutivePolls {
+			get => _HddProtectionResumeConsecutivePolls;
+			set => this.RaiseAndSetIfChanged(ref _HddProtectionResumeConsecutivePolls, Math.Clamp(value, 1, 10));
+		}
+
 		Dictionary<string, string> _DriveTypeOverrides = new(StringComparer.OrdinalIgnoreCase);
 		/// <summary>Drive root → "SSD"/"HDD" scan-concurrency overrides. No editor UI yet
 		/// (planned with the per-drive scan rows); power users can edit Settings.json.</summary>
