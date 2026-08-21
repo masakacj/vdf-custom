@@ -9,7 +9,8 @@
     xmlns:mvvm="clr-namespace:VDF.GUI.Mvvm;assembly=VDF.GUI"
     xmlns:vm="clr-namespace:VDF.GUI.ViewModels;assembly=VDF.GUI"
     x:DataType="vm:MainWindowVM"
-    x:Name="ResultsRoot">
+    x:Name="ResultsRoot"
+    FontFamily="Microsoft YaHei UI">
 
   <UserControl.Resources>
     <!-- Own instances of the shared cell converters: StaticResource inside this
@@ -362,6 +363,20 @@
               <MenuItem
                   Command="{Binding UndoSelectionCommand}"
                   Header="{Binding Source={x:Static local:App.Lang}, Path=[Shortcut.UndoSelection]}" />
+            </MenuFlyout>
+          </Button.Flyout>
+        </Button>
+        <Button Classes="toolbar-action" Margin="6,0,0,0">
+          <Button.Content>
+            <StackPanel Orientation="Horizontal" Spacing="5">
+              <TextBlock Text="BEST 规则" />
+              <TextBlock Text="▾" FontSize="10" VerticalAlignment="Center" />
+            </StackPanel>
+          </Button.Content>
+          <Button.Flyout>
+            <MenuFlyout>
+              <MenuItem Header="修改 BEST 判断标准…" Command="{Binding EditBestCriteriaCommand}" />
+              <MenuItem Header="重新应用当前 BEST 规则" Command="{Binding ReapplyBestCriteriaCommand}" />
             </MenuFlyout>
           </Button.Flyout>
         </Button>
@@ -926,15 +941,23 @@
                     ToolTip.Tip="{Binding Item.ItemInfo.Path}"
                     PointerPressed="OnPathPointerPressed">
                   <DockPanel>
-                    <TextBlock
-                        DockPanel.Dock="Right"
-                        Margin="8,0,0,0"
-                        FontSize="11.5"
-                        VerticalAlignment="Center"
-                        Foreground="{DynamicResource VdfGoodBrush}"
-                        IsVisible="{Binding Item.PathCopiedFlash}"
-                        Text="{Binding Source={x:Static local:App.Lang}, Path=[Results.Row.PathCopied]}" />
+                    <StackPanel DockPanel.Dock="Right" Margin="10,0,0,0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                      <TextBlock
+                          FontSize="10.8"
+                          Opacity="0.52"
+                          VerticalAlignment="Center"
+                          IsVisible="{Binding FolderStatsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                          Text="{Binding FolderStatsText}"
+                          ToolTip.Tip="当前文件所在文件夹中的已索引媒体文件数量和总大小" />
+                      <TextBlock
+                          FontSize="11.5"
+                          VerticalAlignment="Center"
+                          Foreground="{DynamicResource VdfGoodBrush}"
+                          IsVisible="{Binding Item.PathCopiedFlash}"
+                          Text="{Binding Source={x:Static local:App.Lang}, Path=[Results.Row.PathCopied]}" />
+                    </StackPanel>
                     <ctl:MiddleEllipsisTextBlock
+                        FontFamily="Microsoft YaHei UI"
                         FontSize="11.5"
                         Opacity="0.65"
                         Text="{Binding Item.ItemInfo.Path, Converter={StaticResource DirectoryPathConverter}}" />

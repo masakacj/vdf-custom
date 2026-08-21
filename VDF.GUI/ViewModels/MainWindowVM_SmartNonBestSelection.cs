@@ -57,7 +57,7 @@ namespace VDF.GUI.ViewModels {
 					.ToList();
 				if (members.Count < 2) continue;
 
-				BestRecommendation recommendation = RecommendBest(members);
+				BestRecommendation recommendation = RecommendBestUsingCurrentRules(members);
 				DuplicateItemVM? best = recommendation.Winner;
 				if (best == null) continue;
 

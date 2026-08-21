@@ -97,6 +97,27 @@ namespace VDF.GUI.ViewModels {
 				if (!seen.Contains(kv.Key))
 					yield return kv.Value;
 		}
+
+		/// <summary>
+		/// BEST rules are explicitly user-orderable and intentionally exclude physical
+		/// file size. Missing/new quality criteria are appended so upgrades remain safe,
+		/// while the cache-only transcode/watermark diagnostic (when enabled) stays first.
+		/// </summary>
+		static IEnumerable<QualityRanker.Criterion<DuplicateItemVM>> ResolveBestCriteria(IEnumerable<string> names) {
+			if (LightweightQualityDiagnosticsPreference.Enabled)
+				yield return CachedQualityCriterion;
+			var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (string name in names) {
+				if (string.Equals(name, "Size", StringComparison.OrdinalIgnoreCase)) continue;
+				if (QualityCriteriaMap.TryGetValue(name, out var criterion) && seen.Add(name))
+					yield return criterion;
+			}
+			foreach (var pair in QualityCriteriaMap) {
+				if (string.Equals(pair.Key, "Size", StringComparison.OrdinalIgnoreCase)) continue;
+				if (seen.Add(pair.Key))
+					yield return pair.Value;
+			}
+		}
 	}
 
 	sealed class ReferenceEqualityComparer<T> : IEqualityComparer<T> where T : class {

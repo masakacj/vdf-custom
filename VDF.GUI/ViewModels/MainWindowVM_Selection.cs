@@ -47,6 +47,21 @@ namespace VDF.GUI.ViewModels {
 			dlg.Show(ApplicationHelpers.MainWindow);
 		});
 
+		/// <summary>
+		/// Dedicated BEST-rule editor. Saving immediately recalculates the BEST badge for
+		/// every currently displayed group; it does not alter existing deletion checkmarks.
+		/// </summary>
+		public ReactiveCommand<Unit, Unit> EditBestCriteriaCommand => ReactiveCommand.CreateFromTask(async () => {
+			var dialog = new QualityOrderDialog();
+			List<string>? result = await dialog.ShowDialog<List<string>>(ApplicationHelpers.MainWindow);
+			if (result == null || result.Count == 0) return;
+			QualityCriteriaOrder = result;
+			SettingsFile.SaveSettings();
+			RebuildResultsList();
+		});
+
+		public ReactiveCommand<Unit, Unit> ReapplyBestCriteriaCommand => ReactiveCommand.Create(() => RebuildResultsList());
+
 		public ReactiveCommand<Unit, Unit> CheckCustomCommand => ReactiveCommand.CreateFromTask(async () => {
 			ExpressionBuilder dlg = new();
 			((ExpressionBuilderVM)dlg.DataContext!).ExpressionText = SettingsFile.Instance.LastCustomSelectExpression;

@@ -21,10 +21,9 @@ using System.Reactive;
 using ReactiveUI;
 
 namespace VDF.GUI.ViewModels {
-	// Key is the stored settings value; Display is localized. File size is intentionally
-	// excluded from this editor: current BEST selection uses the conservative dominance
-	// gate and never treats bytes-on-disk as a quality signal. Keeping the legacy Size
-	// entry visible as "smaller file wins" made the results UI contradict that rule.
+	// Key is the stored settings value; Display is localized. This order now drives the
+	// visible BEST recommendation directly. File size stays excluded because bytes on disk
+	// are not a quality signal; the conservative safety gate remains separate from ranking.
 	public sealed record QualityCriterionOption(string Key, string Display);
 
 	public class QualityOrderVM : ReactiveObject {

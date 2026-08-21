@@ -102,7 +102,29 @@ public class BestRecommendationInteractiveMergeTests {
     }
 
     [Fact]
-    public void ResultsBuilder_AlwaysMarksExactlyOneBest_AndShowsReason() {
+    public void UserBestCriteriaOrder_ImmediatelyChangesRecommendedWinner() {
+        Guid group = Guid.NewGuid();
+        string root = Path.Combine(Path.GetTempPath(), "vdf-best-order");
+        var longer = Video(group, Path.Combine(root, "longer.mkv"), 5_000_000, 6_000);
+        var sharper = Video(group, Path.Combine(root, "sharper.mkv"), 5_000_000, 6_000);
+        longer.ItemInfo.Duration = TimeSpan.FromMinutes(30);
+        longer.ItemInfo.FrameSizeInt = 3000;
+        longer.ItemInfo.FrameSize = "1920x1080";
+        sharper.ItemInfo.Duration = TimeSpan.FromMinutes(20);
+        sharper.ItemInfo.FrameSizeInt = 6000;
+        sharper.ItemInfo.FrameSize = "3840x2160";
+
+        BestRecommendation durationFirst = MainWindowVM.RecommendBest(
+            new[] { longer, sharper }, new[] { "Duration", "Resolution", "Bitrate", "FPS", "Bits per pixel", "Audio Bitrate" });
+        BestRecommendation resolutionFirst = MainWindowVM.RecommendBest(
+            new[] { longer, sharper }, new[] { "Resolution", "Duration", "Bitrate", "FPS", "Bits per pixel", "Audio Bitrate" });
+
+        Assert.Same(longer, durationFirst.Winner);
+        Assert.Same(sharper, resolutionFirst.Winner);
+    }
+
+    [Fact]
+    public void ResultsBuilder_AlwaysMarksExactlyOneBest_WithoutVerboseHeaderReason() {
         Guid group = Guid.NewGuid();
         string root = Path.Combine(Path.GetTempPath(), "vdf-results-recommended-best");
         var a = Image(group, Path.Combine(root, "a.jpg"), 3000, 1_000_000);
@@ -119,7 +141,8 @@ public class BestRecommendationInteractiveMergeTests {
         ResultsItemRow best = Assert.Single(header.Rows.Where(row => row.IsBest));
         Assert.True(best.IsBestNeedsReview);
         Assert.False(string.IsNullOrWhiteSpace(best.BestReason));
-        Assert.Contains("推荐 BEST", header.Summary);
+        Assert.DoesNotContain("推荐 BEST", header.Summary, StringComparison.Ordinal);
+        Assert.DoesNotContain("BEST：", header.Summary, StringComparison.Ordinal);
     }
 
     [Fact]

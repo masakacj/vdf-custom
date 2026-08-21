@@ -87,7 +87,7 @@ namespace VDF.GUI.ViewModels {
 				await MessageBoxService.Show("当前候选文件都不在磁盘上，无法执行合并。", title: title);
 				return;
 			}
-			BestRecommendation recommendation = RecommendBest(onDisk);
+			BestRecommendation recommendation = RecommendBestUsingCurrentRules(onDisk);
 			var dialog = new CheckedGroupConsolidationDialog(candidates, recommendation, title, dialogSummary);
 			CheckedGroupConsolidationDialogResult? choice =
 				await dialog.ShowDialog<CheckedGroupConsolidationDialogResult?>(ApplicationHelpers.MainWindow);
