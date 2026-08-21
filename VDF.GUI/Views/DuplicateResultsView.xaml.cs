@@ -31,6 +31,7 @@ namespace VDF.GUI.Views {
 	public partial class DuplicateResultsView : UserControl {
 		const string ConsolidateMenuTag = "vdf-single-resource-consolidate";
 		const string GroupMergeMenuTag = "vdf-group-merge";
+		const string SmartNonBestMenuTag = "vdf-smart-select-non-best";
 		const string CheckedGroupMergeButtonName = "CheckedGroupMergeButton";
 		const string GroupMergeButtonContent = "合并…";
 		bool groupMergeButtonRefreshPending;
@@ -41,8 +42,12 @@ namespace VDF.GUI.Views {
 			ResultsListControl.LayoutUpdated += (_, _) => ScheduleGroupMergeButtons();
 			DataContextChanged += (_, _) => WireViewModel();
 			WireViewModel();
-			if (this.FindControl<Button>("AutoSelectButton")?.Flyout is MenuFlyout autoSelectFlyout)
-				autoSelectFlyout.Opening += (_, _) => RebuildSavedExpressionItems();
+			if (this.FindControl<Button>("AutoSelectButton")?.Flyout is MenuFlyout autoSelectFlyout) {
+				autoSelectFlyout.Opening += (_, _) => {
+					EnsureSmartNonBestMenuItem(autoSelectFlyout);
+					RebuildSavedExpressionItems();
+				};
+			}
 		}
 
 		/// <summary>
@@ -109,6 +114,20 @@ namespace VDF.GUI.Views {
 					"合并当前相似组：默认保留推荐 BEST，并从本组已有目录中选择最终目标文件夹。");
 				actionPanel.Children.Add(mergeButton);
 			}
+		}
+
+		void EnsureSmartNonBestMenuItem(MenuFlyout flyout) {
+			if (ViewModel is not MainWindowVM vm) return;
+			if (flyout.Items.OfType<MenuItem>().Any(item => Equals(item.Tag, SmartNonBestMenuTag)))
+				return;
+			var item = new MenuItem {
+				Header = "智能选择非 BEST…",
+				Tag = SmartNonBestMenuTag,
+				Command = vm.SmartSelectNonBestCommand,
+			};
+			item.SetValue(ToolTip.TipProperty,
+				"每组保留推荐 BEST；可按文件名和目录路径关键词，仅勾选命中的非 BEST。");
+			flyout.Items.Insert(Math.Min(1, flyout.Items.Count), item);
 		}
 
 		/// <summary>
