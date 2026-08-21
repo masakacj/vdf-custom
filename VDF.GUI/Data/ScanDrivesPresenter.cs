@@ -67,9 +67,15 @@ namespace VDF.GUI.Data {
 		}
 
 		readonly Func<string> filesPerSecondUnit;
+		readonly Func<string> coolingLabel;
+		readonly Func<string> waitingSnmpLabel;
 		readonly Dictionary<string, RateState> rates = new(StringComparer.OrdinalIgnoreCase);
 
-		public ScanDrivesPresenter(Func<string> filesPerSecondUnit) => this.filesPerSecondUnit = filesPerSecondUnit;
+		public ScanDrivesPresenter(Func<string> filesPerSecondUnit, Func<string>? coolingLabel = null, Func<string>? waitingSnmpLabel = null) {
+			this.filesPerSecondUnit = filesPerSecondUnit;
+			this.coolingLabel = coolingLabel ?? (() => "cooling");
+			this.waitingSnmpLabel = waitingSnmpLabel ?? (() => "waiting SNMP");
+		}
 
 		public ObservableCollection<ScanDriveRow> Rows { get; } = new();
 
@@ -87,16 +93,24 @@ namespace VDF.GUI.Data {
 			if (!RowsMatch(drives)) {
 				Rows.Clear();
 				foreach (DriveProgress drive in drives)
-					Rows.Add(new ScanDriveRow(drive.Root, TypeLabelFor(drive.IsFastDrive)));
+					Rows.Add(new ScanDriveRow(drive.Root, TypeLabelFor(drive)));
 			}
 			for (int i = 0; i < drives.Length; i++) {
 				DriveProgress drive = drives[i];
 				ScanDriveRow row = Rows[i];
 				row.Fraction = FractionFor(drive);
 				double? rate = UpdateRate(drive, utcNow);
-				row.Stat = rate == null
+				string baseStat = rate == null
 					? $"{drive.DoneFiles:N0} / {drive.TotalFiles:N0}"
 					: $"{drive.DoneFiles:N0} / {drive.TotalFiles:N0} · {Math.Round(rate.Value):N0} {filesPerSecondUnit()}";
+				if (drive.HddProtectionEnabled) {
+					string temperature = drive.TemperatureC == null ? "?°C" : $"{drive.TemperatureC.Value}°C";
+					string state = drive.HddProtectionCooling ? $" · {coolingLabel()}"
+						: drive.HddProtectionWaitingForTemperature ? $" · {waitingSnmpLabel()}"
+						: string.Empty;
+					baseStat += $" · {temperature}{state}";
+				}
+				row.Stat = baseStat;
 			}
 			HasRows = true;
 		}
@@ -107,11 +121,15 @@ namespace VDF.GUI.Data {
 			HasRows = false;
 		}
 
-		static string TypeLabelFor(bool? isFast) => isFast switch {
-			true => "SSD",
-			false => "HDD",
-			null => string.Empty,
-		};
+		static string TypeLabelFor(DriveProgress drive) {
+			if (drive.HddProtectionEnabled && drive.PhysicalDiskSlot != null)
+				return $"HDD #{drive.PhysicalDiskSlot.Value}";
+			return drive.IsFastDrive switch {
+				true => "SSD",
+				false => "HDD",
+				null => string.Empty,
+			};
+		}
 
 		static double FractionFor(DriveProgress drive) {
 			double fraction = drive.TotalBytes > 0 ? (double)drive.DoneBytes / drive.TotalBytes
@@ -125,7 +143,7 @@ namespace VDF.GUI.Data {
 				return false;
 			for (int i = 0; i < drives.Length; i++) {
 				if (!string.Equals(Rows[i].Root, drives[i].Root, StringComparison.OrdinalIgnoreCase) ||
-					Rows[i].TypeLabel != TypeLabelFor(drives[i].IsFastDrive))
+					Rows[i].TypeLabel != TypeLabelFor(drives[i]))
 					return false;
 			}
 			return true;

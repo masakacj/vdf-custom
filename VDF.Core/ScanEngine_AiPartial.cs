@@ -180,32 +180,58 @@ namespace VDF.Core {
 					// every worker pile onto whatever drive the queue served next,
 					// seek-thrashing spinning disks and network shares.
 					List<DriveScanGroup> driveGroups = DriveScanPlanner.PartitionByDrive(videos);
+					Dictionary<string, int> hddMappings = Settings.EnableHddProtection
+						? HddProtectionMappings.Parse(Settings.HddProtectionDriveMappings)
+						: new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+					// Sort mapped physical disks before index projection so the dense full-file
+					// decoding pass walks each spindle in path order.
+					DriveScanPlanner.ApplyHddProtection(driveGroups, hddMappings);
 					int[][] groupIndexes = DriveScanPlanner.MapEntryIndexes(videos, driveGroups);
-					if (Settings.MaxDegreeOfParallelism == 1) {
-						// Documented promise: 1 = strictly one file at a time (drives sequential).
-						foreach (int[] indexes in groupIndexes)
-							foreach (int i in indexes) {
-								cancelationTokenSource.Token.ThrowIfCancellationRequested();
-								ProcessVideo(i);
-							}
-					}
-					else {
-						DriveScanPlanner.ClassifyGroups(driveGroups, Settings.DriveTypeOverrides,
-							DriveScanPlanner.IsNetworkRoot,
-							group => DriveScanPlanner.ProbeSeekLatencyMs(group.Entries),
-							DriveScanPlanner.QueryHasSeekPenalty);
-						DriveScanPlanner.AssignParallelism(driveGroups, Settings.MaxDegreeOfParallelism, Settings.HddMaxDegreeOfParallelism, Environment.ProcessorCount);
-						var driveTasks = new List<Task>(driveGroups.Count);
-						for (int g = 0; g < driveGroups.Count; g++) {
-							DriveScanGroup group = driveGroups[g];
-							int[] indexes = groupIndexes[g];
-							Logger.Instance.Info($"AI partial detection: drive '{group.Root}': {indexes.Length:N0} video(s), concurrency {group.DegreeOfParallelism} ({(group.SpeedClass == DriveSpeedClass.Fast ? "fast" : "slow")}, {group.ClassSource})");
-							driveTasks.Add(Task.Run(() => Parallel.ForEach(indexes, new ParallelOptions {
-								CancellationToken = cancelationTokenSource.Token,
-								MaxDegreeOfParallelism = group.DegreeOfParallelism
-							}, ProcessVideo)));
+					HddProtectionController? hddProtection = HddProtectionController.TryCreate(Settings, driveGroups);
+					try {
+						if (Settings.MaxDegreeOfParallelism != 1) {
+							DriveScanPlanner.ClassifyGroups(driveGroups, Settings.DriveTypeOverrides,
+								DriveScanPlanner.IsNetworkRoot,
+								group => DriveScanPlanner.ProbeSeekLatencyMs(group.Entries),
+								DriveScanPlanner.QueryHasSeekPenalty);
+							DriveScanPlanner.AssignParallelism(driveGroups, Settings.MaxDegreeOfParallelism, Settings.HddMaxDegreeOfParallelism, Environment.ProcessorCount);
+							DriveScanPlanner.ApplyHddProtection(driveGroups, hddMappings);
 						}
-						Task.WaitAll(driveTasks.ToArray());
+						if (hddProtection != null)
+							hddProtection.StartAsync(cancelationTokenSource.Token).GetAwaiter().GetResult();
+
+						void ProcessProtected(DriveScanGroup group, int i) {
+							cancelationTokenSource.Token.ThrowIfCancellationRequested();
+							if (hddProtection != null)
+								hddProtection.WaitUntilAllowedAsync(group.Root, cancelationTokenSource.Token).GetAwaiter().GetResult();
+							ProcessVideo(i);
+						}
+
+						if (Settings.MaxDegreeOfParallelism == 1) {
+							// Documented promise: 1 = strictly one file at a time (drives sequential).
+							for (int g = 0; g < driveGroups.Count; g++) {
+								DriveScanGroup group = driveGroups[g];
+								foreach (int i in groupIndexes[g])
+									ProcessProtected(group, i);
+							}
+						}
+						else {
+							var driveTasks = new List<Task>(driveGroups.Count);
+							for (int g = 0; g < driveGroups.Count; g++) {
+								DriveScanGroup group = driveGroups[g];
+								int[] indexes = groupIndexes[g];
+								Logger.Instance.Info($"AI partial detection: drive '{group.Root}': {indexes.Length:N0} video(s), concurrency {group.DegreeOfParallelism} ({(group.SpeedClass == DriveSpeedClass.Fast ? "fast" : "slow")}, {group.ClassSource})");
+								driveTasks.Add(Task.Run(() => Parallel.ForEach(indexes, new ParallelOptions {
+									CancellationToken = cancelationTokenSource.Token,
+									MaxDegreeOfParallelism = group.DegreeOfParallelism
+								}, i => ProcessProtected(group, i))));
+							}
+							Task.WaitAll(driveTasks.ToArray());
+						}
+					}
+					finally {
+						if (hddProtection != null)
+							hddProtection.DisposeAsync().AsTask().GetAwaiter().GetResult();
 					}
 				}
 				catch (OperationCanceledException) { }

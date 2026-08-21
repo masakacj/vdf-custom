@@ -118,4 +118,20 @@ public class ScanDrivesPresenterTests {
 		presenter.Update(new[] { Drive(@"D:\", 0, 0, 10, 5) }, T0);
 		Assert.Equal(0.5, presenter.Rows[0].Fraction, 3);
 	}
+
+	[Fact]
+	public void HddProtection_ShowsPhysicalSlotTemperatureAndCoolingState() {
+		var presenter = new ScanDrivesPresenter(() => "files/s", () => "cooling", () => "waiting SNMP");
+		var drive = Drive(@"Y:\", 1000, 200, 20, 4, isFast: false);
+		drive.HddProtectionEnabled = true;
+		drive.PhysicalDiskSlot = 2;
+		drive.TemperatureC = 50;
+		drive.HddProtectionBlocked = true;
+		drive.HddProtectionCooling = true;
+
+		presenter.Update(new[] { drive }, T0);
+
+		Assert.Equal("HDD #2", presenter.Rows[0].TypeLabel);
+		Assert.Equal("4 / 20 · 50°C · cooling", presenter.Rows[0].Stat);
+	}
 }

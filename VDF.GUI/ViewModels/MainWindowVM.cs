@@ -234,7 +234,10 @@ namespace VDF.GUI.ViewModels {
 		/// <summary>Shows the actual file-enumeration backend and measured time for each include root.</summary>
 		public ScanEnumerationPresenter ScanEnumeration { get; } = new();
 		/// <summary>Per-drive rows of the Scanning state (mockup .drives); rows exist only while the analysis phase reports drive data.</summary>
-		public ScanDrivesPresenter ScanDrives { get; } = new(() => App.Lang["Scan.FilesPerSec"]);
+		public ScanDrivesPresenter ScanDrives { get; } = new(
+			() => App.Lang["Scan.FilesPerSec"],
+			() => App.Lang["Scan.HddCooling"],
+			() => App.Lang["Scan.HddWaitingSnmp"]);
 		string _ScanProgressCount = string.Empty;
 		public string ScanProgressCount {
 			get => _ScanProgressCount;
@@ -1668,6 +1671,17 @@ Non-Windows setup:
 				await MessageBoxService.Show(App.Lang["Message.MaxDegreeOfParallelismInvalid"]);
 				return;
 			}
+			if (SettingsFile.Instance.EnableHddProtection && command == "FullScan") {
+				bool invalidHddProtection = string.IsNullOrWhiteSpace(SettingsFile.Instance.HddProtectionSnmpHost)
+					|| string.IsNullOrWhiteSpace(SettingsFile.Instance.HddProtectionSnmpUser)
+					|| VDF.Core.Utils.HddProtectionMappings.Parse(SettingsFile.Instance.HddProtectionDriveMappings).Count == 0
+					|| SettingsFile.Instance.HddProtectionResumeTemperatureC >= SettingsFile.Instance.HddProtectionPauseTemperatureC
+					|| SettingsFile.Instance.HddProtectionWarnTemperatureC > SettingsFile.Instance.HddProtectionPauseTemperatureC;
+				if (invalidHddProtection) {
+					await MessageBoxService.Show(App.Lang["Message.HddProtectionInvalid"]);
+					return;
+				}
+			}
 			if (SettingsFile.Instance.FilterByFileSize && SettingsFile.Instance.MaximumFileSize <= SettingsFile.Instance.MinimumFileSize) {
 				await MessageBoxService.Show(App.Lang["Message.FileSizeFilterInvalid"]);
 				return;
@@ -1746,6 +1760,17 @@ Non-Windows setup:
 			Scanner.Settings.MaxDegreeOfParallelism = SettingsFile.Instance.MaxDegreeOfParallelism;
 			Scanner.Settings.MatchingMaxDegreeOfParallelism = SettingsFile.Instance.MatchingMaxDegreeOfParallelism;
 			Scanner.Settings.HddMaxDegreeOfParallelism = SettingsFile.Instance.HddMaxDegreeOfParallelism;
+			Scanner.Settings.EnableHddProtection = SettingsFile.Instance.EnableHddProtection;
+			Scanner.Settings.HddProtectionSnmpHost = SettingsFile.Instance.HddProtectionSnmpHost;
+			Scanner.Settings.HddProtectionSnmpPort = SettingsFile.Instance.HddProtectionSnmpPort;
+			Scanner.Settings.HddProtectionSnmpUser = SettingsFile.Instance.HddProtectionSnmpUser;
+			Scanner.Settings.HddProtectionDriveMappings = SettingsFile.Instance.HddProtectionDriveMappings;
+			Scanner.Settings.HddProtectionPollSeconds = SettingsFile.Instance.HddProtectionPollSeconds;
+			Scanner.Settings.HddProtectionWarnTemperatureC = SettingsFile.Instance.HddProtectionWarnTemperatureC;
+			Scanner.Settings.HddProtectionPauseTemperatureC = SettingsFile.Instance.HddProtectionPauseTemperatureC;
+			Scanner.Settings.HddProtectionResumeTemperatureC = SettingsFile.Instance.HddProtectionResumeTemperatureC;
+			Scanner.Settings.HddProtectionMinimumCooldownMinutes = SettingsFile.Instance.HddProtectionMinimumCooldownMinutes;
+			Scanner.Settings.HddProtectionResumeConsecutivePolls = SettingsFile.Instance.HddProtectionResumeConsecutivePolls;
 			Scanner.Settings.DriveTypeOverrides = SettingsFile.Instance.DriveTypeOverrides;
 			Scanner.Settings.ThumbnailCount = SettingsFile.Instance.Thumbnails;
 			Scanner.Settings.ThumbnailMaxWidth = SettingsFile.Instance.ThumbnailMaxWidth;
