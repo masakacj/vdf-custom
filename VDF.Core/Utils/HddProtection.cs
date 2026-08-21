@@ -69,6 +69,7 @@ namespace VDF.Core.Utils {
 			internal DateTime? CoolingSinceUtc;
 			internal int ResumePolls;
 			internal TaskCompletionSource<bool> AllowedSignal = NewSignal();
+			internal readonly SemaphoreSlim HeavyReadGate = new(1, 1);
 		}
 
 		readonly object sync = new();
@@ -164,6 +165,57 @@ namespace VDF.Core.Utils {
 					return null;
 				return new HddProtectionSnapshot(state.Slot, state.TemperatureC, state.IsBlocked,
 					state.IsCooling, state.IsWaitingForTemperature, state.IsWarm);
+			}
+		}
+
+		/// <summary>
+		/// Acquires the one-heavy-read-per-physical-HDD lease for an operation that can
+		/// touch one or more mapped roots (for example partial-clip visual verification
+		/// decodes both a source and a clip). Gates are acquired in root order to avoid
+		/// deadlocks, and temperature state is rechecked after acquisition.
+		/// </summary>
+		internal async Task<IDisposable> EnterHeavyReadAsync(IEnumerable<string> roots, CancellationToken token) {
+			List<DiskState> targets;
+			lock (sync) {
+				targets = roots
+					.Select(HddProtectionMappings.NormalizeRoot)
+					.Distinct(StringComparer.OrdinalIgnoreCase)
+					.Select(root => states.TryGetValue(root, out DiskState? state) ? state : null)
+					.Where(state => state != null)
+					.Cast<DiskState>()
+					.OrderBy(state => state.Root, StringComparer.OrdinalIgnoreCase)
+					.ToList();
+			}
+			if (targets.Count == 0)
+				return NoopLease.Instance;
+
+			while (true) {
+				foreach (DiskState state in targets)
+					await WaitUntilAllowedAsync(state.Root, token);
+
+				var acquired = new List<SemaphoreSlim>(targets.Count);
+				bool transferred = false;
+				try {
+					foreach (DiskState state in targets) {
+						await state.HeavyReadGate.WaitAsync(token);
+						acquired.Add(state.HeavyReadGate);
+					}
+					bool blockedAgain;
+					lock (sync)
+						blockedAgain = targets.Any(state => state.IsBlocked);
+					if (!blockedAgain) {
+						transferred = true;
+						return new GateLease(acquired);
+					}
+				}
+				finally {
+					// A temperature poll can cross the pause threshold while the worker is
+					// queued on a disk gate. If that happened, give all gates back and wait
+					// for the normal cooldown/resume path instead of starting a new read.
+					if (!transferred)
+						for (int i = acquired.Count - 1; i >= 0; i--)
+							acquired[i].Release();
+				}
 			}
 		}
 
@@ -263,6 +315,23 @@ namespace VDF.Core.Utils {
 
 		static TaskCompletionSource<bool> NewSignal() =>
 			new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+		sealed class GateLease : IDisposable {
+			readonly IReadOnlyList<SemaphoreSlim> gates;
+			int disposed;
+			internal GateLease(IReadOnlyList<SemaphoreSlim> gates) => this.gates = gates;
+			public void Dispose() {
+				if (Interlocked.Exchange(ref disposed, 1) != 0)
+					return;
+				for (int i = gates.Count - 1; i >= 0; i--)
+					gates[i].Release();
+			}
+		}
+
+		sealed class NoopLease : IDisposable {
+			internal static readonly NoopLease Instance = new();
+			public void Dispose() { }
+		}
 
 		public async ValueTask DisposeAsync() {
 			if (loopCts != null) {

@@ -2274,7 +2274,27 @@ namespace VDF.Core {
 			int beforeCount = assignments.Count;
 			int dropped = 0;
 			var verified = new ConcurrentBag<(int, int, float, int, Guid)>();
+			HddProtectionController? hddProtection = null;
+			string[]? driveRootByVideo = null;
 			try {
+				// Visual verification is an on-demand media-read phase too. When HDD/NAS
+				// protection is enabled, build the same physical-drive view used by GatherInfos
+				// and acquire a per-HDD heavy-read lease around each source+clip decode. A pair
+				// that spans two disks locks both roots in deterministic order; unrelated disks
+				// remain free to verify in parallel.
+				if (Settings.EnableHddProtection) {
+					List<DriveScanGroup> groups = DriveScanPlanner.PartitionByDrive(videos);
+					hddProtection = HddProtectionController.TryCreate(Settings, groups);
+					if (hddProtection != null) {
+						driveRootByVideo = new string[videos.Count];
+						int[][] groupIndexes = DriveScanPlanner.MapEntryIndexes(videos, groups);
+						for (int g = 0; g < groups.Count; g++)
+							foreach (int i in groupIndexes[g])
+								driveRootByVideo[i] = groups[g].Root;
+						hddProtection.StartAsync(cancelationTokenSource.Token).GetAwaiter().GetResult();
+					}
+				}
+
 				// Storage-tuned degree, NOT MatchingParallelDegree: unlike the audio
 				// fingerprint pass above (pure CPU over in-memory fingerprints), the visual
 				// gate decodes frames live off disk via GetGrayFrames, so it must respect the
@@ -2296,19 +2316,39 @@ namespace VDF.Core {
 						return;
 					}
 
-					var (pass, visualSim) = verify(videos[a.sourceIdx], videos[a.clipIdx], a.offsetSec);
-					if (pass) {
-						verified.Add(a);
+					IDisposable? heavyReadLease = null;
+					try {
+						if (hddProtection != null && driveRootByVideo != null) {
+							heavyReadLease = hddProtection.EnterHeavyReadAsync(
+								new[] { driveRootByVideo[a.sourceIdx], driveRootByVideo[a.clipIdx] },
+								cancelationTokenSource.Token).GetAwaiter().GetResult();
+							// The temperature wait may have lasted minutes; honour a user Pause that
+							// arrived while cooling before actually starting FFmpeg.
+							if (!pauseTokenSource.TryWaitWhilePaused(cancelationTokenSource.Token))
+								return;
+						}
+
+						var (pass, visualSim) = verify(videos[a.sourceIdx], videos[a.clipIdx], a.offsetSec);
+						if (pass) {
+							verified.Add(a);
+						}
+						else {
+							Interlocked.Increment(ref dropped);
+							if (Settings.ExtendedFFToolsLogging)
+								Logger.Instance.Info($"[Partial] Visual gate dropped {System.IO.Path.GetFileName(videos[a.clipIdx].Path)} in {System.IO.Path.GetFileName(videos[a.sourceIdx].Path)}: visualSim={visualSim:P1} (threshold {Settings.PartialClipVisualThreshold:P0})");
+						}
+						IncrementProgress(System.IO.Path.GetFileName(videos[a.clipIdx].Path));
 					}
-					else {
-						Interlocked.Increment(ref dropped);
-						if (Settings.ExtendedFFToolsLogging)
-							Logger.Instance.Info($"[Partial] Visual gate dropped {System.IO.Path.GetFileName(videos[a.clipIdx].Path)} in {System.IO.Path.GetFileName(videos[a.sourceIdx].Path)}: visualSim={visualSim:P1} (threshold {Settings.PartialClipVisualThreshold:P0})");
+					finally {
+						heavyReadLease?.Dispose();
 					}
-					IncrementProgress(System.IO.Path.GetFileName(videos[a.clipIdx].Path));
 				});
 			}
 			catch (OperationCanceledException) { }
+			finally {
+				if (hddProtection != null)
+					hddProtection.DisposeAsync().AsTask().GetAwaiter().GetResult();
+			}
 			var kept = verified.OrderBy(a => a.Item1).ThenBy(a => a.Item2).ToList();
 			Logger.Instance.Info($"Partial clip detection: visual gate kept {kept.Count}/{beforeCount} assignment(s), dropped {dropped}");
 			return kept;

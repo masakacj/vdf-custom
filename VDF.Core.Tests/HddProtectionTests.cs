@@ -106,4 +106,26 @@ public class HddProtectionTests {
 		Assert.True(snapshot.IsWaitingForTemperature);
 		Assert.Null(snapshot.TemperatureC);
 	}
+
+	[Fact]
+	public async Task HeavyReadLease_SerializesSameDiskButAllowsIndependentDisks() {
+		var source = new FakeTemperatureSource {
+			Values = new Dictionary<int, int> { [2] = 40, [3] = 41 }
+		};
+		await using var controller = new HddProtectionController(
+			new Dictionary<string, int> { ["Y:"] = 2, ["Z:"] = 3 }, source,
+			48, 50, 45, TimeSpan.Zero, 1, TimeSpan.FromMinutes(1));
+		await controller.PollOnceAsync(CancellationToken.None);
+
+		IDisposable firstY = await controller.EnterHeavyReadAsync(new[] { @"Y:\" }, CancellationToken.None);
+		Task<IDisposable> secondY = controller.EnterHeavyReadAsync(new[] { @"Y:\" }, CancellationToken.None);
+		await Task.Delay(50);
+		Assert.False(secondY.IsCompleted);
+
+		// A separate physical HDD remains available while Y: is busy.
+		using IDisposable zLease = await controller.EnterHeavyReadAsync(new[] { @"Z:\" }, CancellationToken.None);
+
+		firstY.Dispose();
+		using IDisposable secondYLease = await secondY.WaitAsync(TimeSpan.FromSeconds(1));
+	}
 }
