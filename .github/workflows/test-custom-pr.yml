@@ -54,6 +54,14 @@ jobs:
         shell: pwsh
         run: dotnet publish .\VDF.GUI\VDF.GUI.csproj -c Release -v q -p:PublishAot=true -r win-x64 -o .\artifacts\GUI-aot
 
+      - name: Publish standalone updater win-x64 Native AOT
+        shell: pwsh
+        run: dotnet publish .\VDF.Updater\VDF.Updater.csproj -c Release -v q -p:PublishAot=true -r win-x64 -o .\artifacts\Updater-aot
+
+      - name: Smoke test standalone updater
+        shell: pwsh
+        run: .\artifacts\Updater-aot\VDF.Updater.exe --help --no-pause
+
       - name: Smoke test English and Simplified Chinese startup
         shell: pwsh
         run: |
