@@ -283,11 +283,15 @@ namespace VDF.GUI.Views {
 			SettingsFile.SaveSettings();
 		}
 
-		void MainWindow_Startup(object? sender, ControlledApplicationLifetimeStartupEventArgs e) {
+		async void MainWindow_Startup(object? sender, ControlledApplicationLifetimeStartupEventArgs e) {
 			var vm = ApplicationHelpers.MainWindowDataContext;
 			vm.NotifyStartupSettingsError();
-			vm.LoadDatabase();
-			vm.RestoreBackupScanResults();
+			// Startup state is ordered deliberately: result restoration now depends on the
+			// loaded scan database for folder statistics and other cached metadata. Running
+			// both imports concurrently previously exposed a half-loaded database to the UI
+			// and could race native Skia rendering during the first restored-result paint.
+			await vm.LoadDatabaseAsync();
+			await vm.RestoreBackupScanResultsAsync();
 		}
 
 

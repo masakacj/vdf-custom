@@ -607,9 +607,16 @@ namespace VDF.GUI.ViewModels {
 			return true;
 		}
 
-		public void RestoreBackupScanResults() {
+		/// <summary>
+		/// Restores the previous-session result bundle after the scan database is fully loaded.
+		/// Startup used to fire this concurrently with LoadDatabase; v4.1.14's result-folder
+		/// statistics made that old race visible because result construction reads the database
+		/// while LoadDatabase is replacing/populating it. Keep the restore awaitable so startup
+		/// can serialize both operations and never let the results UI observe a half-loaded DB.
+		/// </summary>
+		public async Task RestoreBackupScanResultsAsync() {
 			if (File.Exists(BackupScanResultsFile))
-				ImportScanResultsIncludingThumbnails(BackupScanResultsFile);
+				await ImportScanResultsIncludingThumbnails(BackupScanResultsFile);
 		}
 
 		/// <summary>
@@ -626,7 +633,7 @@ namespace VDF.GUI.ViewModels {
 			await MessageBoxService.Show(string.Format(App.Lang["Message.SettingsLoadFailed"], error));
 		}
 
-		public async void LoadDatabase() {
+		public async Task LoadDatabaseAsync() {
 			IsBusy = true;
 			IsBusyOverlayText = "Loading database...";
 			// Pass the configured folder — the parameterless overload loads the DEFAULT
@@ -636,6 +643,7 @@ namespace VDF.GUI.ViewModels {
 			if (!success) {
 				await MessageBoxService.Show(App.Lang["Message.LoadDatabaseFailed"]);
 				Environment.Exit(-1);
+				return;
 			}
 			// The Setup screen's DB-known counts were computed against an empty database.
 			RebuildSetupFolders();
@@ -1079,10 +1087,10 @@ namespace VDF.GUI.ViewModels {
 				FileTypeFilter = [new FilePickerFileType("Scan Results") { Patterns = ["*.zip"] }]
 			});
 			if (string.IsNullOrEmpty(result)) return;
-			ImportScanResultsIncludingThumbnails(result);
+			await ImportScanResultsIncludingThumbnails(result);
 		});
 
-		async void ImportScanResultsIncludingThumbnails(string? path = null) {
+		async Task ImportScanResultsIncludingThumbnails(string? path = null) {
 			if (Duplicates.Count > 0) {
 				MessageBoxButtons? result = await MessageBoxService.Show(App.Lang["Message.ImportScanResultsClearConfirm"], MessageBoxButtons.Yes | MessageBoxButtons.No);
 				if (result != MessageBoxButtons.Yes) return;
@@ -1233,6 +1241,17 @@ namespace VDF.GUI.ViewModels {
 
 		public ReactiveCommand<Unit, Unit> OpenItemInFolderCommand => ReactiveCommand.Create(OpenItemsInFolder);
 
+		/// <summary>Opens the clicked result row's containing directory directly.</summary>
+		public ReactiveCommand<DuplicateItemVM, Unit> OpenContainingFolderCommand =>
+			ReactiveCommand.CreateFromTask<DuplicateItemVM>(async item => {
+				if (item?.ItemInfo == null) return;
+				string folder = !string.IsNullOrWhiteSpace(item.ItemInfo.Folder)
+					? item.ItemInfo.Folder
+					: Path.GetDirectoryName(item.ItemInfo.Path) ?? string.Empty;
+				if (string.IsNullOrWhiteSpace(folder)) return;
+				await OpenDirectoryInFileManager(folder);
+			});
+
 		public ReactiveCommand<string, Unit> OpenGroupCommand => ReactiveCommand.Create<string>(openInFolder => {
 			if (GetSelectedDuplicateItem() is DuplicateItemVM currentItem) {
 				List<DuplicateItemVM> items = Duplicates.Where(d => d.ItemInfo.GroupId == currentItem.ItemInfo.GroupId).ToList();
@@ -1277,6 +1296,26 @@ namespace VDF.GUI.ViewModels {
 
 			if (GetSelectedDuplicateItem() is not DuplicateItemVM currentItem) return;
 			await RevealInFileManager(currentItem.ItemInfo.Path);
+		}
+
+		/// <summary>Open a directory itself (rather than selecting a file inside it).</summary>
+		internal static async Task OpenDirectoryInFileManager(string folderPath) {
+			try {
+				if (OperatingSystem.IsMacOS()) {
+					var psi = new ProcessStartInfo("open") { UseShellExecute = false };
+					psi.ArgumentList.Add(folderPath);
+					Process.Start(psi);
+				}
+				else {
+					Process.Start(new ProcessStartInfo {
+						FileName = folderPath,
+						UseShellExecute = true,
+					});
+				}
+			}
+			catch (Exception ex) {
+				await MessageBoxService.Show(string.Format(App.Lang["Message.OpenFilesFailed"], ex.Message));
+			}
 		}
 
 		// Reveal a single file in the OS file manager, selecting it where the
