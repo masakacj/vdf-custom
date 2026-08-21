@@ -129,6 +129,50 @@ public class SmartNonBestSelectionTests {
     }
 
     [Fact]
+    public void FullyTiedBest_IsIndependentOfDisplaySort_AndSmartSelectionNeverChecksIt() {
+        var group = Guid.NewGuid();
+        string root = Path.Combine(Path.GetTempPath(), "vdf-smart-sort-tie");
+        var a = Video(group, Path.Combine(root, "A"), "a.mkv", 8_000);
+        var b = Video(group, Path.Combine(root, "B"), "b.mkv", 8_000);
+        a.ItemInfo.SizeLong = 1_000_000;
+        b.ItemInfo.SizeLong = 9_000_000;
+        string[] criteria = ["Duration", "Resolution", "Bitrate", "FPS", "Bits per pixel", "Audio Bitrate"];
+
+        ResultsBuildResult result = ResultsListBuilder.Build(new ResultsBuildRequest {
+            Items = new[] { a, b },
+            SortMode = ResultsSortMode.WastedSpace,
+            SortDescending = true,
+            RecommendBest = members => MainWindowVM.RecommendBest(members, criteria),
+            IsTombstone = _ => false,
+            IsOffline = _ => false,
+        });
+        ResultsItemRow listBest = Assert.Single(Assert.Single(result.Groups).Rows, row => row.IsBest);
+        var selected = MainWindowVM.ComputeSmartNonBestSelection(
+            new[] { a, b }, _ => true,
+            new SmartNonBestSelectionOptions(string.Empty, string.Empty), criteria);
+
+        Assert.Same(a, listBest.Item);
+        Assert.DoesNotContain(listBest.Item, selected);
+        Assert.Single(selected);
+        Assert.Same(b, selected[0]);
+    }
+
+    [Fact]
+    public void ConfigurableBest_FullyTiedGroup_IsStableAcrossInputOrder() {
+        var group = Guid.NewGuid();
+        string root = Path.Combine(Path.GetTempPath(), "vdf-best-input-order");
+        var a = Video(group, root, "a.mkv", 8_000);
+        var b = Video(group, root, "b.mkv", 8_000);
+        string[] criteria = ["Duration", "Resolution", "Bitrate", "FPS", "Bits per pixel", "Audio Bitrate"];
+
+        BestRecommendation forward = MainWindowVM.RecommendBest(new[] { a, b }, criteria);
+        BestRecommendation reversed = MainWindowVM.RecommendBest(new[] { b, a }, criteria);
+
+        Assert.Same(a, forward.Winner);
+        Assert.Same(a, reversed.Winner);
+    }
+
+    [Fact]
     public void KeywordParser_AcceptsChineseAndAsciiSeparators() {
         string[] keywords = MainWindowVM.ParseSmartSelectionKeywords("copy, low；预览\n临时，archive;copy");
 

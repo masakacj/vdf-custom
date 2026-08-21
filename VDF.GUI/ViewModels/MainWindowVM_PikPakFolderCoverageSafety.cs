@@ -177,8 +177,17 @@ namespace VDF.GUI.ViewModels {
 				return new BestRecommendation(candidates[0], true, "BEST：当前只有一个候选副本。");
 
 			var criteria = ResolveBestCriteria(criteriaOrder).ToList();
+			// BEST must not depend on the current UI sort order. QualityRanker deliberately
+			// preserves the first candidate when every configured criterion stays tied; the
+			// results list sorts members before asking for BEST while bulk selectors usually
+			// see database/original order. Canonicalize that final tie by path first so every
+			// caller receives the same winner regardless of size/date/path display sorting.
+			var canonicalCandidates = candidates
+				.OrderBy(item => item.ItemInfo.Path, StringComparer.OrdinalIgnoreCase)
+				.ThenBy(item => item.ItemInfo.Path, StringComparer.Ordinal)
+				.ToList();
 			DuplicateItemVM preferred = VDF.Core.Utils.QualityRanker.PickKeeper(
-				candidates.ToList(),
+				canonicalCandidates,
 				criteria,
 				item => item.ItemInfo.IsImage);
 			bool hasDecisive = TryPickDecisiveQualityWinner(candidates, out DuplicateItemVM decisive);
