@@ -32,7 +32,8 @@ namespace VDF.GUI.ViewModels {
 				var selected = ComputeSmartNonBestSelection(
 					Duplicates.ToList(),
 					item => visibleSet.Contains(item),
-					options);
+					options,
+					QualityCriteriaOrder);
 				var selectedSet = new HashSet<DuplicateItemVM>(
 					selected, ReferenceEqualityComparer<DuplicateItemVM>.Instance);
 
@@ -46,7 +47,8 @@ namespace VDF.GUI.ViewModels {
 		internal static IReadOnlyList<DuplicateItemVM> ComputeSmartNonBestSelection(
 			IReadOnlyList<DuplicateItemVM> allItems,
 			Func<DuplicateItemVM, bool> eligible,
-			SmartNonBestSelectionOptions options) {
+			SmartNonBestSelectionOptions options,
+			IEnumerable<string>? bestCriteriaOrder = null) {
 			string[] fileNameKeywords = ParseSmartSelectionKeywords(options.FileNameKeywords);
 			string[] pathKeywords = ParseSmartSelectionKeywords(options.PathKeywords);
 			var selected = new List<DuplicateItemVM>();
@@ -57,7 +59,9 @@ namespace VDF.GUI.ViewModels {
 					.ToList();
 				if (members.Count < 2) continue;
 
-				BestRecommendation recommendation = RecommendBestUsingCurrentRules(members);
+				BestRecommendation recommendation = bestCriteriaOrder == null
+					? RecommendBest(members)
+					: RecommendBest(members, bestCriteriaOrder);
 				DuplicateItemVM? best = recommendation.Winner;
 				if (best == null) continue;
 
