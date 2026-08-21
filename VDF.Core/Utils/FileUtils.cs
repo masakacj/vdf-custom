@@ -15,6 +15,7 @@
 //
 
 using System.Collections.Frozen;
+using System.Diagnostics;
 using System.IO.Enumeration;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -70,20 +71,30 @@ namespace VDF.Core.Utils {
 			return extension.Equals(".heic", StringComparison.OrdinalIgnoreCase) ||
 				extension.Equals(".heif", StringComparison.OrdinalIgnoreCase);
 		}
-		internal static List<FileInfo> GetFilesRecursive(string initial, bool ignoreReadonly, bool ignoreReparsePoints, bool recursive, bool includeImages, List<string> excludeFolders, CancellationToken cancellationToken) {
+		internal static List<FileInfo> GetFilesRecursive(string initial, bool ignoreReadonly, bool ignoreReparsePoints, bool recursive, bool includeImages, List<string> excludeFolders, CancellationToken cancellationToken, Action<FileEnumerationReport>? progress = null) {
 			// Windows fast path: Everything already maintains a filename index, so do not wake a
 			// large HDD just to walk every directory again. Query2 is only an accelerator: any
 			// unsupported setting/error/empty result drops straight into the proven native walker.
+			progress?.Invoke(new FileEnumerationReport(initial, FileEnumerationBackend.Detecting,
+				IsCompleted: false, FileCount: 0, Elapsed: TimeSpan.Zero, Detail: "Detecting Everything index coverage…"));
 			IEnumerable<string> allowedExtensions = includeImages ? AllExtensionSet : VideoExtensionSet;
 			if (EverythingIpcEnumerator.TryEnumerate(initial, ignoreReadonly, ignoreReparsePoints,
 				recursive, includeImages, allowedExtensions, excludeFolders, cancellationToken,
 				out List<FileInfo> indexedFiles, out EverythingEnumerationStats? everythingStats, out string? everythingFallback)) {
 				if (everythingStats != null) {
+					string coverage = everythingStats.UsedNetworkFolderIndex
+						? $" Verified Folder Index '{everythingStats.FolderIndexRoot}' was used for this network path."
+						: string.Empty;
 					Logger.Instance.Info(
 						$"Everything IPC enumerated {everythingStats.ResultCount:N0} media file(s) under '{initial}' " +
 						$"in {everythingStats.Elapsed.TotalMilliseconds:N0} ms ({everythingStats.Pages:N0} page(s), " +
-						$"{everythingStats.FastMetadataCount:N0} with indexed size/modified metadata; class '{everythingStats.WindowClass}'). " +
-						"Native directory walk skipped.");
+						$"{everythingStats.FastMetadataCount:N0} with indexed size/modified metadata; class '{everythingStats.WindowClass}')." +
+						coverage + " Native directory walk skipped.");
+					progress?.Invoke(new FileEnumerationReport(initial, FileEnumerationBackend.EverythingIpc,
+						IsCompleted: true, FileCount: indexedFiles.Count, Elapsed: everythingStats.Elapsed,
+						Detail: everythingStats.UsedNetworkFolderIndex
+							? $"Verified Folder Index: {everythingStats.FolderIndexRoot}"
+							: "Everything indexed volume"));
 				}
 				return indexedFiles;
 			}
@@ -91,6 +102,13 @@ namespace VDF.Core.Utils {
 				!everythingFallback.Equals("Everything IPC window not found", StringComparison.Ordinal)) {
 				Logger.Instance.Info($"Everything enumeration not used for '{initial}': {everythingFallback}. Falling back to native enumeration.");
 			}
+
+			string nativeReason = everythingFallback ?? (OperatingSystem.IsWindows()
+				? "Everything IPC unavailable"
+				: "Native platform enumeration");
+			progress?.Invoke(new FileEnumerationReport(initial, FileEnumerationBackend.NativeFileSystem,
+				IsCompleted: false, FileCount: 0, Elapsed: TimeSpan.Zero, Detail: nativeReason));
+			var nativeTimer = Stopwatch.StartNew();
 
 			EnumerationOptions enumerationOptions = new() {
 				IgnoreInaccessible = true,
@@ -195,6 +213,9 @@ namespace VDF.Core.Utils {
 				Logger.Instance.Info($"Skipped {skippedSystem + skippedReadonly + skippedReparse} subfolder(s) of '{initial}' including everything inside them: {string.Join(", ", reasons)}.");
 			}
 
+			nativeTimer.Stop();
+			progress?.Invoke(new FileEnumerationReport(initial, FileEnumerationBackend.NativeFileSystem,
+				IsCompleted: true, FileCount: files.Count, Elapsed: nativeTimer.Elapsed, Detail: nativeReason));
 			return files;
 
 		}

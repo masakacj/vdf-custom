@@ -53,4 +53,61 @@ public class EverythingIpcEnumeratorTests {
 		string movie = Path.Combine(Root, "movie.mp4");
 		Assert.False(EverythingIpcEnumerator.IsExcludedByFolderRules(Root, movie, [Root]));
 	}
+
+	[Fact]
+	public void NetworkFolderIndex_VerifiesMappedSubfolderWhenMonitoredAndUnfiltered() {
+		const string ini = """
+			[Everything]
+			exclude_list_enabled=1
+			exclude_hidden_files_and_folders=0
+			exclude_system_files_and_folders=0
+			include_only_files=
+			exclude_files=
+			exclude_folders=
+			folders="W:\\","X:\\","Y:\\","Z:\\"
+			folder_monitor_changes=1,1,1,1
+			""";
+
+		bool ok = EverythingFolderIndexCoverageDetector.TryVerifyFromIni(
+			@"Y:\pipa", ini, @"C:\Users\test\AppData\Roaming\Everything\Everything.ini",
+			out EverythingFolderIndexCoverage? coverage, out string? reason);
+
+		Assert.True(ok, reason);
+		Assert.NotNull(coverage);
+		Assert.Equal(@"Y:\", coverage!.IndexedRoot, StringComparer.OrdinalIgnoreCase);
+	}
+
+	[Fact]
+	public void NetworkFolderIndex_RejectsUnmonitoredOrFilteredIndex() {
+		const string unmonitored = """
+			[Everything]
+			folders="Y:\\"
+			folder_monitor_changes=0
+			""";
+		Assert.False(EverythingFolderIndexCoverageDetector.TryVerifyFromIni(
+			@"Y:\pipa", unmonitored, "Everything.ini", out _, out string? monitorReason));
+		Assert.Contains("not monitoring", monitorReason, StringComparison.OrdinalIgnoreCase);
+
+		const string filtered = """
+			[Everything]
+			exclude_list_enabled=1
+			exclude_folders="Y:\\private"
+			folders="Y:\\"
+			folder_monitor_changes=1
+			""";
+		Assert.False(EverythingFolderIndexCoverageDetector.TryVerifyFromIni(
+			@"Y:\pipa", filtered, "Everything.ini", out _, out string? filterReason));
+		Assert.Contains("exclude_folders", filterReason, StringComparison.OrdinalIgnoreCase);
+	}
+
+	[Fact]
+	public void IniListParser_UnescapesQuotedEverythingPaths() {
+		const string raw = """
+			"Y:\\","\\\\server\\share"
+			""";
+		List<string> values = EverythingFolderIndexCoverageDetector.ParseIniList(raw);
+		Assert.Equal(2, values.Count);
+		Assert.Equal(@"Y:\", values[0]);
+		Assert.Equal(@"\\server\share", values[1]);
+	}
 }

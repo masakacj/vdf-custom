@@ -8,6 +8,22 @@
     xmlns:vm="clr-namespace:VDF.GUI.ViewModels;assembly=VDF.GUI"
     x:DataType="vm:MainWindowVM">
 
+  <UserControl.Styles>
+    <Style Selector="Border.enumeration-chip">
+      <Setter Property="Padding" Value="7,2" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="BorderBrush" Value="{actipro:ThemeResource Container3BorderBrush}" />
+    </Style>
+    <Style Selector="Border.enumeration-chip.everything">
+      <Setter Property="Background" Value="{DynamicResource VdfPrimarySoftBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource VdfPrimaryBorderBrush}" />
+    </Style>
+    <Style Selector="Border.enumeration-chip.everything TextBlock">
+      <Setter Property="Foreground" Value="{DynamicResource VdfPrimaryBrush}" />
+    </Style>
+  </UserControl.Styles>
+
   <!-- Mockup .scancard: centered 780px column; counts + remaining top-right,
        elapsed + current file directly under the bar, bordered trust note.
        The log tail lives OUTSIDE the card and stretches with the window so long
@@ -58,10 +74,43 @@
                    Text="{Binding ScanCurrentFile}" />
       </StackPanel>
 
+      <!-- File enumeration backend: makes Everything acceleration explicit instead of
+           forcing the user to infer it from scan speed or dig through log.txt. -->
+      <Border Margin="0,18,0,0" Padding="10,8" CornerRadius="7"
+              BorderBrush="{actipro:ThemeResource Container3BorderBrush}" BorderThickness="1"
+              IsVisible="{Binding ScanEnumeration.HasRows}">
+        <StackPanel Spacing="7">
+          <TextBlock FontSize="11.5" FontWeight="SemiBold" Opacity="0.62" Text="文件枚举" />
+          <ItemsControl ItemsSource="{Binding ScanEnumeration.Rows}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate><StackPanel Spacing="7" /></ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="data:ScanEnumerationRow">
+                <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto,145" ColumnSpacing="10">
+                  <TextBlock Grid.Column="0" FontSize="12.5" FontWeight="SemiBold"
+                             FontFamily="Cascadia Mono,Consolas,monospace"
+                             TextTrimming="PrefixCharacterEllipsis" Text="{Binding RootPath}"
+                             ToolTip.Tip="{Binding RootPath}" />
+                  <Border Grid.Column="1" Classes="enumeration-chip"
+                          Classes.everything="{Binding IsEverything}" VerticalAlignment="Center">
+                    <TextBlock FontSize="10.8" FontWeight="SemiBold" Text="{Binding BackendLabel}" />
+                  </Border>
+                  <TextBlock Grid.Column="2" FontSize="11.5" Opacity="0.76"
+                             TextAlignment="Right" VerticalAlignment="Center" Text="{Binding Stat}" />
+                  <TextBlock Grid.Row="1" Grid.ColumnSpan="3" Margin="0,2,0,0" FontSize="10.8" Opacity="0.5"
+                             TextTrimming="CharacterEllipsis" Text="{Binding Detail}" ToolTip.Tip="{Binding Detail}" />
+                </Grid>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </Border>
+
       <!-- per-drive rows (mockup .drives): label + type chip | byte-weighted bar | files stat.
            Present only while the analysis phase reports drive data; compare phases carry none. -->
       <ItemsControl
-          Margin="0,26,0,0"
+          Margin="0,18,0,0"
           IsVisible="{Binding ScanDrives.HasRows}"
           ItemsSource="{Binding ScanDrives.Rows}">
         <ItemsControl.ItemsPanel>

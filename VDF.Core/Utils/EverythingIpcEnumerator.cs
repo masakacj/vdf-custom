@@ -35,15 +35,19 @@ namespace VDF.Core.Utils {
 		int FastMetadataCount,
 		int Pages,
 		TimeSpan Elapsed,
-		string WindowClass);
+		string WindowClass,
+		bool UsedNetworkFolderIndex,
+		string? FolderIndexRoot);
 
 	/// <summary>
 	/// Windows-only Everything 1.4+ Query2 enumerator. It talks directly to Everything via
 	/// WM_COPYDATA: no ES.exe and no SDK DLL are bundled or required.
 	///
-	/// Everything is only an accelerator. Missing IPC, network paths, strict folder-attribute
-	/// filters, missing default metadata, a malformed/slow reply or an empty result all return
-	/// false so FileUtils performs the original filesystem enumeration instead.
+	/// Everything is only an accelerator. Local indexed volumes are used directly. Network
+	/// paths are accepted only when the active Everything.ini proves they are covered by a
+	/// monitored Folder Index with no global exclusions. Missing IPC, unsafe/incomplete index
+	/// settings, strict folder-attribute filters, missing default metadata, a malformed/slow
+	/// reply or an empty result all return false so FileUtils performs native enumeration.
 	/// </summary>
 	internal static unsafe class EverythingIpcEnumerator {
 		const string EverythingWindowClass = "EVERYTHING_TASKBAR_NOTIFICATION";
@@ -162,12 +166,6 @@ namespace VDF.Core.Utils {
 				fallbackReason = "Everything IPC is Windows-only";
 				return false;
 			}
-			// Do not trust an optional Everything Folder Index as the source of truth for a
-			// NAS/mapped share. Native enumeration remains the safe path for network storage.
-			if (IsNetworkPath(initial)) {
-				fallbackReason = "network/UNC paths keep native enumeration so folder-index completeness is never assumed";
-				return false;
-			}
 			// The native walker can skip whole folders based on these attributes. Query2 gives
 			// result metadata, not every ancestor's attributes; preserve exact semantics.
 			if (ignoreReadonly || ignoreReparsePoints) {
@@ -184,6 +182,14 @@ namespace VDF.Core.Utils {
 				fallbackReason = "Everything IPC window not found";
 				return false;
 			}
+
+			EverythingFolderIndexCoverage? networkCoverage = null;
+			if (IsNetworkPath(initial) &&
+				!EverythingFolderIndexCoverageDetector.TryVerify(initial, everything, out networkCoverage, out string? coverageReason)) {
+				fallbackReason = $"network path is not backed by a verified Everything Folder Index: {coverageReason}";
+				return false;
+			}
+
 			if (!EnsureReplyWindowClass()) {
 				fallbackReason = "could not register VDF Everything reply window";
 				return false;
@@ -269,7 +275,9 @@ namespace VDF.Core.Utils {
 					files.Count(file => indexedMetadata.TryGetValue(file, out var m) && m.HasFastIdentity),
 					pages,
 					stopwatch.Elapsed,
-					everythingClass);
+					everythingClass,
+					networkCoverage != null,
+					networkCoverage?.IndexedRoot);
 				return true;
 			}
 			catch (Exception ex) {

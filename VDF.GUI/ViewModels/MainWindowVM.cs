@@ -231,6 +231,8 @@ namespace VDF.GUI.ViewModels {
 			get => _ScanProgressMaxValue;
 			set => this.RaiseAndSetIfChanged(ref _ScanProgressMaxValue, value);
 		}
+		/// <summary>Shows the actual file-enumeration backend and measured time for each include root.</summary>
+		public ScanEnumerationPresenter ScanEnumeration { get; } = new();
 		/// <summary>Per-drive rows of the Scanning state (mockup .drives); rows exist only while the analysis phase reports drive data.</summary>
 		public ScanDrivesPresenter ScanDrives { get; } = new(() => App.Lang["Scan.FilesPerSec"]);
 		string _ScanProgressCount = string.Empty;
@@ -394,6 +396,7 @@ namespace VDF.GUI.ViewModels {
 			Scanner.ScanDone += Scanner_ScanDone;
 			Scanner.Progress += Scanner_Progress;
 			Scanner.ThumbnailProgress += Scanner_ThumbnailProgress;
+			Scanner.FileEnumerationProgress += Scanner_FileEnumerationProgress;
 			Scanner.ThumbnailsRetrieved += Scanner_ThumbnailsRetrieved;
 			Scanner.DatabaseCleaned += Scanner_DatabaseCleaned;
 			Scanner.FilesEnumerated += Scanner_FilesEnumerated;
@@ -576,6 +579,9 @@ namespace VDF.GUI.ViewModels {
 				ExportScanResults(BackupScanResultsFile);
 #pragma warning restore CS4014
 		}
+
+		void Scanner_FileEnumerationProgress(FileEnumerationReport report) =>
+			Dispatcher.UIThread.Post(() => ScanEnumeration.Update(report));
 
 		void Scanner_FilesEnumerated(object? sender, EventArgs e) => ChangeIsBusyMessage();
 
@@ -1657,6 +1663,7 @@ Non-Windows setup:
 			TotalDuplicateGroups = 0;
 			TotalDuplicates = 0;
 			TotalDuplicatesSize = string.Empty;
+			ScanEnumeration.Clear();
 
 			SettingsFile.SaveSettings();
 			SyncCoreSettings();
