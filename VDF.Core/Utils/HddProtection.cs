@@ -236,6 +236,7 @@ namespace VDF.Core.Utils {
 						state.TemperatureC = null;
 						state.IsWaitingForTemperature = true;
 						state.IsWarm = false;
+						state.ResumePolls = 0; // a failed poll breaks the consecutive-cool requirement
 						SetBlockedLocked(state, true);
 					}
 				}
@@ -250,6 +251,7 @@ namespace VDF.Core.Utils {
 						state.TemperatureC = null;
 						state.IsWaitingForTemperature = true;
 						state.IsWarm = false;
+						state.ResumePolls = 0; // missing slot data also breaks a consecutive-cool sequence
 						SetBlockedLocked(state, true);
 						continue;
 					}
