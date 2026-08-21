@@ -141,14 +141,15 @@ public class BestRecommendationInteractiveMergeTests {
     public void SimilarityGroupHeader_OffersDirectMergeWithBestAndGroupFolderChoices() {
         string root = RepoRoot();
         string vmCode = File.ReadAllText(Path.Combine(root, "VDF.GUI", "ViewModels", "MainWindowVM_CheckedGroupConsolidation.cs"));
-        string viewCode = File.ReadAllText(Path.Combine(root, "VDF.GUI", "Views", "DuplicateResultsView.xaml.cs"));
+        string viewXaml = File.ReadAllText(Path.Combine(root, "VDF.GUI", "Views", "DuplicateResultsView.xaml"));
         string dialogCode = File.ReadAllText(Path.Combine(root, "VDF.GUI", "Views", "CheckedGroupConsolidationDialog.xaml.cs"));
         string dialogXaml = File.ReadAllText(Path.Combine(root, "VDF.GUI", "Views", "CheckedGroupConsolidationDialog.xaml"));
 
         Assert.Contains("ConsolidateGroupHeaderCommand", vmCode, StringComparison.Ordinal);
         Assert.Contains("item.ItemInfo.GroupId == header.GroupId", vmCode, StringComparison.Ordinal);
-        Assert.Contains("GroupMergeButtonContent = \"合并…\"", viewCode, StringComparison.Ordinal);
-        Assert.Contains("Command = vm.ConsolidateGroupHeaderCommand", viewCode, StringComparison.Ordinal);
+        Assert.Contains("Command=\"{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).ConsolidateGroupHeaderCommand}\"", viewXaml, StringComparison.Ordinal);
+        Assert.Contains("Content=\"合并…\"", viewXaml, StringComparison.Ordinal);
+        Assert.Contains("CommandParameter=\"{Binding}\"", viewXaml, StringComparison.Ordinal);
         Assert.Contains("folders = candidates.Select(CandidateFolder)", dialogCode, StringComparison.Ordinal);
         Assert.Contains("KeeperComboBox.SelectedIndex = bestIndex", dialogCode, StringComparison.Ordinal);
         Assert.Contains("FolderComboBox.ItemsSource = folders", dialogCode, StringComparison.Ordinal);

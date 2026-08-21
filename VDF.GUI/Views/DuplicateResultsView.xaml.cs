@@ -31,103 +31,14 @@ namespace VDF.GUI.Views {
 	public partial class DuplicateResultsView : UserControl {
 		const string ConsolidateMenuTag = "vdf-single-resource-consolidate";
 		const string GroupMergeMenuTag = "vdf-group-merge";
-		const string SmartNonBestMenuTag = "vdf-smart-select-non-best";
-		const string CheckedGroupMergeButtonName = "CheckedGroupMergeButton";
-		const string GroupMergeButtonContent = "合并…";
-		bool groupMergeButtonRefreshPending;
+		long scrollRestoreGeneration;
 
 		public DuplicateResultsView() {
 			AvaloniaXamlLoader.Load(this);
-			AddCheckedGroupMergeButton();
-			ResultsListControl.LayoutUpdated += (_, _) => ScheduleGroupMergeButtons();
 			DataContextChanged += (_, _) => WireViewModel();
 			WireViewModel();
-			if (this.FindControl<Button>("AutoSelectButton")?.Flyout is MenuFlyout autoSelectFlyout) {
-				autoSelectFlyout.Opening += (_, _) => {
-					EnsureSmartNonBestMenuItem(autoSelectFlyout);
-					RebuildSavedExpressionItems();
-				};
-			}
-		}
-
-		/// <summary>
-		/// Adds the same-group consolidation entry to the existing checked-items action bar
-		/// without making the large results XAML more coupled to this custom workflow.
-		/// The action bar already appears only while at least one file is checked; the command
-		/// itself validates that at least two checked items share one GroupId.
-		/// </summary>
-		void AddCheckedGroupMergeButton() {
-			if (this.FindControl<Button>(CheckedGroupMergeButtonName) != null) return;
-			if (Content is not Grid root) return;
-			Border? actionBar = root.Children.OfType<Border>()
-				.FirstOrDefault(child => Grid.GetRow(child) == 4);
-			if (actionBar?.Child is not DockPanel dock) return;
-			StackPanel? actions = dock.Children.OfType<StackPanel>()
-				.FirstOrDefault(panel => panel.Orientation == Avalonia.Layout.Orientation.Horizontal && panel.Children.OfType<Button>().Any());
-			if (actions == null) return;
-
-			var button = new Button {
-				Name = CheckedGroupMergeButtonName,
-				Content = "合并所勾选副本…",
-				FontSize = 12.5,
-				FontWeight = Avalonia.Media.FontWeight.SemiBold,
-				Padding = new Thickness(14, 5),
-			};
-			button.SetValue(ToolTip.TipProperty,
-				"同一相似组中勾选至少 2 个副本后，可选择保留副本、组内目标文件夹或自定义目录进行安全合并。");
-			button.Click += (_, _) => ViewModel?.ConsolidateCheckedGroupCommand.Execute().Subscribe();
-			actions.Children.Insert(0, button);
-		}
-
-		/// <summary>
-		/// Group headers are virtualized. Inject the direct merge button into realized
-		/// traditional group headers after layout instead of duplicating the large result-row
-		/// template. New containers created while scrolling receive the same button.
-		/// </summary>
-		void ScheduleGroupMergeButtons() {
-			if (groupMergeButtonRefreshPending) return;
-			groupMergeButtonRefreshPending = true;
-			Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-				groupMergeButtonRefreshPending = false;
-				EnsureGroupMergeButtons();
-			}, Avalonia.Threading.DispatcherPriority.Loaded);
-		}
-
-		void EnsureGroupMergeButtons() {
-			if (ViewModel is not MainWindowVM vm) return;
-			foreach (var container in ResultsListControl.GetRealizedContainers()) {
-				if (container.DataContext is not ResultsGroupHeader group) continue;
-				var panels = container.GetVisualDescendants().OfType<StackPanel>();
-				StackPanel? actionPanel = panels.FirstOrDefault(panel =>
-					panel.Orientation == Avalonia.Layout.Orientation.Horizontal &&
-					panel.Children.OfType<Button>().Count() >= 2);
-				if (actionPanel == null || actionPanel.Children.OfType<Button>().Any(button => Equals(button.Content, GroupMergeButtonContent)))
-					continue;
-
-				var mergeButton = new Button {
-					Content = GroupMergeButtonContent,
-					Command = vm.ConsolidateGroupHeaderCommand,
-					CommandParameter = group,
-				};
-				mergeButton.Classes.Add("group-action");
-				mergeButton.SetValue(ToolTip.TipProperty,
-					"合并当前相似组：默认保留推荐 BEST，并从本组已有目录中选择最终目标文件夹。");
-				actionPanel.Children.Add(mergeButton);
-			}
-		}
-
-		void EnsureSmartNonBestMenuItem(MenuFlyout flyout) {
-			if (ViewModel is not MainWindowVM vm) return;
-			if (flyout.Items.OfType<MenuItem>().Any(item => Equals(item.Tag, SmartNonBestMenuTag)))
-				return;
-			var item = new MenuItem {
-				Header = "智能选择非 BEST…",
-				Tag = SmartNonBestMenuTag,
-				Command = vm.SmartSelectNonBestCommand,
-			};
-			item.SetValue(ToolTip.TipProperty,
-				"每组保留推荐 BEST；可按文件名和目录路径关键词，仅勾选命中的非 BEST。");
-			flyout.Items.Insert(Math.Min(1, flyout.Items.Count), item);
+			if (this.FindControl<Button>("AutoSelectButton")?.Flyout is MenuFlyout autoSelectFlyout)
+				autoSelectFlyout.Opening += (_, _) => RebuildSavedExpressionItems();
 		}
 
 		/// <summary>
@@ -162,7 +73,6 @@ namespace VDF.GUI.Views {
 			};
 			vm.ResultsAnchorProvider = CaptureScrollAnchor;
 			vm.ResultsScrollToRow = ScrollRowToViewportOffset;
-			ScheduleGroupMergeButtons();
 		}
 
 		ResultsScrollAnchor.Capture? CaptureScrollAnchor() {
@@ -181,12 +91,17 @@ namespace VDF.GUI.Views {
 		}
 
 		void ScrollRowToViewportOffset(object row, double viewportOffsetY) {
+			long restoreTicket = ++scrollRestoreGeneration;
 			Avalonia.Threading.Dispatcher.UIThread.Post(() => {
+				if (restoreTicket != scrollRestoreGeneration) return;
 				int index = ResultsListControl.Items.IndexOf(row);
 				if (index < 0) return;
 				ResultsListControl.ScrollIntoView(index);
 				Avalonia.Threading.Dispatcher.UIThread.Post(() => {
-					if (resultsScrollViewer == null) return;
+					// A wheel, scrollbar click/drag or keyboard navigation after the rebuild
+					// wins over this old restore. This is the key guard against the visible
+					// "scroll down, then suddenly jump back" race.
+					if (restoreTicket != scrollRestoreGeneration || resultsScrollViewer == null) return;
 					var container = ResultsListControl.ContainerFromIndex(index);
 					if (container?.TranslatePoint(new Point(0, 0), resultsScrollViewer) is not { } p) return;
 					resultsScrollViewer.Offset = new Vector(
@@ -196,11 +111,22 @@ namespace VDF.GUI.Views {
 			}, Avalonia.Threading.DispatcherPriority.Loaded);
 		}
 
+		void CancelPendingScrollRestore() => scrollRestoreGeneration++;
+
+		void OnResultsPointerWheelChanged(object? sender, PointerWheelEventArgs e) =>
+			CancelPendingScrollRestore();
+
+		void OnResultsKeyDown(object? sender, KeyEventArgs e) {
+			if (e.Key is Key.Up or Key.Down or Key.PageUp or Key.PageDown or Key.Home or Key.End)
+				CancelPendingScrollRestore();
+		}
+
 		readonly SelectionHeaderCleanup selectionHeaderCleanup = new();
 		void OnResultsSelectionChanged(object? sender, SelectionChangedEventArgs e) =>
 			selectionHeaderCleanup.Run(ResultsListControl.SelectedItems);
 
 		void OnResultsPointerPressed(object? sender, PointerPressedEventArgs e) {
+			CancelPendingScrollRestore();
 			if (!e.GetCurrentPoint(ResultsListControl).Properties.IsRightButtonPressed) return;
 			if (e.Source is not Control source) return;
 			var container = source.FindAncestorOfType<ListBoxItem>(includeSelf: true);
@@ -289,7 +215,6 @@ namespace VDF.GUI.Views {
 				};
 			}
 			SyncHeaderInset();
-			ScheduleGroupMergeButtons();
 		}
 
 		void SyncHeaderInset() {

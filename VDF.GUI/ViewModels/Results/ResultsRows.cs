@@ -27,7 +27,12 @@ namespace VDF.GUI.ViewModels {
 		public required Guid GroupId { get; init; }
 		/// <summary>1-based position in the current sort order, for the "Group N" title.</summary>
 		public int GroupNumber { get; internal set; }
-		public required IReadOnlyList<ResultsItemRow> Rows { get; init; }
+		IReadOnlyList<ResultsItemRow> rows = Array.Empty<ResultsItemRow>();
+		public required IReadOnlyList<ResultsItemRow> Rows {
+			get => rows;
+			init => rows = value;
+		}
+		internal void RebindRows(IReadOnlyList<ResultsItemRow> value) => rows = value;
 		public int FileCount => Rows.Count;
 		/// <summary>Sum of member sizes; missing files count as 0.</summary>
 		public long TotalBytes { get; init; }
@@ -87,6 +92,21 @@ namespace VDF.GUI.ViewModels {
 		/// the chip stays neutral: there is nothing to win.
 		/// </summary>
 		public bool HdrIsUpgrade { get; internal set; }
+
+		/// <summary>
+		/// Reuses the row object across list rebuilds so Avalonia can keep realized
+		/// containers, hover state and scroll position stable. The underlying item VM
+		/// already owns live properties such as Checked and thumbnails; only presentation
+		/// metadata calculated by ResultsListBuilder is refreshed here.
+		/// </summary>
+		internal void RefreshPresentationFrom(ResultsItemRow source) {
+			Group = source.Group;
+			IsBest = source.IsBest;
+			IsBestConfirmed = source.IsBestConfirmed;
+			BestReason = source.BestReason;
+			BestTooltip = source.BestTooltip;
+			HdrIsUpgrade = source.HdrIsUpgrade;
+		}
 	}
 
 	/// <summary>

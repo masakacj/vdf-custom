@@ -33,9 +33,24 @@
   <UserControl.Styles>
     <Style Selector="Button.group-action">
       <Setter Property="Background" Value="Transparent" />
-      <Setter Property="Padding" Value="8,2" />
+      <Setter Property="Padding" Value="6,2" />
+      <Setter Property="CornerRadius" Value="4" />
+      <Setter Property="FontSize" Value="11.5" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.toolbar-action">
+      <Setter Property="Padding" Value="10,4" />
+      <Setter Property="CornerRadius" Value="5" />
       <Setter Property="FontSize" Value="12" />
       <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+    <Style Selector="Button.toolbar-primary">
+      <Setter Property="Padding" Value="11,4" />
+      <Setter Property="CornerRadius" Value="5" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Background" Value="{DynamicResource VdfPrimaryBrush}" />
+      <Setter Property="Foreground" Value="White" />
     </Style>
     <Style Selector="Button.group-action:pointerover /template/ ContentPresenter">
       <Setter Property="Background" Value="{actipro:ThemeResource Container3BackgroundBrush}" />
@@ -59,22 +74,26 @@
       <Setter Property="Opacity" Value="0.85" />
     </Style>
     <Style Selector="ToggleButton.chip">
-      <Setter Property="Padding" Value="10,3" />
+      <Setter Property="Padding" Value="9,3" />
       <Setter Property="FontSize" Value="12" />
-      <Setter Property="CornerRadius" Value="12" />
+      <Setter Property="CornerRadius" Value="5" />
     </Style>
-    <!-- Checked rows: red tint (checked = marked for deletion) plus a danger-colored
-         left edge bar, so they stay clearly visible in dark mode where a background
-         tint alone drowned against the near-black rows (#841). The 3px edge slot is
-         always reserved (transparent when unchecked) so content never shifts. -->
+    <!-- Results UI v2 keeps file rows flat like a file manager. Checked = marked for
+         cleanup, so it still gets a restrained danger tint without changing row geometry. -->
     <Style Selector="Border.resultrow">
-      <Setter Property="Background" Value="Transparent" />
-      <Setter Property="BorderBrush" Value="Transparent" />
-      <Setter Property="BorderThickness" Value="3,0,0,0" />
+      <Setter Property="Background" Value="{DynamicResource VdfCanvasBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource VdfRowDividerBrush}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+    </Style>
+    <Style Selector="ListBox.results ListBoxItem:pointerover Border.resultrow">
+      <Setter Property="Background" Value="{DynamicResource VdfRowHoverBrush}" />
     </Style>
     <Style Selector="Border.resultrow.checked">
-      <Setter Property="Background" Value="{DynamicResource VdfSelBrush}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource VdfDangerBrush}" />
+      <Setter Property="Background" Value="{DynamicResource VdfDangerSoftBrush}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource VdfRowDividerBrush}" />
+    </Style>
+    <Style Selector="ListBox.results ListBoxItem:pointerover Border.resultrow.checked">
+      <Setter Property="Background" Value="{DynamicResource VdfSelActiveBrush}" />
     </Style>
     <!-- Checked row that is ALSO list-selected: the opaque checked tint sits on top
          of the ListBoxItem's own selection highlight, which left selection nearly
@@ -184,14 +203,47 @@
       </DockPanel>
     </Border>
 
-    <!-- ======== Toolbar: sort + filter chips ======== -->
+    <!-- ======== Results UI v2 toolbar: fixed mode strip + compact file-manager filters ======== -->
     <Border
         Grid.Row="1"
-        Padding="8,6"
-        Background="{actipro:ThemeResource Container2BackgroundBrush}"
-        BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
+        Padding="8,5"
+        Background="{DynamicResource VdfToolbarBrush}"
+        BorderBrush="{DynamicResource VdfRowDividerBrush}"
         BorderThickness="0,0,0,1">
-      <WrapPanel VerticalAlignment="Center">
+      <StackPanel Spacing="5">
+        <Grid ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+            <TextBlock VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Text="显示" />
+            <ComboBox MinWidth="150" FontSize="12"
+                      ItemsSource="{Binding ResultsViewSwitcher.Options}"
+                      SelectedItem="{Binding ResultsViewSwitcher.Selected}">
+              <ComboBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:ResultsDisplayModeOption">
+                  <TextBlock Text="{Binding Name}" />
+                </DataTemplate>
+              </ComboBox.ItemTemplate>
+            </ComboBox>
+          </StackPanel>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center"
+                      IsVisible="{Binding ResultsViewSwitcher.ShowFolderMatchThreshold}"
+                      ToolTip.Tip="{Binding ResultsViewSwitcher.FolderMatchTip}">
+            <TextBlock VerticalAlignment="Center" FontSize="11.5" Text="匹配 ≥" />
+            <NumericUpDown Width="76" Minimum="0" Maximum="100" Increment="5" FormatString="0.#"
+                           Value="{Binding ResultsViewSwitcher.FolderMatchThresholdPercent, Mode=TwoWay}" />
+            <TextBlock VerticalAlignment="Center" FontSize="11.5" Text="%" />
+          </StackPanel>
+          <TextBlock Grid.Column="2" VerticalAlignment="Center" FontSize="11.5" Opacity="0.58"
+                     TextTrimming="CharacterEllipsis" Text="{Binding ResultsViewSwitcher.Hint}" />
+          <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"
+                      IsVisible="{Binding ResultsViewSwitcher.ShowConsolidateControls}">
+            <TextBlock VerticalAlignment="Center" FontSize="11.5" Opacity="0.65"
+                       Text="{Binding ResultsViewSwitcher.SelectedSeriesText}" />
+            <Button Classes="toolbar-primary" IsEnabled="{Binding ResultsViewSwitcher.CanConsolidate}"
+                    Command="{Binding ResultsViewSwitcher.ConsolidateSelectedCommand}"
+                    Content="预览并合并所选文件夹" />
+          </StackPanel>
+        </Grid>
+        <WrapPanel VerticalAlignment="Center">
         <TextBlock Margin="0,0,4,0" VerticalAlignment="Center" FontSize="12"
                    Text="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Sort]}" />
         <ComboBox
@@ -252,7 +304,7 @@
         <Border Width="1" Height="20" Margin="10,0" Background="{actipro:ThemeResource Container3BorderBrush}" />
         <!-- Auto-select ▾ (stage 7): home of the old Selection menu — grouped by what
              the action ranges over (per group vs. across all results) -->
-        <Button x:Name="AutoSelectButton" FontSize="12" Padding="10,3" CornerRadius="12"
+        <Button x:Name="AutoSelectButton" Classes="toolbar-primary"
                 AutomationProperties.Name="{Binding Source={x:Static local:App.Lang}, Path=[Results.Toolbar.AutoSelect]}">
           <Button.Content>
             <StackPanel Orientation="Horizontal" Spacing="5">
@@ -262,6 +314,11 @@
           </Button.Content>
           <Button.Flyout>
             <MenuFlyout>
+              <MenuItem Tag="vdf-smart-select-non-best"
+                  Command="{Binding SmartSelectNonBestCommand}"
+                  Header="智能选择非 BEST…"
+                  ToolTip.Tip="每组保留推荐 BEST；可按文件名和目录路径关键词，仅勾选命中的非 BEST。" />
+              <Separator />
               <MenuItem IsEnabled="False" FontSize="11"
                   Header="{Binding Source={x:Static local:App.Lang}, Path=[Results.AutoSelect.PerGroup]}" />
               <MenuItem
@@ -310,7 +367,7 @@
         </Button>
         <Border Width="1" Height="20" Margin="10,0" Background="{actipro:ThemeResource Container3BorderBrush}" />
         <TextBox
-            MinWidth="170" FontSize="12"
+            MinWidth="230" FontSize="12"
             Text="{Binding FilterByPath}"
             PlaceholderText="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Path]}"
             ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.PathNote]}" />
@@ -319,7 +376,8 @@
             Margin="10,0,0,0"
             IsChecked="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=ResultsCompactRows}"
             Content="{Binding Source={x:Static local:App.Lang}, Path=[Results.Toolbar.CompactRows]}" />
-      </WrapPanel>
+        </WrapPanel>
+      </StackPanel>
     </Border>
 
     <!-- ======== Column header strip (right-click: column menu) ========
@@ -330,8 +388,8 @@
         x:Name="ColumnHeaderStrip"
         Grid.Row="2"
         Padding="6,4"
-        Background="{actipro:ThemeResource Container2BackgroundBrush}"
-        BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
+        Background="{DynamicResource VdfGroupHeaderBrush}"
+        BorderBrush="{DynamicResource VdfRowDividerBrush}"
         BorderThickness="0,0,0,1">
       <Border.ContextMenu>
         <ContextMenu>
@@ -417,22 +475,24 @@
         x:Name="ResultsList"
         Grid.Row="3"
         Classes="results"
-        Background="Transparent"
+        Background="{DynamicResource VdfCanvasBrush}"
         Padding="0"
         TemplateApplied="OnResultsListTemplateApplied"
         ItemsSource="{Binding ResultsRows}"
         SelectionMode="Multiple"
         SelectionChanged="OnResultsSelectionChanged"
         PointerPressed="OnResultsPointerPressed"
+        PointerWheelChanged="OnResultsPointerWheelChanged"
+        KeyDown="OnResultsKeyDown"
         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
       <ListBox.DataTemplates>
 
         <!-- ~~~~ Group header row ~~~~ -->
         <DataTemplate DataType="vm:ResultsGroupHeader">
           <Border
-              Padding="6,5"
-              Background="{actipro:ThemeResource Container2BackgroundBrush}"
-              BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
+              Padding="7,5"
+              Background="{DynamicResource VdfGroupHeaderBrush}"
+              BorderBrush="{DynamicResource VdfRowDividerBrush}"
               BorderThickness="0,1,0,1">
             <Border.ContextMenu>
               <ContextMenu>
@@ -474,10 +534,16 @@
                     Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).KeepBestInGroupHeaderCommand}"
                     CommandParameter="{Binding}"
                     Content="{Binding Source={x:Static local:App.Lang}, Path=[Results.Group.KeepBest]}" />
+                <Button
+                    Classes="group-action"
+                    Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).ConsolidateGroupHeaderCommand}"
+                    CommandParameter="{Binding}"
+                    Content="合并…"
+                    ToolTip.Tip="保留推荐 BEST，将本组其他副本合并到所选目标目录。" />
               </StackPanel>
               <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="8,0,0,0">
-                <TextBlock FontSize="13" FontWeight="SemiBold" Text="{Binding Title}" />
-                <TextBlock Classes="meta" VerticalAlignment="Center" Text="{Binding Summary}" />
+                <TextBlock FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource VdfPrimaryBrush}" Text="{Binding Title}" />
+                <TextBlock Classes="meta" FontSize="11.5" VerticalAlignment="Center" Text="{Binding Summary}" />
                 <TextBlock FontSize="11" Opacity="0.6" VerticalAlignment="Center" Text="{Binding SimilarityRangeDisplay}" />
                 <!-- Combined-mode badges (#842): which classic algorithm(s) matched in
                      this group. Only ever set by the combined grayscale+pHash scan. -->
@@ -500,12 +566,10 @@
 
         <!-- ~~~~ File row ~~~~ -->
         <DataTemplate DataType="vm:ResultsItemRow">
-          <!-- Left padding is 3 because the resultrow style reserves a 3px edge-bar
-               border slot; 3+3 keeps the content aligned with the header row. -->
           <Border
               Classes="resultrow"
               Classes.checked="{Binding Item.Checked}"
-              Padding="3,0,6,0">
+              Padding="6,0">
             <!-- Row height follows the Preview column width and, once loaded, the
                  preview's real shape: single frames keep their aspect ratio (#834),
                  multi-frame previews re-wrap to the column width (WrappedFilmstrip,
@@ -883,10 +947,10 @@
 
         <!-- ~~~~ Details panel (Tier 2 metadata, expanded via ⓘ) ~~~~ -->
         <DataTemplate DataType="vm:ResultsDetailsRow">
-          <Border Margin="36,2,16,6" Padding="14,8" CornerRadius="8"
-                  Background="{actipro:ThemeResource Container2BackgroundBrush}"
-                  BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
-                  BorderThickness="1">
+          <Border Margin="30,0,0,0" Padding="10,6" CornerRadius="0"
+                  Background="{DynamicResource VdfToolbarBrush}"
+                  BorderBrush="{DynamicResource VdfRowDividerBrush}"
+                  BorderThickness="0,0,0,1">
             <DockPanel LastChildFill="True">
               <StackPanel DockPanel.Dock="Right" VerticalAlignment="Center" Margin="16,0,0,0">
                 <Button Classes="group-action" FontSize="11.5"
@@ -924,9 +988,9 @@
     <!-- ======== Action bar (appears with checked items) ======== -->
     <Border
         Grid.Row="4"
-        Padding="10,7"
-        Background="{actipro:ThemeResource Container2BackgroundBrush}"
-        BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
+        Padding="9,6"
+        Background="{DynamicResource VdfToolbarBrush}"
+        BorderBrush="{DynamicResource VdfRowDividerBrush}"
         BorderThickness="0,1,0,0"
         IsVisible="{Binding !!DuplicatesCheckedCounter}">
       <DockPanel LastChildFill="False">
@@ -936,6 +1000,11 @@
           <Run Text="{Binding DuplicatesCheckedSize, Mode=OneWay}" />
         </TextBlock>
         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8" Margin="16,0,0,0">
+          <Button x:Name="CheckedGroupMergeButton"
+              Classes="toolbar-primary"
+              Command="{Binding ConsolidateCheckedGroupCommand}"
+              Content="合并所勾选副本…"
+              ToolTip.Tip="同一相似组中勾选至少 2 个副本后，选择保留副本和目标目录进行安全合并。" />
           <Button
               Background="{actipro:ThemeResource ControlBackgroundBrushSolidDanger}"
               Foreground="White"
@@ -1019,8 +1088,9 @@
          Scanning state. Thumbnail loading (#791) stays visible here. ======== -->
     <Border
         Grid.Row="5"
-        Padding="10,4"
-        BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
+        Padding="9,4"
+        Background="{DynamicResource VdfToolbarBrush}"
+        BorderBrush="{DynamicResource VdfRowDividerBrush}"
         BorderThickness="0,1,0,0">
       <DockPanel LastChildFill="False">
         <StackPanel Orientation="Horizontal" Spacing="16">
