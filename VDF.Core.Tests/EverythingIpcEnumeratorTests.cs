@@ -102,7 +102,9 @@ public class EverythingIpcEnumeratorTests {
 
 	[Fact]
 	public void IniListParser_UnescapesQuotedEverythingPaths() {
-		const string raw = "\"Y:\\\\",\"\\\\\\\\server\\\\share\"";
+		const string raw = """
+			"Y:\\","\\\\server\\share"
+			""";
 		List<string> values = EverythingFolderIndexCoverageDetector.ParseIniList(raw);
 		Assert.Equal(2, values.Count);
 		Assert.Equal(@"Y:\", values[0]);
