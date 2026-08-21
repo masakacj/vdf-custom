@@ -110,6 +110,25 @@ public class SmartNonBestSelectionTests {
     }
 
     [Fact]
+    public void HiddenFullGroupBest_DoesNotCauseVisibleBestToBeSelected() {
+        var group = Guid.NewGuid();
+        string root = Path.Combine(Path.GetTempPath(), "vdf-smart-visible-best");
+        var hiddenBest = Video(group, Path.Combine(root, "hidden"), "master-hidden.mkv", 20_000);
+        var visibleBest = Video(group, Path.Combine(root, "visible"), "best-visible.mkv", 12_000);
+        var visibleLoser = Video(group, Path.Combine(root, "visible"), "copy-visible.mkv", 6_000);
+
+        var selected = MainWindowVM.ComputeSmartNonBestSelection(
+            new[] { hiddenBest, visibleBest, visibleLoser },
+            item => !ReferenceEquals(item, hiddenBest),
+            new SmartNonBestSelectionOptions(string.Empty, string.Empty),
+            new[] { "Bitrate", "Resolution", "Duration" });
+
+        Assert.Single(selected);
+        Assert.Same(visibleLoser, selected[0]);
+        Assert.DoesNotContain(visibleBest, selected);
+    }
+
+    [Fact]
     public void KeywordParser_AcceptsChineseAndAsciiSeparators() {
         string[] keywords = MainWindowVM.ParseSmartSelectionKeywords("copy, low；预览\n临时，archive;copy");
 
