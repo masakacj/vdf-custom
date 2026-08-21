@@ -29,6 +29,11 @@ namespace VDF.GUI {
 	class Program {
 		[STAThread]
 		public static int Main(string[] args) {
+			// The downloaded updater executable must run before Avalonia/System.CommandLine:
+			// it waits for the old GUI to exit, overlays the new release and restarts it.
+			if (SelfUpdateInstaller.TryHandle(args) is int updateExitCode)
+				return updateExitCode;
+
 			Option<FileInfo> settingsOption = new("--settings", new[] { "-s" }) {
 				Description = "Path to a settings file to load and save."
 			};

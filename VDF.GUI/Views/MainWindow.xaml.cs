@@ -277,6 +277,17 @@ namespace VDF.GUI.Views {
 			}
 		}
 
+		/// <summary>
+		/// The updater has already run the normal SaveScanResults flow. Bypass the normal
+		/// Closing prompt so the staged updater can observe this process exiting and replace
+		/// its executable/DLLs without a second confirmation dialog.
+		/// </summary>
+		internal void ShutdownForUpdate() {
+			Closing -= MainWindow_Closing;
+			try { SettingsFile.SaveSettings(); } catch { }
+			ApplicationHelpers.CurrentApplicationLifetime.Shutdown();
+		}
+
 		void MainWindow_Exit(object? sender, ControlledApplicationLifetimeExitEventArgs e) {
 			if (hasExited) return;
 			hasExited = true;

@@ -222,6 +222,10 @@
                                 Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Menu.ManageBlacklist]}" />
                             <Separator />
                             <MenuItem
+                                Command="{Binding CheckForUpdatesCommand}"
+                                Header="检查更新…"
+                                IsVisible="{Binding IsWindows}" />
+                            <MenuItem
                                 Command="{Binding AboutCommand}"
                                 Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Menu.About]}" />
                             <MenuItem
