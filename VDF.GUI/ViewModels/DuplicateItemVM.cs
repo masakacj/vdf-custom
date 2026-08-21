@@ -72,7 +72,11 @@ namespace VDF.GUI.ViewModels {
 						ItemInfo.Path + "|w=" + SettingsFile.Instance.ThumbnailMaxWidth
 						+ "|n=" + frameCount + "|g2");
 
-					ThumbCacheHelpers.Provider?.AppendIfMissing(key, stream => {
+					// Snapshot the provider for the whole operation. Import/start-scan can replace
+					// the global provider; reading it twice could otherwise cross two packs in one
+					// thumbnail operation.
+					ThumbPack? provider = ThumbCacheHelpers.Provider;
+					provider?.AppendIfMissing(key, stream => {
 						var uiBmp = ImageUtils.JoinImages(ItemInfo.ImageList, stream, gridColumns);
 						if (uiBmp != null) {
 							LRUBitmapCache.GetOrCreate(key, () => uiBmp);
@@ -170,7 +174,8 @@ namespace VDF.GUI.ViewModels {
 		public Bitmap? Thumbnail {
 			get {
 				if (string.IsNullOrEmpty(ThumbnailKey)) return null;
-				if (ThumbCacheHelpers.Provider == null)
+				ThumbPack? provider = ThumbCacheHelpers.Provider;
+				if (provider == null)
 #if DEBUG
 					throw new InvalidOperationException("No active thumbnail provider");
 #else
@@ -178,7 +183,7 @@ namespace VDF.GUI.ViewModels {
 #endif
 				try {
 					return LRUBitmapCache.GetOrCreate(ThumbnailKey, () => {
-						using var s = ThumbCacheHelpers.Provider.OpenKey(ThumbnailKey);
+						using var s = provider.OpenKey(ThumbnailKey);
 						if (s == null) return null!;
 						return new Avalonia.Media.Imaging.Bitmap(s);
 					});
