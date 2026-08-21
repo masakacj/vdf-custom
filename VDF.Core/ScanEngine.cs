@@ -42,6 +42,8 @@ namespace VDF.Core {
 		public event EventHandler? ScanAborted;
 		public event EventHandler? ThumbnailsRetrieved;
 		public event Action<int, int>? ThumbnailProgress;
+		/// <summary>Reports which backend enumerates each include root and its measured result/time.</summary>
+		public event Action<FileEnumerationReport>? FileEnumerationProgress;
 		public event EventHandler? FilesEnumerated;
 		public event EventHandler? DatabaseCleaned;
 
@@ -726,7 +728,8 @@ namespace VDF.Core {
 				}
 
 				foreach (FileInfo file in FileUtils.GetFilesRecursive(path, Settings.IgnoreReadOnlyFolders, Settings.IgnoreReparsePoints,
-					Settings.IncludeSubDirectories, Settings.IncludeImages, Settings.BlackList.ToList(), cancellationToken)) {
+					Settings.IncludeSubDirectories, Settings.IncludeImages, Settings.BlackList.ToList(), cancellationToken,
+					report => FileEnumerationProgress?.Invoke(report))) {
 					if (cancellationToken.IsCancellationRequested)
 						return;
 					FileEntry fEntry;
