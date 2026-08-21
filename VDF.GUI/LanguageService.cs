@@ -89,11 +89,12 @@ namespace VDF.GUI {
 			values["Profile.Ai.Desc"] = "在高质量整合基础上加入本地 AI，寻找裁剪、缩放、严重调色或重剪的完整同源版本；结果建议人工复核。";
 			values["Profile.Ai.Time"] = "AI · 需复核";
 
-			// Product semantics: BEST is the conservative dominance decision, not the old
-			// configurable lexicographic ranker. File size remains visible metadata only.
-			values["Results.Row.Best"] = "严格 BEST";
-			values["Results.Group.KeepBest"] = "保留严格 BEST";
-			values["QualityCriteria.Size"] = "文件大小（仅信息，不参与 BEST）";
+			// BEST now follows the user's explicit quality-criterion priority. The safety
+			// gate remains conservative for automatic destructive actions; file size stays
+			// display-only and is intentionally excluded from the BEST-rule editor.
+			values["Results.Row.Best"] = "BEST";
+			values["Results.Group.KeepBest"] = "保留 BEST";
+			values["QualityCriteria.Size"] = "文件大小（不参与 BEST）";
 		}
 
 		internal static bool CompositeFormatCompatible(string fallback, string translated) {

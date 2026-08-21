@@ -20,6 +20,7 @@ using Avalonia.Collections;
 using Avalonia.Input.Platform;
 using ReactiveUI;
 using VDF.Core;
+using VDF.Core.Utils;
 using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
@@ -45,6 +46,7 @@ namespace VDF.GUI.ViewModels {
 		List<ResultsGroupHeader> resultsGroups = new();
 		bool resultsHavePartialClips;
 		ResultsViewSwitcherRow? resultsViewSwitcher;
+		IReadOnlyDictionary<string, FolderMediaStats>? resultsFolderStatsCache;
 
 		/// <summary>
 		/// Stable, fixed-toolbar controller for switching between similarity groups and
@@ -160,9 +162,10 @@ namespace VDF.GUI.ViewModels {
 				ExpandedDetails = expandedResultsDetails,
 				// Every group receives one most-likely BEST recommendation. IsConfirmed is
 				// separately carried by the result row and remains the gate for unattended work.
-				RecommendBest = members => RecommendBest(members),
+				RecommendBest = members => RecommendBestUsingCurrentRules(members),
 				Formats = BuildGroupSummaryFormats(),
 			});
+			ApplyFolderStats(result.Groups);
 			// Preserve ResultsItemRow identity before any presentation-specific grouping
 			// consumes the canonical rows. This lets the virtualized ListBox retain realized
 			// file containers through ordinary selection/BEST/status refreshes.
@@ -231,7 +234,38 @@ namespace VDF.GUI.ViewModels {
 
 		internal void RefreshResultsView() => RebuildResultsList();
 
+		void ApplyFolderStats(IReadOnlyList<ResultsGroupHeader> groups) {
+			if (resultsFolderStatsCache == null) {
+				var folders = Duplicates
+					.Select(item => string.IsNullOrWhiteSpace(item.ItemInfo.Folder)
+						? Path.GetDirectoryName(item.ItemInfo.Path) ?? string.Empty
+						: item.ItemInfo.Folder)
+					.Where(folder => !string.IsNullOrWhiteSpace(folder))
+					.Distinct(CoreUtils.IsWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+					.ToList();
+				resultsFolderStatsCache = Scanner.GetExactFolderMediaStats(folders);
+			}
+
+			foreach (ResultsItemRow row in groups.SelectMany(group => group.Rows)) {
+				string folder = string.IsNullOrWhiteSpace(row.Item.ItemInfo.Folder)
+					? Path.GetDirectoryName(row.Item.ItemInfo.Path) ?? string.Empty
+					: row.Item.ItemInfo.Folder;
+				string key = NormalizeFolderStatsKey(folder);
+				row.FolderStatsText = resultsFolderStatsCache.TryGetValue(key, out FolderMediaStats stats) && stats.FileCount > 0
+					? $"{stats.FileCount:N0} 文件 · {stats.TotalBytes.BytesToString()}"
+					: string.Empty;
+			}
+		}
+
+		static string NormalizeFolderStatsKey(string? folder) {
+			string value = (folder ?? string.Empty).Trim().Replace('\\', '/');
+			while (value.Length > 1 && value.EndsWith("/", StringComparison.Ordinal))
+				value = value[..^1];
+			return value;
+		}
+
 		void BuildActiveResultsView(bool resetSessionStats = true) {
+			resultsFolderStatsCache = null;
 			RunLightweightQualityDiagnostics();
 			RebuildResultsList();
 			if (resetSessionStats)
@@ -278,13 +312,17 @@ namespace VDF.GUI.ViewModels {
 			if (header == null) return;
 			var members = header.Rows.Select(row => row.Item).ToList();
 			if (members.Count < 2) return;
-			BestRecommendation recommendation = RecommendBest(members);
+			BestRecommendation recommendation = RecommendBestUsingCurrentRules(members);
 			using (BeginSelectionUndoBatch()) {
 				foreach (DuplicateItemVM item in members)
 					item.Checked = !ReferenceEquals(item, recommendation.Winner);
 			}
-			RefreshGroupStats();
-			RebuildResultsList();
+			// Checked is a live property on DuplicateItemVM; counters/action bar update from
+			// PropertyChanged. Rebuilding every result group here made a two-file click scan
+			// the entire result set and folder relations, causing the visible pause reported
+			// on large databases. Only the special checked-group sort needs a structural refresh.
+			if (SettingsFile.Instance.ResultsSortMode == ResultsSortMode.GroupsWithCheckedItems)
+				RebuildResultsList();
 		});
 
 		public ReactiveCommand<ResultsGroupHeader, Unit> MarkGroupHeaderNotAMatchCommand => ReactiveCommand.CreateFromTask<ResultsGroupHeader>(async header => {

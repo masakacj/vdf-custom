@@ -101,7 +101,7 @@ namespace VDF.GUI.ViewModels {
 				var candidates = new[] { group.Keeper }.Concat(group.Losers)
 					.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
 					.ToList();
-				BestRecommendation recommendation = RecommendBest(candidates);
+				BestRecommendation recommendation = RecommendBestUsingCurrentRules(candidates);
 				result.Add(new ResourceSeriesConfirmedReview(
 					group.GroupId,
 					candidates,
@@ -131,7 +131,7 @@ namespace VDF.GUI.ViewModels {
 					bool automatic = !matches.Any(match => match.ReviewOnly) &&
 						TryPickDecisiveQualityWinner(candidates, out _);
 					if (automatic) continue;
-					BestRecommendation recommendation = RecommendBest(candidates);
+					BestRecommendation recommendation = RecommendBestUsingCurrentRules(candidates);
 					result.Add(new ResourceSeriesManualReview(
 						matchGroup.Key, candidates, recommendation.Winner, recommendation.Reason));
 				}

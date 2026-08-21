@@ -197,8 +197,6 @@ namespace VDF.GUI.ViewModels {
 				header.GroupNumber = i + 1;
 				header.Title = string.Format(request.Formats.GroupTitle, header.GroupNumber);
 				header.Summary = BuildSummary(header, request.Formats);
-				if (!string.IsNullOrWhiteSpace(header.BestSummary))
-					header.Summary += " · " + header.BestSummary;
 				flat.Add(header);
 				foreach (var row in header.Rows) {
 					hasPartialClips |= row.Item.ItemInfo.Flags.HasFlag(Core.DuplicateFlags.PartialClip);

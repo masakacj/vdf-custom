@@ -15,6 +15,7 @@
 //
 
 using System.Globalization;
+using ReactiveUI;
 
 namespace VDF.GUI.ViewModels {
 
@@ -71,27 +72,70 @@ namespace VDF.GUI.ViewModels {
 	}
 
 	/// <summary>Member entry of the flattened results list, wrapping the shared item VM.</summary>
-	public sealed class ResultsItemRow {
+	public sealed class ResultsItemRow : ReactiveObject {
 		public ResultsItemRow(DuplicateItemVM item) => Item = item;
 
 		public DuplicateItemVM Item { get; }
 		public ResultsGroupHeader Group { get; internal set; } = null!;
+
+		bool isBest;
 		/// <summary>The system's most-likely keeper. Every non-empty duplicate group gets exactly one.</summary>
-		public bool IsBest { get; internal set; }
+		public bool IsBest {
+			get => isBest;
+			internal set {
+				if (isBest == value) return;
+				this.RaiseAndSetIfChanged(ref isBest, value);
+				this.RaisePropertyChanged(nameof(IsBestNeedsReview));
+				this.RaisePropertyChanged(nameof(BestBadgeText));
+			}
+		}
+
+		bool isBestConfirmed;
 		/// <summary>True only when the recommendation also passes the conservative unattended-action gate.</summary>
-		public bool IsBestConfirmed { get; internal set; }
+		public bool IsBestConfirmed {
+			get => isBestConfirmed;
+			internal set {
+				if (isBestConfirmed == value) return;
+				this.RaiseAndSetIfChanged(ref isBestConfirmed, value);
+				this.RaisePropertyChanged(nameof(IsBestNeedsReview));
+				this.RaisePropertyChanged(nameof(BestBadgeText));
+			}
+		}
 		public bool IsBestNeedsReview => IsBest && !IsBestConfirmed;
 		public string BestBadgeText => IsBestConfirmed ? "BEST" : "推荐 BEST";
+
+		string? bestReason;
 		/// <summary>Visible explanation of why the recommendation won and, when applicable, why it still needs review.</summary>
-		public string? BestReason { get; internal set; }
+		public string? BestReason {
+			get => bestReason;
+			internal set => this.RaiseAndSetIfChanged(ref bestReason, value);
+		}
+
+		string? bestTooltip;
 		/// <summary>Full BEST explanation for hover.</summary>
-		public string? BestTooltip { get; internal set; }
+		public string? BestTooltip {
+			get => bestTooltip;
+			internal set => this.RaiseAndSetIfChanged(ref bestTooltip, value);
+		}
+
+		bool hdrIsUpgrade;
 		/// <summary>
 		/// This member's HDR format beats at least one other member of the group — only
 		/// then does the HDR chip turn green. In uniform groups (all HDR10, or all SDR)
 		/// the chip stays neutral: there is nothing to win.
 		/// </summary>
-		public bool HdrIsUpgrade { get; internal set; }
+		public bool HdrIsUpgrade {
+			get => hdrIsUpgrade;
+			internal set => this.RaiseAndSetIfChanged(ref hdrIsUpgrade, value);
+		}
+
+		string folderStatsText = string.Empty;
+		/// <summary>Cached direct-folder media count and size, sourced from the VDF database.</summary>
+		public string FolderStatsText {
+			get => folderStatsText;
+			internal set => this.RaiseAndSetIfChanged(ref folderStatsText, value);
+		}
+		public bool HasFolderStats => FolderStatsText.Length > 0;
 
 		/// <summary>
 		/// Reuses the row object across list rebuilds so Avalonia can keep realized
@@ -106,6 +150,7 @@ namespace VDF.GUI.ViewModels {
 			BestReason = source.BestReason;
 			BestTooltip = source.BestTooltip;
 			HdrIsUpgrade = source.HdrIsUpgrade;
+			FolderStatsText = source.FolderStatsText;
 		}
 	}
 

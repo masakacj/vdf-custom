@@ -140,9 +140,17 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		/// <summary>
-		/// Always returns one most-likely BEST. This is intentionally more permissive than
-		/// TryPickDecisiveQualityWinner: ambiguous groups still get a useful recommendation,
-		/// but IsConfirmed=false keeps unattended merge/delete logic conservative.
+		/// UI-facing BEST recommendation using the user's current criterion priority.
+		/// The winner follows the configured order immediately; the conservative dominance
+		/// gate still controls IsConfirmed so changing priorities cannot silently make an
+		/// unsafe destructive action automatic.
+		/// </summary>
+		internal BestRecommendation RecommendBestUsingCurrentRules(IReadOnlyList<DuplicateItemVM> candidates) =>
+			RecommendBest(candidates, QualityCriteriaOrder);
+
+		/// <summary>
+		/// Always returns one most-likely BEST. This legacy overload preserves the fixed
+		/// weighted recommendation used by tests/callers that do not opt into user rules.
 		/// </summary>
 		internal static BestRecommendation RecommendBest(IReadOnlyList<DuplicateItemVM> candidates) {
 			if (candidates == null || candidates.Count == 0)
@@ -152,14 +160,48 @@ namespace VDF.GUI.ViewModels {
 
 			bool confirmed = TryPickDecisiveQualityWinner(candidates, out DuplicateItemVM decisive);
 			DuplicateItemVM winner = confirmed ? decisive : PickLikelyQualityWinner(candidates);
+			return BuildBestRecommendation(winner, candidates, confirmed, sizeIsWeakTieBreaker: true);
+		}
+
+		/// <summary>
+		/// User-configurable BEST: quality criteria are lexicographic in the chosen order.
+		/// Physical file size is excluded; when the user's winner differs from the strict
+		/// dominance winner the recommendation remains review-only.
+		/// </summary>
+		internal static BestRecommendation RecommendBest(
+			IReadOnlyList<DuplicateItemVM> candidates,
+			IEnumerable<string> criteriaOrder) {
+			if (candidates == null || candidates.Count == 0)
+				throw new ArgumentException("At least one candidate is required.", nameof(candidates));
+			if (candidates.Count == 1)
+				return new BestRecommendation(candidates[0], true, "BEST：当前只有一个候选副本。");
+
+			var criteria = ResolveBestCriteria(criteriaOrder).ToList();
+			DuplicateItemVM preferred = VDF.Core.Utils.QualityRanker.PickKeeper(
+				candidates.ToList(),
+				criteria,
+				item => item.ItemInfo.IsImage);
+			bool hasDecisive = TryPickDecisiveQualityWinner(candidates, out DuplicateItemVM decisive);
+			bool confirmed = hasDecisive && ReferenceEquals(preferred, decisive);
+			return BuildBestRecommendation(preferred, candidates, confirmed, sizeIsWeakTieBreaker: false);
+		}
+
+		static BestRecommendation BuildBestRecommendation(
+			DuplicateItemVM winner,
+			IReadOnlyList<DuplicateItemVM> candidates,
+			bool confirmed,
+			bool sizeIsWeakTieBreaker) {
 			string strengths = BuildRecommendationStrengths(winner, candidates);
 			if (confirmed)
 				return new BestRecommendation(winner, true,
 					$"确认 BEST：{strengths}。该副本对同组其他副本不存在已知质量劣势，可用于自动处理。");
 
 			string uncertainty = BuildRecommendationUncertainty(candidates);
+			string sizeNote = sizeIsWeakTieBreaker
+				? "文件大小只作为最后的弱参考，不会优先选择更小文件。"
+				: "文件大小不参与 BEST 判断。";
 			return new BestRecommendation(winner, false,
-				$"推荐 BEST：{strengths}。需人工复核：{uncertainty}。文件大小只作为最后的弱参考，不会优先选择更小文件。");
+				$"推荐 BEST：{strengths}。需人工复核：{uncertainty}。{sizeNote}");
 		}
 
 		/// <summary>Legacy tuple seam retained for callers/tests; now every non-empty group receives a BEST.</summary>

@@ -19,6 +19,37 @@ namespace VDF.Core {
 
 	public sealed partial class ScanEngine {
 		/// <summary>
+		/// Returns direct (non-recursive) media counts for exactly the requested folders.
+		/// A single database pass is used, so the results view can show folder count/size
+		/// without waking network disks or issuing one filesystem query per visible row.
+		/// </summary>
+		public IReadOnlyDictionary<string, FolderMediaStats> GetExactFolderMediaStats(IEnumerable<string> folders) {
+			var comparer = CoreUtils.IsWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+			var requested = new HashSet<string>(comparer);
+			foreach (string folder in folders) {
+				string normalized = NormalizeCoverageFolder(folder);
+				if (normalized.Length > 0)
+					requested.Add(normalized);
+			}
+			var mutable = requested.ToDictionary(folder => folder, _ => (Count: 0, Bytes: 0L), comparer);
+			if (mutable.Count == 0)
+				return new Dictionary<string, FolderMediaStats>(comparer);
+
+			foreach (FileEntry entry in DatabaseUtils.Database.ToArray()) {
+				string folder = NormalizeCoverageFolder(entry.Folder);
+				if (!mutable.TryGetValue(folder, out var value)) continue;
+				value.Count++;
+				value.Bytes = SaturatingAdd(value.Bytes, Math.Max(0, entry.FileSize));
+				mutable[folder] = value;
+			}
+
+			return mutable.ToDictionary(
+				pair => pair.Key,
+				pair => new FolderMediaStats(pair.Value.Count, pair.Value.Bytes),
+				comparer);
+		}
+
+		/// <summary>
 		/// Returns counts for the requested direct folders and, for resource-consolidation
 		/// planning, useful ancestors below the configured scan roots. All counts come from
 		/// the already-loaded VDF database: no directory enumeration and no media reads.
