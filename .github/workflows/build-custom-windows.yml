@@ -7,6 +7,7 @@ on:
       - 'VDF.Core/**'
       - 'VDF.GUI/**'
       - 'VDF.CLI/**'
+      - 'VDF.Updater/**'
       - 'Directory.Build.props'
       - 'VideoDuplicateFinder.sln'
       - '.github/workflows/build-custom-windows.yml'
@@ -92,6 +93,12 @@ jobs:
         shell: pwsh
         run: dotnet publish .\VDF.GUI\VDF.GUI.csproj -c Release -v q -p:PublishAot=true -p:VersionPrefix=${{ steps.version.outputs.version }} -r win-x64 -o .\artifacts\GUI-win-x64
 
+      - name: Publish standalone updater win-x64 Native AOT
+        shell: pwsh
+        run: |
+          dotnet publish .\VDF.Updater\VDF.Updater.csproj -c Release -v q -p:PublishAot=true -p:VersionPrefix=${{ steps.version.outputs.version }} -r win-x64 -o .\artifacts\Updater-win-x64
+          Copy-Item .\artifacts\Updater-win-x64\VDF.Updater.exe .\artifacts\GUI-win-x64\VDF.Updater.exe -Force
+
       - name: Publish CLI win-x64 Native AOT
         shell: pwsh
         run: dotnet publish .\VDF.CLI\VDF.CLI.csproj -c Release -v q -p:PublishAot=true -p:VersionPrefix=${{ steps.version.outputs.version }} -r win-x64 -o .\artifacts\CLI-win-x64
@@ -112,6 +119,7 @@ jobs:
           New-Item -ItemType Directory -Force .\release | Out-Null
           Compress-Archive -Path .\artifacts\GUI-win-x64\* -DestinationPath ".\release\VDF-Custom-GUI-v$version-win-x64.zip" -Force
           Compress-Archive -Path .\artifacts\CLI-win-x64\* -DestinationPath ".\release\VDF-Custom-CLI-v$version-win-x64.zip" -Force
+          Copy-Item .\artifacts\Updater-win-x64\VDF.Updater.exe .\release\VDF.Updater.exe -Force
           Copy-Item .\artifacts\BUILD_INFO.txt .\release\BUILD_INFO.txt -Force
 
       - name: Upload Actions artifact
@@ -144,6 +152,7 @@ jobs:
             'Assets:'
             "- VDF-Custom-GUI-v$version-win-x64.zip"
             "- VDF-Custom-CLI-v$version-win-x64.zip"
+            '- VDF.Updater.exe (standalone updater; put it beside VDF.GUI.exe and double-click)'
             '- BUILD_INFO.txt'
           ) -join "`n"
 
@@ -159,6 +168,7 @@ jobs:
           gh release upload $tag `
             $guiAsset `
             $cliAsset `
+            .\release\VDF.Updater.exe `
             .\release\BUILD_INFO.txt `
             --clobber
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

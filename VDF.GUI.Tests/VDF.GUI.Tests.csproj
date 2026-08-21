@@ -20,5 +20,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\VDF.GUI\VDF.GUI.csproj" />
+    <ProjectReference Include="..\VDF.Updater\VDF.Updater.csproj" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>VDF.Updater</AssemblyName>
+    <RootNamespace>VDF.Updater</RootNamespace>
+    <ApplicationIcon>..\VDF.GUI\Assets\icon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="VDF.GUI.Tests" />
+  </ItemGroup>
+
+</Project>
