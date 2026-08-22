@@ -327,10 +327,10 @@
           </Button.Content>
           <Button.Flyout>
             <MenuFlyout>
-              <MenuItem Tag="vdf-smart-select-non-best"
-                  Command="{Binding SmartSelectNonBestCommand}"
-                  Header="智能选择非 BEST…"
-                  ToolTip.Tip="每组保留推荐 BEST；可按文件名和目录路径关键词，仅勾选命中的非 BEST。" />
+              <MenuItem Tag="vdf-selection-assistant"
+                  Command="{Binding OpenSelectionAssistantCommand}"
+                  Header="选择助手…"
+                  ToolTip.Tip="像 Duplicate Cleaner Selection Assistant 一样，用可排序规则决定每组保留项；支持 BEST、路径、分辨率、码率、时间等组合，并可先预览。" />
               <Separator />
               <MenuItem IsEnabled="False" FontSize="11"
                   Header="{Binding Source={x:Static local:App.Lang}, Path=[Results.AutoSelect.PerGroup]}" />
