@@ -1,0 +1,196 @@
+<Window
+    x:Class="VDF.GUI.Views.SelectionAssistantView"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:actipro="http://schemas.actiprosoftware.com/avaloniaui"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:vm="using:VDF.GUI.ViewModels"
+    x:DataType="vm:SelectionAssistantVM"
+    Title="选择助手 · Selection Assistant"
+    Width="980"
+    Height="760"
+    MinWidth="820"
+    MinHeight="620"
+    Icon="/Assets/icon.ico"
+    WindowStartupLocation="CenterOwner"
+    mc:Ignorable="d">
+
+  <Window.Styles>
+    <Style Selector="Border.card">
+      <Setter Property="Background" Value="{actipro:ThemeResource Container1BackgroundBrush}" />
+      <Setter Property="BorderBrush" Value="{actipro:ThemeResource Container3BorderBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Padding" Value="14,12" />
+    </Style>
+    <Style Selector="Border.rule">
+      <Setter Property="BorderBrush" Value="{actipro:ThemeResource Container3BorderBrush}" />
+      <Setter Property="BorderThickness" Value="0,0,0,1" />
+      <Setter Property="Padding" Value="0,7" />
+    </Style>
+    <Style Selector="TextBlock.section-title">
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Opacity" Value="0.65" />
+    </Style>
+    <Style Selector="TextBlock.note">
+      <Setter Property="FontSize" Value="11" />
+      <Setter Property="Opacity" Value="0.65" />
+      <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Button.rule-button">
+      <Setter Property="Padding" Value="7,3" />
+      <Setter Property="MinWidth" Value="30" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+  </Window.Styles>
+
+  <Grid Margin="16" RowDefinitions="Auto,*,Auto" RowSpacing="12">
+    <StackPanel Spacing="4">
+      <TextBlock FontSize="20" FontWeight="SemiBold" Text="选择助手" />
+      <TextBlock
+          Classes="note"
+          Text="勾选代表待处理/待删除。规则按从上到下的优先级比较：第一条能区分候选的规则优先；选择助手永远为每个已处理重复组保留至少 1 个未勾选副本。" />
+    </StackPanel>
+
+    <Grid Grid.Row="1" ColumnDefinitions="3*,2*" ColumnSpacing="12">
+      <!-- Rules -->
+      <Border Classes="card">
+        <Grid RowDefinitions="Auto,Auto,Auto,*" RowSpacing="10">
+          <TextBlock Classes="section-title" Text="处理方式" />
+
+          <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="12">
+            <TextBlock VerticalAlignment="Center" Text="模式" />
+            <ComboBox Grid.Column="1" ItemsSource="{Binding ModeOptions}" SelectedItem="{Binding SelectedMode}">
+              <ComboBox.DisplayMemberBinding>
+                <Binding Path="Label" DataType="vm:SelectionAssistantModeOption" />
+              </ComboBox.DisplayMemberBinding>
+            </ComboBox>
+          </Grid>
+
+          <StackPanel Grid.Row="2" Spacing="6">
+            <TextBlock Classes="note" Text="{Binding ModeDescription}" />
+            <StackPanel Orientation="Horizontal" Spacing="18">
+              <CheckBox
+                  IsChecked="{Binding CurrentFilterOnly}"
+                  Content="仅处理当前筛选后可见结果"
+                  ToolTip.Tip="开启时隐藏行完全不修改，并且 BEST 只从当前可见成员中计算。" />
+              <CheckBox
+                  IsChecked="{Binding PreserveExistingSelection}"
+                  Content="保留其他现有勾选"
+                  ToolTip.Tip="开启时只追加本次勾选；但选择助手选出的保留项仍会强制取消勾选，防止整组全选。" />
+            </StackPanel>
+          </StackPanel>
+
+          <Grid Grid.Row="3" RowDefinitions="Auto,*" RowSpacing="7">
+            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+              <TextBlock Classes="section-title" VerticalAlignment="Center" Text="优先删除规则 · 从上到下" />
+              <Button Grid.Column="1" Command="{Binding AddRuleCommand}" Content="＋ 添加规则" />
+              <Button Grid.Column="2" Command="{Binding ResetRulesCommand}" Content="恢复默认" />
+            </Grid>
+
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <ItemsControl ItemsSource="{Binding Rules}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="vm:SelectionAssistantRuleVM">
+                    <Border Classes="rule">
+                      <Grid ColumnDefinitions="Auto,245,*,Auto,Auto,Auto" ColumnSpacing="6">
+                        <CheckBox
+                            VerticalAlignment="Center"
+                            IsChecked="{Binding Data.Enabled}"
+                            ToolTip.Tip="启用/停用此规则" />
+                        <ComboBox
+                            Grid.Column="1"
+                            MinWidth="230"
+                            ItemsSource="{Binding KindOptions}"
+                            SelectedItem="{Binding SelectedKind}">
+                          <ComboBox.DisplayMemberBinding>
+                            <Binding Path="Label" DataType="vm:SelectionAssistantRuleOption" />
+                          </ComboBox.DisplayMemberBinding>
+                        </ComboBox>
+                        <TextBox
+                            Grid.Column="2"
+                            IsVisible="{Binding NeedsValue}"
+                            Text="{Binding Data.Value}"
+                            Watermark="{Binding ValuePlaceholder}"
+                            ToolTip.Tip="支持换行、逗号或分号分隔多个关键词" />
+                        <Button
+                            Grid.Column="3"
+                            Classes="rule-button"
+                            Command="{Binding MoveUpCommand}"
+                            Content="↑"
+                            ToolTip.Tip="提高优先级" />
+                        <Button
+                            Grid.Column="4"
+                            Classes="rule-button"
+                            Command="{Binding MoveDownCommand}"
+                            Content="↓"
+                            ToolTip.Tip="降低优先级" />
+                        <Button
+                            Grid.Column="5"
+                            Classes="rule-button"
+                            Command="{Binding RemoveCommand}"
+                            Content="×"
+                            ToolTip.Tip="移除规则" />
+                      </Grid>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </Grid>
+        </Grid>
+      </Border>
+
+      <!-- Preview / safety -->
+      <StackPanel Grid.Column="1" Spacing="12">
+        <Border Classes="card">
+          <StackPanel Spacing="9">
+            <TextBlock Classes="section-title" Text="预览" />
+            <TextBlock FontSize="14" FontWeight="SemiBold" Text="{Binding PreviewStatus}" TextWrapping="Wrap" />
+            <TextBlock Classes="note" Text="{Binding PreviewDetail}" />
+            <Button HorizontalAlignment="Left" Command="{Binding PreviewCommand}" Content="预览选择结果" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="section-title" Text="规则逻辑" />
+            <TextBlock TextWrapping="Wrap" Text="1. 同一重复组内先比较第 1 条规则。" />
+            <TextBlock TextWrapping="Wrap" Text="2. 如果打平，再比较下一条，直到能区分。" />
+            <TextBlock TextWrapping="Wrap" Text="3. “非 BEST”使用当前 BEST 规则，因此可和分辨率、码率、路径偏好继续组合。" />
+            <TextBlock TextWrapping="Wrap" Text="4. 最终保留项只负责安全兜底；不会自动删除文件，仍需你在结果页执行删除/移动。" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="section-title" Text="路径规则示例" />
+            <TextBlock FontWeight="SemiBold" Text="优先保留主库" />
+            <TextBlock Classes="note" Text="添加“路径命中关键词优先保留”，填写 Y:\精选 或 \Master\。只要组内有匹配项，它会优先成为保留候选。" />
+            <TextBlock FontWeight="SemiBold" Text="优先清理临时/备份目录" />
+            <TextBlock Classes="note" Text="把“路径命中关键词优先删除”放在最上方，填写 temp、backup、cache；这些目录的副本会先输掉比较。" />
+          </StackPanel>
+        </Border>
+
+        <Border Classes="card">
+          <StackPanel Spacing="6">
+            <TextBlock Classes="section-title" Text="安全" />
+            <TextBlock Classes="note" Text="应用动作整体进入一次选择撤销记录，可回到结果页按 Ctrl+Z 撤销。当前筛选模式下，隐藏行不会被清除或新勾选。" />
+          </StackPanel>
+        </Border>
+      </StackPanel>
+    </Grid>
+
+    <Grid Grid.Row="2" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="8">
+      <TextBlock
+          VerticalAlignment="Center"
+          Classes="note"
+          Text="建议先“预览”，确认数量后再应用；应用仅改变勾选状态。" />
+      <Button Grid.Column="1" Command="{Binding PreviewCommand}" Content="预览" />
+      <Button Grid.Column="2" Classes="accent" MinWidth="110" Command="{Binding ApplyCommand}" Content="应用选择" />
+      <Button Grid.Column="3" MinWidth="90" Command="{Binding CloseCommand}" Content="关闭" IsCancel="True" />
+    </Grid>
+  </Grid>
+</Window>

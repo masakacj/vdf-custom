@@ -89,6 +89,13 @@ namespace VDF.GUI.Data {
 			set => this.RaiseAndSetIfChanged(ref _CustomSelectionPresets, value);
 		}
 
+		SelectionAssistantData _SelectionAssistant = new();
+		[JsonPropertyName("SelectionAssistant")]
+		public SelectionAssistantData SelectionAssistant {
+			get => _SelectionAssistant;
+			set => this.RaiseAndSetIfChanged(ref _SelectionAssistant, value ?? new SelectionAssistantData());
+		}
+
 		bool _AutoApplySelectionPresetEnabled;
 		[JsonPropertyName("AutoApplySelectionPresetEnabled")]
 		public bool AutoApplySelectionPresetEnabled {
