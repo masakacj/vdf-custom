@@ -46,6 +46,38 @@ public class StandaloneUpdaterTests {
     }
 
     [Fact]
+    public void BuildDownloadRanges_CoversFileExactlyWithoutGapsOrOverlap() {
+        const long total = 88_571_007;
+        IReadOnlyList<(long Start, long End)> ranges = ReleaseUpdateClient.BuildDownloadRanges(total, 8);
+
+        Assert.Equal(8, ranges.Count);
+        Assert.Equal(0, ranges[0].Start);
+        Assert.Equal(total - 1, ranges[^1].End);
+
+        long covered = 0;
+        long minLength = long.MaxValue;
+        long maxLength = 0;
+        for (int i = 0; i < ranges.Count; i++) {
+            if (i > 0)
+                Assert.Equal(ranges[i - 1].End + 1, ranges[i].Start);
+            long length = ranges[i].End - ranges[i].Start + 1;
+            covered += length;
+            minLength = Math.Min(minLength, length);
+            maxLength = Math.Max(maxLength, length);
+        }
+
+        Assert.Equal(total, covered);
+        Assert.InRange(maxLength - minLength, 0, 1);
+    }
+
+    [Fact]
+    public void BuildDownloadRanges_WhenFileIsSmallerThanRequestedSegments_UsesOneByteSegments() {
+        IReadOnlyList<(long Start, long End)> ranges = ReleaseUpdateClient.BuildDownloadRanges(3, 8);
+
+        Assert.Equal(new[] { (0L, 0L), (1L, 1L), (2L, 2L) }, ranges);
+    }
+
+    [Fact]
     public void ExtractZipSafely_RejectsPathTraversal() {
         string root = Path.Combine(Path.GetTempPath(), "vdf-standalone-update-test-" + Guid.NewGuid().ToString("N"));
         string zipPath = Path.Combine(root, "bad.zip");
