@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO.Compression;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -19,6 +20,8 @@ internal sealed record PreparedUpdate(
     string TempRoot,
     string PayloadRoot);
 
+sealed class RangeDownloadUnavailableException(string message) : HttpRequestException(message);
+
 /// <summary>
 /// Minimal GitHub Releases client used by the standalone updater. It intentionally has no
 /// dependency on VDF.GUI/Avalonia so VDF.Updater.exe can run by itself from a stopped install.
@@ -26,6 +29,8 @@ internal sealed record PreparedUpdate(
 internal static class ReleaseUpdateClient {
     internal const string LatestReleaseApi = "https://api.github.com/repos/masakacj/vdf-custom/releases/latest";
     internal const long MaxGuiZipBytes = 512L * 1024 * 1024;
+    internal const int ParallelSegmentCount = 8;
+    const long ParallelDownloadMinBytes = 8L * 1024 * 1024;
     static readonly TimeSpan ReadStallTimeout = TimeSpan.FromSeconds(90);
 
     internal static async Task<ReleaseInfo> GetLatestAsync(CancellationToken token) {
@@ -92,7 +97,7 @@ internal static class ReleaseUpdateClient {
         Directory.CreateDirectory(payloadRoot);
         try {
             using var http = CreateHttpClient(TimeSpan.FromMinutes(20));
-            await DownloadFileAsync(http, release.AssetUrl, zipPath, release.AssetName, progress, token, MaxGuiZipBytes);
+            await DownloadFileAsync(http, release.AssetUrl, zipPath, release.AssetName, progress, token, MaxGuiZipBytes, release.AssetSize);
             await VerifySha256Async(zipPath, release.Sha256, token);
             ExtractZipSafely(zipPath, payloadRoot);
 
@@ -189,7 +194,187 @@ internal static class ReleaseUpdateClient {
         string displayName,
         Action<long, long?>? progress,
         CancellationToken token,
-        long maxBytes) {
+        long maxBytes,
+        long expectedSize) {
+        if (expectedSize <= 0 || expectedSize > maxBytes)
+            throw new HttpRequestException($"更新包大小异常：{expectedSize:N0} bytes。");
+
+        if (expectedSize >= ParallelDownloadMinBytes) {
+            bool rangeSupported = false;
+            try {
+                rangeSupported = await SupportsRangeDownloadAsync(http, url, expectedSize, token);
+            }
+            catch (HttpRequestException) when (!token.IsCancellationRequested) {
+                // A probe failure should not prevent updating; fall back to the normal stream.
+            }
+
+            if (rangeSupported) {
+                try {
+                    await DownloadParallelRangesAsync(http, url, destination, displayName, progress, token, expectedSize);
+                    return;
+                }
+                catch (RangeDownloadUnavailableException) when (!token.IsCancellationRequested) {
+                    // Some proxies/CDNs answer the 0-0 probe correctly but reject later ranges.
+                    // Start over with the compatible single-stream path.
+                    progress?.Invoke(0, expectedSize);
+                }
+            }
+        }
+
+        await DownloadSingleStreamAsync(http, url, destination, displayName, progress, token, maxBytes, expectedSize);
+    }
+
+    internal static IReadOnlyList<(long Start, long End)> BuildDownloadRanges(long totalBytes, int segmentCount) {
+        if (totalBytes <= 0)
+            throw new ArgumentOutOfRangeException(nameof(totalBytes));
+        if (segmentCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(segmentCount));
+
+        int actualSegments = (int)Math.Min(Math.Min(totalBytes, segmentCount), 32);
+        var result = new List<(long Start, long End)>(actualSegments);
+        long baseLength = totalBytes / actualSegments;
+        long remainder = totalBytes % actualSegments;
+        long start = 0;
+        for (int i = 0; i < actualSegments; i++) {
+            long length = baseLength + (i < remainder ? 1 : 0);
+            long end = checked(start + length - 1);
+            result.Add((start, end));
+            start = checked(end + 1);
+        }
+        return result;
+    }
+
+    static async Task<bool> SupportsRangeDownloadAsync(HttpClient http, Uri url, long expectedSize, CancellationToken token) {
+        using var request = CreateRangeRequest(url, 0, 0);
+        using HttpResponseMessage response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+        if (response.StatusCode != HttpStatusCode.PartialContent)
+            return false;
+
+        ContentRangeHeaderValue? range = response.Content.Headers.ContentRange;
+        return range?.From == 0
+            && range.To == 0
+            && (range.Length == null || range.Length == expectedSize);
+    }
+
+    static async Task DownloadParallelRangesAsync(
+        HttpClient http,
+        Uri url,
+        string destination,
+        string displayName,
+        Action<long, long?>? progress,
+        CancellationToken token,
+        long expectedSize) {
+        IReadOnlyList<(long Start, long End)> ranges = BuildDownloadRanges(expectedSize, ParallelSegmentCount);
+        string[] partPaths = ranges.Select((_, index) => $"{destination}.part{index:D2}").ToArray();
+        long downloaded = 0;
+        object progressGate = new();
+        using var parallelCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+        CancellationToken parallelToken = parallelCts.Token;
+
+        try {
+            Task[] tasks = ranges.Select((range, index) => Task.Run(async () => {
+                try {
+                    using var request = CreateRangeRequest(url, range.Start, range.End);
+                    using HttpResponseMessage response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, parallelToken);
+                    if (response.StatusCode != HttpStatusCode.PartialContent)
+                        throw new RangeDownloadUnavailableException($"并发分段下载不可用：服务器返回 {(int)response.StatusCode} {response.ReasonPhrase}。");
+
+                    long expectedPartLength = checked(range.End - range.Start + 1);
+                    ContentRangeHeaderValue? contentRange = response.Content.Headers.ContentRange;
+                    if (contentRange?.From != range.Start || contentRange.To != range.End)
+                        throw new InvalidDataException($"服务器返回的分段范围异常：请求 {range.Start}-{range.End}。");
+                    if (contentRange.Length is long totalLength && totalLength != expectedSize)
+                        throw new InvalidDataException($"服务器返回的文件总大小异常：期望 {expectedSize:N0}，实际 {totalLength:N0} bytes。");
+                    if (response.Content.Headers.ContentLength is long contentLength && contentLength != expectedPartLength)
+                        throw new InvalidDataException($"服务器返回的分段大小异常：期望 {expectedPartLength:N0}，实际 {contentLength:N0} bytes。");
+
+                    await using Stream source = await response.Content.ReadAsStreamAsync(parallelToken);
+                    await using var target = new FileStream(partPaths[index], FileMode.Create, FileAccess.Write, FileShare.None, 256 * 1024, useAsync: true);
+                    var buffer = new byte[256 * 1024];
+                    long partRead = 0;
+                    while (partRead < expectedPartLength) {
+                        int read;
+                        using (var readCts = CancellationTokenSource.CreateLinkedTokenSource(parallelToken)) {
+                            readCts.CancelAfter(ReadStallTimeout);
+                            try {
+                                int toRead = (int)Math.Min(buffer.Length, expectedPartLength - partRead);
+                                read = await source.ReadAsync(buffer.AsMemory(0, toRead), readCts.Token);
+                            }
+                            catch (OperationCanceledException) when (!parallelToken.IsCancellationRequested) {
+                                throw new TimeoutException($"{displayName} 分段 {index + 1}/{ranges.Count} 下载停滞超过 {ReadStallTimeout.TotalSeconds:0} 秒。");
+                            }
+                        }
+
+                        if (read == 0)
+                            break;
+                        await target.WriteAsync(buffer.AsMemory(0, read), parallelToken);
+                        partRead += read;
+                        long totalRead = Interlocked.Add(ref downloaded, read);
+                        lock (progressGate)
+                            progress?.Invoke(totalRead, expectedSize);
+                    }
+
+                    if (partRead != expectedPartLength)
+                        throw new EndOfStreamException($"{displayName} 分段 {index + 1}/{ranges.Count} 提前结束：期望 {expectedPartLength:N0}，实际 {partRead:N0} bytes。");
+                }
+                catch {
+                    parallelCts.Cancel();
+                    throw;
+                }
+            }, parallelToken)).ToArray();
+
+            try {
+                await Task.WhenAll(tasks);
+            }
+            catch {
+                if (!token.IsCancellationRequested) {
+                    RangeDownloadUnavailableException? rangeError = tasks
+                        .Where(task => task.Exception != null)
+                        .SelectMany(task => task.Exception!.Flatten().InnerExceptions)
+                        .OfType<RangeDownloadUnavailableException>()
+                        .FirstOrDefault();
+                    if (rangeError != null)
+                        throw rangeError;
+                }
+                throw;
+            }
+
+            await using (var output = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, useAsync: true)) {
+                foreach (string partPath in partPaths) {
+                    await using var input = new FileStream(partPath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, useAsync: true);
+                    await input.CopyToAsync(output, 1024 * 1024, token);
+                }
+                await output.FlushAsync(token);
+                if (output.Length != expectedSize)
+                    throw new InvalidDataException($"合并后的更新包大小异常：期望 {expectedSize:N0}，实际 {output.Length:N0} bytes。");
+            }
+            progress?.Invoke(expectedSize, expectedSize);
+        }
+        finally {
+            foreach (string partPath in partPaths) {
+                try { if (File.Exists(partPath)) File.Delete(partPath); } catch { }
+            }
+        }
+    }
+
+    static HttpRequestMessage CreateRangeRequest(Uri url, long start, long end) {
+        var request = new HttpRequestMessage(HttpMethod.Get, url) {
+            Version = HttpVersion.Version11,
+            VersionPolicy = HttpVersionPolicy.RequestVersionExact,
+        };
+        request.Headers.Range = new RangeHeaderValue(start, end);
+        return request;
+    }
+
+    static async Task DownloadSingleStreamAsync(
+        HttpClient http,
+        Uri url,
+        string destination,
+        string displayName,
+        Action<long, long?>? progress,
+        CancellationToken token,
+        long maxBytes,
+        long expectedSize) {
         using HttpResponseMessage response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
         if (!response.IsSuccessStatusCode)
             throw new HttpRequestException($"下载失败：{(int)response.StatusCode} {response.ReasonPhrase}");
@@ -197,10 +382,12 @@ internal static class ReleaseUpdateClient {
         long? total = response.Content.Headers.ContentLength;
         if (total > maxBytes)
             throw new HttpRequestException($"更新包过大：{total:N0} bytes。");
+        if (total is long actualLength && actualLength != expectedSize)
+            throw new InvalidDataException($"更新包大小异常：期望 {expectedSize:N0}，实际 {actualLength:N0} bytes。");
 
         await using Stream source = await response.Content.ReadAsStreamAsync(token);
-        await using var target = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024, useAsync: true);
-        var buffer = new byte[128 * 1024];
+        await using var target = new FileStream(destination, FileMode.Create, FileAccess.Write, FileShare.None, 256 * 1024, useAsync: true);
+        var buffer = new byte[256 * 1024];
         long readTotal = 0;
         while (true) {
             int read;
@@ -219,9 +406,11 @@ internal static class ReleaseUpdateClient {
             readTotal += read;
             if (readTotal > maxBytes)
                 throw new HttpRequestException($"更新包超过大小限制：{maxBytes:N0} bytes。");
-            progress?.Invoke(readTotal, total);
+            progress?.Invoke(readTotal, total ?? expectedSize);
         }
-        progress?.Invoke(readTotal, total);
+        if (readTotal != expectedSize)
+            throw new EndOfStreamException($"更新包下载不完整：期望 {expectedSize:N0}，实际 {readTotal:N0} bytes。");
+        progress?.Invoke(readTotal, expectedSize);
     }
 
     static async Task VerifySha256Async(string path, string expected, CancellationToken token) {
@@ -233,7 +422,13 @@ internal static class ReleaseUpdateClient {
     }
 
     static HttpClient CreateHttpClient(TimeSpan timeout) {
-        var http = new HttpClient { Timeout = timeout };
+        var handler = new SocketsHttpHandler {
+            AutomaticDecompression = DecompressionMethods.None,
+            MaxConnectionsPerServer = 16,
+            ConnectTimeout = TimeSpan.FromSeconds(30),
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+        };
+        var http = new HttpClient(handler) { Timeout = timeout };
         Version updaterVersion = ReadExecutableVersion(Environment.ProcessPath) ?? new Version(0, 0, 0);
         http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("VDF-Custom-Updater", FormatVersion(updaterVersion)));
         http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");

@@ -55,7 +55,7 @@ internal static class Program {
 
                 Console.WriteLine($"最新版本：{latest.Tag}");
                 Console.WriteLine($"更新包：{latest.AssetName} ({FormatBytes(latest.AssetSize)})");
-                Console.WriteLine("开始下载...");
+                Console.WriteLine($"开始下载（服务器支持时自动使用 {ReleaseUpdateClient.ParallelSegmentCount} 路并发分段）...");
 
                 int lastPercent = -1;
                 PreparedUpdate prepared = await ReleaseUpdateClient.DownloadAndPrepareAsync(
