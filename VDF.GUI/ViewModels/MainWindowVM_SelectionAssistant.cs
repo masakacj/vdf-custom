@@ -42,8 +42,17 @@ namespace VDF.GUI.ViewModels {
 		internal SelectionAssistantPlan RunSelectionAssistant(SelectionAssistantData data) {
 			SelectionAssistantPlan plan = PreviewSelectionAssistant(data);
 			using var undoBatch = BeginSelectionUndoBatch();
+			ApplySelectionAssistantPlan(plan, data.PreserveExistingSelection);
+			RefreshResultsView();
+			return plan;
+		}
 
-			if (!data.PreserveExistingSelection) {
+		/// <summary>
+		/// Applies a pure plan to checkboxes. Kept separate from the window/view-model so
+		/// the safety invariant is regression-testable without starting Avalonia.
+		/// </summary>
+		internal static void ApplySelectionAssistantPlan(SelectionAssistantPlan plan, bool preserveExistingSelection) {
+			if (!preserveExistingSelection) {
 				foreach (DuplicateItemVM item in plan.TouchedItems)
 					item.Checked = false;
 			}
@@ -55,9 +64,6 @@ namespace VDF.GUI.ViewModels {
 				keeper.Checked = false;
 			foreach (DuplicateItemVM item in plan.ToCheck)
 				item.Checked = true;
-
-			RefreshResultsView();
-			return plan;
 		}
 
 		/// <summary>

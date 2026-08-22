@@ -212,6 +212,49 @@ public class SelectionAssistantTests {
     }
 
     [Fact]
+    public void PreserveExistingSelection_StillForcesOneUncheckedKeeperPerProcessedGroup() {
+        var group = Guid.NewGuid();
+        string root = Path.Combine(Path.GetTempPath(), "vdf-selection-assistant-preserve-safety");
+        var large = Video(group, root, "large.mkv", 2_000, 8_000, 9_000_000);
+        var small = Video(group, root, "small.mkv", 2_000, 8_000, 1_000_000);
+        large.Checked = true;
+        small.Checked = true;
+        var data = Data(SelectionAssistantMode.AllButOne,
+            Rule(SelectionAssistantRuleKind.SmallerFile));
+
+        SelectionAssistantPlan plan = MainWindowVM.ComputeSelectionAssistant(new[] { large, small }, _ => true, data);
+        MainWindowVM.ApplySelectionAssistantPlan(plan, preserveExistingSelection: true);
+
+        Assert.False(large.Checked);
+        Assert.True(small.Checked);
+        Assert.False(new[] { large, small }.All(item => item.Checked));
+    }
+
+    [Fact]
+    public void ReplaceSelection_ClearsTouchedRuleTiesInConservativeMode() {
+        var group = Guid.NewGuid();
+        string root = Path.Combine(Path.GetTempPath(), "vdf-selection-assistant-replace");
+        var a = Video(group, root, "a-best.mkv", 4_000, 20_000, 10_000_000);
+        var b = Video(group, root, "b-best-copy.mkv", 4_000, 20_000, 10_000_000);
+        var low = Video(group, root, "low.mkv", 2_000, 6_000, 3_000_000);
+        a.Checked = true;
+        b.Checked = true;
+        low.Checked = false;
+        var data = Data(SelectionAssistantMode.RulesOnly,
+            Rule(SelectionAssistantRuleKind.LowerResolution),
+            Rule(SelectionAssistantRuleKind.LowerBitrate),
+            Rule(SelectionAssistantRuleKind.SmallerFile));
+
+        SelectionAssistantPlan plan = MainWindowVM.ComputeSelectionAssistant(new[] { a, b, low }, _ => true, data);
+        MainWindowVM.ApplySelectionAssistantPlan(plan, preserveExistingSelection: false);
+
+        Assert.False(a.Checked);
+        Assert.False(b.Checked);
+        Assert.True(low.Checked);
+        Assert.Equal(1, new[] { a, b, low }.Count(item => item.Checked));
+    }
+
+    [Fact]
     public void SettingsJson_RoundTripsSelectionAssistantRuleOrderAndValues() {
         var settings = new SettingsFile {
             SelectionAssistant = Data(SelectionAssistantMode.RulesOnly,
