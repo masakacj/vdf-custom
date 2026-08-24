@@ -12,6 +12,7 @@ namespace VDF.Core.Utils {
 	internal readonly record struct HddProtectionSnapshot(
 		int DiskSlot,
 		int? TemperatureC,
+		DateTime? SampleUtc,
 		bool IsBlocked,
 		bool IsCooling,
 		bool IsWaitingForTemperature,
@@ -62,6 +63,7 @@ namespace VDF.Core.Utils {
 			internal required string Root;
 			internal required int Slot;
 			internal int? TemperatureC;
+			internal DateTime? SampleUtc;
 			internal bool IsBlocked = true;
 			internal bool IsCooling;
 			internal bool IsWaitingForTemperature = true;
@@ -75,9 +77,9 @@ namespace VDF.Core.Utils {
 		readonly object sync = new();
 		readonly Dictionary<string, DiskState> states;
 		readonly IDiskTemperatureSource source;
-		readonly int warnTemperatureC;
-		readonly int pauseTemperatureC;
-		readonly int resumeTemperatureC;
+		int warnTemperatureC;
+		int pauseTemperatureC;
+		int resumeTemperatureC;
 		readonly TimeSpan minimumCooldown;
 		readonly int resumeConsecutivePolls;
 		readonly TimeSpan pollInterval;
@@ -163,9 +165,61 @@ namespace VDF.Core.Utils {
 			lock (sync) {
 				if (!states.TryGetValue(normalized, out DiskState? state))
 					return null;
-				return new HddProtectionSnapshot(state.Slot, state.TemperatureC, state.IsBlocked,
+				return new HddProtectionSnapshot(state.Slot, state.TemperatureC, state.SampleUtc, state.IsBlocked,
 					state.IsCooling, state.IsWaitingForTemperature, state.IsWarm);
 			}
+		}
+
+		/// <summary>
+		/// Applies new thermal thresholds to an active scan without rebuilding the disk gates.
+		/// The latest real SNMP sample is re-evaluated immediately. A cooling disk may count
+		/// that latest sample as the first qualifying resume poll after the resume threshold is
+		/// raised, but a second poll is still required when the configured consecutive count is 2.
+		/// </summary>
+		internal void UpdateTemperatureThresholds(int warnC, int pauseC, int resumeC, DateTime? utcNowOverride = null) {
+			if (resumeC >= pauseC)
+				throw new ArgumentOutOfRangeException(nameof(resumeC), "Resume temperature must be below pause temperature.");
+			if (warnC > pauseC)
+				throw new ArgumentOutOfRangeException(nameof(warnC), "Warning temperature must not exceed pause temperature.");
+
+			DateTime now = utcNowOverride ?? DateTime.UtcNow;
+			lock (sync) {
+				warnTemperatureC = warnC;
+				pauseTemperatureC = pauseC;
+				resumeTemperatureC = resumeC;
+				foreach (DiskState state in states.Values) {
+					if (state.TemperatureC is not int temperature)
+						continue;
+					state.IsWarm = temperature >= warnTemperatureC;
+					if (!state.IsCooling && temperature >= pauseTemperatureC) {
+						state.IsCooling = true;
+						state.CoolingSinceUtc = now;
+						state.ResumePolls = 0;
+						SetBlockedLocked(state, true);
+						Logger.Instance.Warn($"HDD protection: {state.Root} / QNAP Disk {state.Slot} reached {temperature}°C after threshold update; pausing new reads after the current file.");
+						continue;
+					}
+					if (!state.IsCooling) {
+						SetBlockedLocked(state, false);
+						continue;
+					}
+
+					bool cooledLongEnough = state.CoolingSinceUtc != null && now - state.CoolingSinceUtc.Value >= minimumCooldown;
+					if (temperature <= resumeTemperatureC && cooledLongEnough)
+						state.ResumePolls = Math.Max(1, state.ResumePolls);
+					else if (temperature > resumeTemperatureC)
+						state.ResumePolls = 0;
+
+					if (state.ResumePolls >= resumeConsecutivePolls) {
+						state.IsCooling = false;
+						state.CoolingSinceUtc = null;
+						state.ResumePolls = 0;
+						SetBlockedLocked(state, false);
+						Logger.Instance.Info($"HDD protection: {state.Root} / QNAP Disk {state.Slot} resumed at {temperature}°C after threshold update.");
+					}
+				}
+			}
+			Logger.Instance.Info($"HDD protection thresholds updated live: warn {warnC}°C, pause {pauseC}°C, resume {resumeC}°C.");
 		}
 
 		/// <summary>
@@ -247,6 +301,7 @@ namespace VDF.Core.Utils {
 			DateTime now = utcNowOverride ?? DateTime.UtcNow;
 			lock (sync) {
 				foreach (DiskState state in states.Values) {
+					state.SampleUtc = now;
 					if (!temperatures.TryGetValue(state.Slot, out int temperature)) {
 						state.TemperatureC = null;
 						state.IsWaitingForTemperature = true;

@@ -121,17 +121,41 @@ public class ScanDrivesPresenterTests {
 
 	[Fact]
 	public void HddProtection_ShowsPhysicalSlotTemperatureAndCoolingState() {
-		var presenter = new ScanDrivesPresenter(() => "files/s", () => "cooling", () => "waiting SNMP");
+		var presenter = new ScanDrivesPresenter(() => "files/s", () => "cooling", () => "waiting SNMP", () => "paused", () => 48);
 		var drive = Drive(@"Y:\", 1000, 200, 20, 4, isFast: false);
 		drive.HddProtectionEnabled = true;
 		drive.PhysicalDiskSlot = 2;
 		drive.TemperatureC = 50;
+		drive.TemperatureSampleUtc = T0;
 		drive.HddProtectionBlocked = true;
 		drive.HddProtectionCooling = true;
 
 		presenter.Update(new[] { drive }, T0);
 
+		Assert.True(presenter.HasProtectedRows);
 		Assert.Equal("HDD #2", presenter.Rows[0].TypeLabel);
-		Assert.Equal("4 / 20 · 50°C · cooling", presenter.Rows[0].Stat);
+		Assert.Equal("4 / 20 · paused", presenter.Rows[0].Stat);
+		Assert.Equal("50°C · cooling · ≤48°C", presenter.Rows[0].TemperatureDisplay);
+		Assert.Single(presenter.Rows[0].TemperatureHistory);
+	}
+
+	[Fact]
+	public void TemperatureHistory_UsesSnmpSampleTimestampAndDoesNotDuplicateHeartbeatSnapshots() {
+		var presenter = new ScanDrivesPresenter(() => "files/s", resumeTemperatureC: () => 48);
+		var drive = Drive(@"Z:\", 1000, 100, 20, 2, isFast: false);
+		drive.HddProtectionEnabled = true;
+		drive.PhysicalDiskSlot = 4;
+		drive.TemperatureC = 47;
+		drive.TemperatureSampleUtc = T0;
+
+		presenter.Update(new[] { drive }, T0);
+		presenter.Update(new[] { drive }, T0.AddSeconds(1)); // heartbeat, same SNMP sample
+		Assert.Single(presenter.Rows[0].TemperatureHistory);
+
+		drive.TemperatureC = 48;
+		drive.TemperatureSampleUtc = T0.AddMinutes(1);
+		presenter.Update(new[] { drive }, T0.AddMinutes(1));
+		Assert.Equal(2, presenter.Rows[0].TemperatureHistory.Count);
+		Assert.Equal(48, presenter.Rows[0].TemperatureHistory[^1].TemperatureC);
 	}
 }

@@ -94,6 +94,49 @@ public class HddProtectionTests {
 	}
 
 	[Fact]
+	public async Task LiveThresholdUpdate_ReevaluatesCurrentSampleAndResumesAfterNextQualifyingPoll() {
+		var source = new FakeTemperatureSource { Values = new Dictionary<int, int> { [4] = 50 } };
+		await using var controller = new HddProtectionController(
+			new Dictionary<string, int> { ["Y:"] = 4 }, source,
+			warnTemperatureC: 48, pauseTemperatureC: 50, resumeTemperatureC: 45,
+			minimumCooldown: TimeSpan.FromMinutes(5), resumeConsecutivePolls: 2,
+			pollInterval: TimeSpan.FromMinutes(1));
+		DateTime t0 = new(2026, 8, 24, 3, 0, 0, DateTimeKind.Utc);
+
+		await controller.PollOnceAsync(CancellationToken.None, t0);
+		Assert.True(controller.GetSnapshot(@"Y:\")!.Value.IsCooling);
+
+		source.Values = new Dictionary<int, int> { [4] = 47 };
+		await controller.PollOnceAsync(CancellationToken.None, t0.AddMinutes(6));
+		HddProtectionSnapshot before = controller.GetSnapshot(@"Y:\")!.Value;
+		Assert.True(before.IsBlocked); // 47°C did not qualify under the old 45°C resume line
+		Assert.Equal(t0.AddMinutes(6), before.SampleUtc);
+
+		controller.UpdateTemperatureThresholds(50, 52, 48, t0.AddMinutes(6));
+		Assert.True(controller.GetSnapshot(@"Y:\")!.Value.IsBlocked); // latest real sample becomes qualifying poll #1
+
+		await controller.PollOnceAsync(CancellationToken.None, t0.AddMinutes(7));
+		HddProtectionSnapshot after = controller.GetSnapshot(@"Y:\")!.Value;
+		Assert.False(after.IsBlocked);
+		Assert.False(after.IsCooling);
+	}
+
+	[Fact]
+	public async Task LiveThresholdUpdate_LoweringPauseCanBlockImmediately() {
+		var source = new FakeTemperatureSource { Values = new Dictionary<int, int> { [2] = 51 } };
+		await using var controller = new HddProtectionController(
+			new Dictionary<string, int> { ["Z:"] = 2 }, source,
+			50, 52, 48, TimeSpan.Zero, 1, TimeSpan.FromMinutes(1));
+		DateTime now = new(2026, 8, 24, 4, 0, 0, DateTimeKind.Utc);
+		await controller.PollOnceAsync(CancellationToken.None, now);
+		Assert.False(controller.GetSnapshot(@"Z:\")!.Value.IsBlocked);
+
+		controller.UpdateTemperatureThresholds(50, 51, 48, now);
+		Assert.True(controller.GetSnapshot(@"Z:\")!.Value.IsBlocked);
+		Assert.True(controller.GetSnapshot(@"Z:\")!.Value.IsCooling);
+	}
+
+	[Fact]
 	public async Task SnmpFailure_IsFailSafeAndBlocksProtectedRoot() {
 		var source = new FakeTemperatureSource { Error = new TimeoutException("test timeout") };
 		await using var controller = new HddProtectionController(
