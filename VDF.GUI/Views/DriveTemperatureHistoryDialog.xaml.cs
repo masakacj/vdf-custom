@@ -21,6 +21,8 @@ namespace VDF.GUI.Views {
 		TextBlock StatsText => this.FindControl<TextBlock>("StatsText")!;
 		TextBlock NoDataText => this.FindControl<TextBlock>("NoDataText")!;
 
+		public DriveTemperatureHistoryDialog() : this(new ScanDriveRow(string.Empty, string.Empty)) { }
+
 		public DriveTemperatureHistoryDialog(ScanDriveRow row) {
 			this.row = row;
 			AvaloniaXamlLoader.Load(this);
