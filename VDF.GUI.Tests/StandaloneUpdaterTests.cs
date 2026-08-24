@@ -1,39 +1,35 @@
 using System.IO.Compression;
-using System.Text.Json;
 using VDF.Updater;
 
 namespace VDF.GUI.Tests;
 
 public class StandaloneUpdaterTests {
     [Fact]
-    public void ParseLatestRelease_SelectsExactGuiAssetAndDigest() {
-        const string json = """
-        {
-          "tag_name": "v4.1.25",
-          "assets": [
-            {
-              "name": "VDF.Updater.exe",
-              "browser_download_url": "https://github.com/x/updater.exe",
-              "size": 100,
-              "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-            },
-            {
-              "name": "VDF-Custom-GUI-v4.1.25-win-x64.zip",
-              "browser_download_url": "https://github.com/masakacj/vdf-custom/releases/download/v4.1.25/gui.zip",
-              "size": 123456,
-              "digest": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-            }
-          ]
-        }
+    public void LatestReleaseRedirect_ParsesNumericTagWithoutApi() {
+        string tag = ReleaseUpdateClient.ParseLatestReleaseTag(
+            new Uri("https://github.com/masakacj/vdf-custom/releases/tag/v4.1.25"));
+
+        Assert.Equal("v4.1.25", tag);
+        Uri asset = ReleaseUpdateClient.BuildReleaseAssetUri(tag, "VDF-Custom-GUI-v4.1.25-win-x64.zip");
+        Assert.Equal(
+            "https://github.com/masakacj/vdf-custom/releases/download/v4.1.25/VDF-Custom-GUI-v4.1.25-win-x64.zip",
+            asset.AbsoluteUri);
+    }
+
+    [Fact]
+    public void ChecksumManifest_SelectsExactGuiAsset() {
+        const string manifest = """
+        aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  VDF.Updater.exe
+        0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF *VDF-Custom-GUI-v4.1.25-win-x64.zip
+        bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  VDF-Custom-CLI-v4.1.25-win-x64.zip
         """;
-        using JsonDocument doc = JsonDocument.Parse(json);
 
-        ReleaseInfo release = ReleaseUpdateClient.ParseLatestRelease(doc.RootElement);
+        string? digest = ReleaseUpdateClient.ParseChecksumManifest(
+            manifest,
+            "VDF-Custom-GUI-v4.1.25-win-x64.zip");
 
-        Assert.Equal(new Version(4, 1, 25), release.Version);
-        Assert.Equal("VDF-Custom-GUI-v4.1.25-win-x64.zip", release.AssetName);
-        Assert.Equal(123456, release.AssetSize);
-        Assert.Equal("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", release.Sha256);
+        Assert.Equal("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", digest);
+        Assert.Null(ReleaseUpdateClient.ParseChecksumManifest(manifest, "not-present.zip"));
     }
 
     [Theory]
