@@ -3,7 +3,7 @@ using System.IO.Compression;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
-using System.Text.Json;
+using System.Text;
 
 namespace VDF.Updater;
 
@@ -27,64 +27,145 @@ sealed class RangeDownloadUnavailableException(string message) : HttpRequestExce
 /// dependency on VDF.GUI/Avalonia so VDF.Updater.exe can run by itself from a stopped install.
 /// </summary>
 internal static class ReleaseUpdateClient {
-    internal const string LatestReleaseApi = "https://api.github.com/repos/masakacj/vdf-custom/releases/latest";
+    internal const string LatestReleasePage = "https://github.com/masakacj/vdf-custom/releases/latest";
+    internal const string ChecksumAssetName = "SHA256SUMS.txt";
     internal const long MaxGuiZipBytes = 512L * 1024 * 1024;
+    const int MaxChecksumBytes = 64 * 1024;
     internal const int ParallelSegmentCount = 8;
     const long ParallelDownloadMinBytes = 8L * 1024 * 1024;
     static readonly TimeSpan ReadStallTimeout = TimeSpan.FromSeconds(90);
 
     internal static async Task<ReleaseInfo> GetLatestAsync(CancellationToken token) {
         using var http = CreateHttpClient(TimeSpan.FromSeconds(30));
-        using HttpResponseMessage response = await http.GetAsync(LatestReleaseApi, HttpCompletionOption.ResponseContentRead, token);
-        if (!response.IsSuccessStatusCode)
-            throw new HttpRequestException($"GitHub Releases 查询失败：{(int)response.StatusCode} {response.ReasonPhrase}");
 
-        await using Stream body = await response.Content.ReadAsStreamAsync(token);
-        using JsonDocument json = await JsonDocument.ParseAsync(body, cancellationToken: token);
-        return ParseLatestRelease(json.RootElement);
-    }
+        // Deliberately avoid api.github.com here. Anonymous API calls are limited to
+        // 60 requests/hour per public IP, which is easy to exhaust on a shared/VPN IP.
+        // github.com/releases/latest redirects to the canonical numeric tag and is not
+        // subject to that API quota.
+        using HttpResponseMessage latestResponse = await http.GetAsync(
+            LatestReleasePage,
+            HttpCompletionOption.ResponseHeadersRead,
+            token);
+        if (!latestResponse.IsSuccessStatusCode)
+            throw new HttpRequestException($"GitHub 最新版本查询失败：{(int)latestResponse.StatusCode} {latestResponse.ReasonPhrase}");
 
-    internal static ReleaseInfo ParseLatestRelease(JsonElement root) {
-        string tag = root.TryGetProperty("tag_name", out JsonElement tagNode)
-            ? tagNode.GetString() ?? string.Empty
-            : string.Empty;
+        Uri finalUri = latestResponse.RequestMessage?.RequestUri
+            ?? throw new InvalidDataException("GitHub 最新版本重定向地址缺失。");
+        string tag = ParseLatestReleaseTag(finalUri);
         if (!TryParseTagVersion(tag, out Version version))
             throw new InvalidDataException($"GitHub Release 版本号无效：'{tag}'");
 
-        string expectedAsset = $"VDF-Custom-GUI-v{FormatVersion(version)}-win-x64.zip";
-        if (!root.TryGetProperty("assets", out JsonElement assets) || assets.ValueKind != JsonValueKind.Array)
-            throw new InvalidDataException("GitHub Release 没有 assets 列表。");
+        string assetName = $"VDF-Custom-GUI-v{FormatVersion(version)}-win-x64.zip";
+        Uri assetUrl = BuildReleaseAssetUri(tag, assetName);
+        Uri checksumUrl = BuildReleaseAssetUri(tag, ChecksumAssetName);
 
-        foreach (JsonElement asset in assets.EnumerateArray()) {
-            string name = asset.TryGetProperty("name", out JsonElement nameNode)
-                ? nameNode.GetString() ?? string.Empty
-                : string.Empty;
-            if (!name.Equals(expectedAsset, StringComparison.OrdinalIgnoreCase))
+        string checksumManifest = await DownloadSmallTextAsync(
+            http,
+            checksumUrl,
+            ChecksumAssetName,
+            MaxChecksumBytes,
+            token);
+        string? sha256 = ParseChecksumManifest(checksumManifest, assetName);
+        if (sha256 == null)
+            throw new InvalidDataException($"{ChecksumAssetName} 中没有 {assetName} 的 SHA-256，拒绝自动更新。");
+
+        long assetSize = await ProbeAssetSizeAsync(http, assetUrl, token);
+        if (assetSize <= 0 || assetSize > MaxGuiZipBytes)
+            throw new InvalidDataException($"GitHub GUI 更新包大小异常：{assetSize:N0} bytes。");
+
+        return new ReleaseInfo(version, tag, assetName, assetUrl, assetSize, sha256);
+    }
+
+    internal static string ParseLatestReleaseTag(Uri finalUri) {
+        string[] segments = finalUri.AbsolutePath
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (int i = 0; i + 2 < segments.Length; i++) {
+            if (!segments[i].Equals("releases", StringComparison.OrdinalIgnoreCase)
+                || !segments[i + 1].Equals("tag", StringComparison.OrdinalIgnoreCase))
+                continue;
+            string tag = Uri.UnescapeDataString(segments[i + 2]);
+            if (TryParseTagVersion(tag, out _))
+                return tag;
+            throw new InvalidDataException($"GitHub Release 版本号无效：'{tag}'");
+        }
+        throw new InvalidDataException($"无法从 GitHub 最新版本地址解析 Release tag：{finalUri}");
+    }
+
+    internal static Uri BuildReleaseAssetUri(string tag, string assetName) {
+        if (!TryParseTagVersion(tag, out _))
+            throw new ArgumentException("Release tag 无效。", nameof(tag));
+        if (string.IsNullOrWhiteSpace(assetName) || Path.GetFileName(assetName) != assetName)
+            throw new ArgumentException("Release asset 名称无效。", nameof(assetName));
+        return new Uri($"https://github.com/masakacj/vdf-custom/releases/download/{Uri.EscapeDataString(tag)}/{Uri.EscapeDataString(assetName)}");
+    }
+
+    internal static string? ParseChecksumManifest(string? manifest, string assetName) {
+        if (string.IsNullOrWhiteSpace(manifest) || string.IsNullOrWhiteSpace(assetName))
+            return null;
+
+        foreach (string rawLine in manifest.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)) {
+            string line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
                 continue;
 
-            string? urlText = asset.TryGetProperty("browser_download_url", out JsonElement urlNode)
-                ? urlNode.GetString()
-                : null;
-            if (!Uri.TryCreate(urlText, UriKind.Absolute, out Uri? url) || url.Scheme != Uri.UriSchemeHttps)
-                throw new InvalidDataException("GitHub GUI 更新包下载地址无效。");
+            int split = 0;
+            while (split < line.Length && !char.IsWhiteSpace(line[split]))
+                split++;
+            if (split != 64)
+                continue;
 
-            long size = asset.TryGetProperty("size", out JsonElement sizeNode) && sizeNode.TryGetInt64(out long parsedSize)
-                ? parsedSize
-                : 0;
-            if (size <= 0 || size > MaxGuiZipBytes)
-                throw new InvalidDataException($"GitHub GUI 更新包大小异常：{size:N0} bytes。");
+            string hash = line[..split];
+            if (!hash.All(Uri.IsHexDigit))
+                continue;
 
-            string? digest = asset.TryGetProperty("digest", out JsonElement digestNode)
-                ? digestNode.GetString()
-                : null;
-            string? sha256 = ParseSha256Digest(digest);
-            if (sha256 == null)
-                throw new InvalidDataException("GitHub GUI 更新包没有可用的 SHA-256 digest，拒绝自动更新。");
+            string name = line[split..].TrimStart();
+            if (name.StartsWith('*'))
+                name = name[1..];
+            if (!name.Equals(assetName, StringComparison.OrdinalIgnoreCase))
+                continue;
 
-            return new ReleaseInfo(version, tag, name, url, size, sha256);
+            return hash.ToLowerInvariant();
         }
+        return null;
+    }
 
-        throw new InvalidDataException($"GitHub Release 中未找到 {expectedAsset}。");
+    static async Task<string> DownloadSmallTextAsync(
+        HttpClient http,
+        Uri url,
+        string displayName,
+        int maxBytes,
+        CancellationToken token) {
+        using HttpResponseMessage response = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, token);
+        if (!response.IsSuccessStatusCode)
+            throw new HttpRequestException($"下载 {displayName} 失败：{(int)response.StatusCode} {response.ReasonPhrase}");
+        if (response.Content.Headers.ContentLength is long declared && declared > maxBytes)
+            throw new InvalidDataException($"{displayName} 大小异常：{declared:N0} bytes。");
+
+        await using Stream source = await response.Content.ReadAsStreamAsync(token);
+        using var target = new MemoryStream();
+        var buffer = new byte[4096];
+        while (true) {
+            int read = await source.ReadAsync(buffer, token);
+            if (read == 0)
+                break;
+            if (target.Length + read > maxBytes)
+                throw new InvalidDataException($"{displayName} 超过大小限制：{maxBytes:N0} bytes。");
+            target.Write(buffer, 0, read);
+        }
+        return Encoding.UTF8.GetString(target.ToArray()).TrimStart('\uFEFF');
+    }
+
+    internal static async Task<long> ProbeAssetSizeAsync(HttpClient http, Uri assetUrl, CancellationToken token) {
+        using var request = CreateRangeRequest(assetUrl, 0, 0);
+        using HttpResponseMessage response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
+        if (response.StatusCode == HttpStatusCode.PartialContent) {
+            ContentRangeHeaderValue? range = response.Content.Headers.ContentRange;
+            if (range?.From == 0 && range.To == 0 && range.Length is > 0)
+                return range.Length.Value;
+        }
+        if (response.IsSuccessStatusCode && response.Content.Headers.ContentLength is > 0)
+            return response.Content.Headers.ContentLength.Value;
+        throw new HttpRequestException($"无法读取 GitHub 更新包大小：{(int)response.StatusCode} {response.ReasonPhrase}");
     }
 
     internal static async Task<PreparedUpdate> DownloadAndPrepareAsync(
@@ -431,8 +512,7 @@ internal static class ReleaseUpdateClient {
         var http = new HttpClient(handler) { Timeout = timeout };
         Version updaterVersion = ReadExecutableVersion(Environment.ProcessPath) ?? new Version(0, 0, 0);
         http.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("VDF-Custom-Updater", FormatVersion(updaterVersion)));
-        http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
-        http.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
+        http.DefaultRequestHeaders.Accept.ParseAdd("*/*");
         return http;
     }
 }

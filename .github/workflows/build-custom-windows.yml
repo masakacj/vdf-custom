@@ -122,6 +122,20 @@ jobs:
           Copy-Item .\artifacts\Updater-win-x64\VDF.Updater.exe .\release\VDF.Updater.exe -Force
           Copy-Item .\artifacts\BUILD_INFO.txt .\release\BUILD_INFO.txt -Force
 
+          $checksumFiles = @(
+            ".\release\VDF-Custom-GUI-v$version-win-x64.zip",
+            ".\release\VDF-Custom-CLI-v$version-win-x64.zip",
+            ".\release\VDF.Updater.exe"
+          )
+          $checksumLines = foreach ($file in $checksumFiles) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($file))"
+          }
+          [IO.File]::WriteAllLines(
+            (Join-Path (Resolve-Path '.\release').Path 'SHA256SUMS.txt'),
+            $checksumLines,
+            [Text.UTF8Encoding]::new($false))
+
       - name: Upload Actions artifact
         uses: actions/upload-artifact@v4
         with:
@@ -153,6 +167,7 @@ jobs:
             "- VDF-Custom-GUI-v$version-win-x64.zip"
             "- VDF-Custom-CLI-v$version-win-x64.zip"
             '- VDF.Updater.exe (standalone updater; put it beside VDF.GUI.exe and double-click)'
+            '- SHA256SUMS.txt'
             '- BUILD_INFO.txt'
           ) -join "`n"
 
@@ -169,6 +184,7 @@ jobs:
             $guiAsset `
             $cliAsset `
             .\release\VDF.Updater.exe `
+            .\release\SHA256SUMS.txt `
             .\release\BUILD_INFO.txt `
             --clobber
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
