@@ -237,7 +237,9 @@ namespace VDF.GUI.ViewModels {
 		public ScanDrivesPresenter ScanDrives { get; } = new(
 			() => App.Lang["Scan.FilesPerSec"],
 			() => App.Lang["Scan.HddCooling"],
-			() => App.Lang["Scan.HddWaitingSnmp"]);
+			() => App.Lang["Scan.HddWaitingSnmp"],
+			() => App.Lang["Scan.HddPaused"],
+			() => SettingsFile.Instance.HddProtectionResumeTemperatureC);
 		string _ScanProgressCount = string.Empty;
 		public string ScanProgressCount {
 			get => _ScanProgressCount;

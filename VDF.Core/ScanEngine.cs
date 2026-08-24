@@ -123,6 +123,9 @@ namespace VDF.Core {
 		// Per-drive done/total accounting; non-null only while GatherInfos runs, so progress
 		// events of every other phase carry Drives = null and the UI hides the drive rows.
 		DriveProgressTracker? driveProgressTracker;
+		// Live only while the protected gather phase is running. The GUI may update the
+		// three thermal thresholds from the Scanning screen without restarting the scan.
+		HddProtectionController? activeHddProtection;
 		// True between StartSearch beginning a log session and the chained StartCompare
 		// joining it; lets a standalone StartCompare open its own session instead.
 		bool compareIsChainedToSearch;
@@ -1224,6 +1227,7 @@ namespace VDF.Core {
 					? HddProtectionMappings.Parse(Settings.HddProtectionDriveMappings)
 					: new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 				HddProtectionController? hddProtection = HddProtectionController.TryCreate(Settings, driveGroups);
+				Volatile.Write(ref activeHddProtection, hddProtection);
 				Func<string, HddProtectionSnapshot?>? hddProtectionSnapshot = hddProtection == null ? null : hddProtection.GetSnapshot;
 				try {
 					if (Settings.MaxDegreeOfParallelism == 1) {
@@ -1279,6 +1283,7 @@ namespace VDF.Core {
 					}
 				}
 				finally {
+					Volatile.Write(ref activeHddProtection, null);
 					if (hddProtection != null)
 						await hddProtection.DisposeAsync();
 				}
@@ -3223,6 +3228,24 @@ namespace VDF.Core {
 				foreach (DuplicateItem d in items)
 					if (d.FrameSizeInt == bestFrameSize) d.IsBestFrameSize = true;
 			}
+		}
+
+		/// <summary>
+		/// Updates the three QNAP thermal thresholds for the currently running protected
+		/// gather phase. The values are also written to <see cref="Settings"/> so later
+		/// phases/operations in this engine instance observe the same configuration.
+		/// </summary>
+		public bool UpdateHddProtectionTemperatureThresholds(int warnC, int pauseC, int resumeC) {
+			if (resumeC >= pauseC)
+				throw new ArgumentOutOfRangeException(nameof(resumeC), "Resume temperature must be below pause temperature.");
+			if (warnC > pauseC)
+				throw new ArgumentOutOfRangeException(nameof(warnC), "Warning temperature must not exceed pause temperature.");
+			Settings.HddProtectionWarnTemperatureC = warnC;
+			Settings.HddProtectionPauseTemperatureC = pauseC;
+			Settings.HddProtectionResumeTemperatureC = resumeC;
+			HddProtectionController? controller = Volatile.Read(ref activeHddProtection);
+			controller?.UpdateTemperatureThresholds(warnC, pauseC, resumeC);
+			return controller != null;
 		}
 
 		public void Pause() {

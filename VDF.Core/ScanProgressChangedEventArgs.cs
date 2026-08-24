@@ -52,6 +52,8 @@ namespace VDF.Core {
 		public int? PhysicalDiskSlot;
 		/// <summary>Latest fresh SNMP disk temperature; null while SNMP is unavailable/stale.</summary>
 		public int? TemperatureC;
+		/// <summary>UTC timestamp of the latest SNMP poll used for this temperature.</summary>
+		public DateTime? TemperatureSampleUtc;
 		/// <summary>New heavy reads are currently blocked for this disk.</summary>
 		public bool HddProtectionBlocked;
 		/// <summary>The disk crossed the pause threshold and is cooling.</summary>

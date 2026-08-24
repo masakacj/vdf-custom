@@ -114,9 +114,9 @@ namespace VDF.Core {
 		/// <summary>Drive/share root → QNAP slot, e.g. <c>Y:=2; Z:=3</c>.</summary>
 		public string HddProtectionDriveMappings = string.Empty;
 		public int HddProtectionPollSeconds = 60;
-		public int HddProtectionWarnTemperatureC = 48;
-		public int HddProtectionPauseTemperatureC = 50;
-		public int HddProtectionResumeTemperatureC = 45;
+		public int HddProtectionWarnTemperatureC = 50;
+		public int HddProtectionPauseTemperatureC = 52;
+		public int HddProtectionResumeTemperatureC = 48;
 		public int HddProtectionMinimumCooldownMinutes = 5;
 		public int HddProtectionResumeConsecutivePolls = 2;
 

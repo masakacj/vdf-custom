@@ -1,0 +1,61 @@
+<Window
+    x:Class="VDF.GUI.Views.DriveTemperatureHistoryDialog"
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:actipro="http://schemas.actiprosoftware.com/avaloniaui"
+    xmlns:app="clr-namespace:VDF.GUI"
+    xmlns:data="clr-namespace:VDF.GUI.Data"
+    xmlns:views="clr-namespace:VDF.GUI.Views"
+    x:DataType="data:ScanDriveRow"
+    Width="760"
+    Height="470"
+    MinWidth="620"
+    MinHeight="380"
+    WindowStartupLocation="CenterOwner"
+    Icon="/Assets/icon.ico">
+  <Grid Margin="18" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="12">
+    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+      <StackPanel Spacing="3">
+        <TextBlock FontSize="18" FontWeight="SemiBold">
+          <Run Text="{Binding Root}" />
+          <Run Text="  ·  " />
+          <Run Text="{Binding TypeLabel}" />
+        </TextBlock>
+        <TextBlock FontSize="12" Opacity="0.62"
+                   Text="{Binding Source={x:Static app:App.Lang}, Path=[Scan.HddChartHint]}" />
+      </StackPanel>
+      <Border Grid.Column="1" Padding="10,5" CornerRadius="7"
+              BorderBrush="{actipro:ThemeResource Container3BorderBrush}" BorderThickness="1">
+        <TextBlock FontWeight="SemiBold" Text="{Binding TemperatureDisplay}" />
+      </Border>
+    </Grid>
+
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" ColumnSpacing="9">
+      <TextBlock VerticalAlignment="Center" Opacity="0.65" Text="{Binding Source={x:Static app:App.Lang}, Path=[Scan.HddResumeAt]}" />
+      <Border Grid.Column="1" Width="18" Height="4" Background="DodgerBlue" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="2" x:Name="ResumeLegend" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="3" VerticalAlignment="Center" Margin="12,0,0,0" Opacity="0.65" Text="{Binding Source={x:Static app:App.Lang}, Path=[Scan.HddWarn]}" />
+      <Border Grid.Column="4" Width="18" Height="4" Background="Orange" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="5" x:Name="WarnLegend" VerticalAlignment="Center" />
+    </Grid>
+
+    <Grid Grid.Row="2" RowDefinitions="*,Auto" RowSpacing="7">
+      <Border CornerRadius="8" BorderBrush="{actipro:ThemeResource Container3BorderBrush}" BorderThickness="1" Padding="8">
+        <views:TemperatureHistoryChart x:Name="Chart" MinHeight="230" />
+      </Border>
+      <Grid Grid.Row="1" ColumnDefinitions="*,Auto,*" ColumnSpacing="12">
+        <TextBlock x:Name="StartTimeText" FontSize="11.5" Opacity="0.55" />
+        <TextBlock Grid.Column="1" x:Name="StatsText" FontSize="11.5" Opacity="0.72" TextAlignment="Center" />
+        <TextBlock Grid.Column="2" x:Name="EndTimeText" FontSize="11.5" Opacity="0.55" TextAlignment="Right" />
+      </Grid>
+    </Grid>
+
+    <Grid Grid.Row="3" ColumnDefinitions="*,Auto,Auto,Auto" ColumnSpacing="10">
+      <TextBlock x:Name="NoDataText" VerticalAlignment="Center" FontSize="12" Opacity="0.6"
+                 Text="{Binding Source={x:Static app:App.Lang}, Path=[Scan.HddChartNoData]}" />
+      <TextBlock Grid.Column="1" VerticalAlignment="Center" Opacity="0.65" Text="{Binding Source={x:Static app:App.Lang}, Path=[Scan.HddPauseAt]}" />
+      <Border Grid.Column="2" Width="18" Height="4" Background="Red" VerticalAlignment="Center" />
+      <TextBlock Grid.Column="3" x:Name="PauseLegend" VerticalAlignment="Center" />
+    </Grid>
+  </Grid>
+</Window>

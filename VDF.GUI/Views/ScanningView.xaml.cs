@@ -15,12 +15,20 @@
 //
 
 using Avalonia.Controls;
+using Avalonia.Interactivity;
 using Avalonia.Markup.Xaml;
+using VDF.GUI.Data;
+using VDF.GUI.ViewModels;
 
 namespace VDF.GUI.Views {
 	public partial class ScanningView : UserControl {
 		public ScanningView() {
 			AvaloniaXamlLoader.Load(this);
+		}
+
+		void OnDriveTemperatureClicked(object? sender, RoutedEventArgs e) {
+			if (sender is Button { DataContext: ScanDriveRow row } && DataContext is MainWindowVM vm)
+				vm.ShowDriveTemperatureHistory(row);
 		}
 	}
 }

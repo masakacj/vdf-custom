@@ -237,19 +237,19 @@ namespace VDF.GUI.Data {
 			get => _HddProtectionPollSeconds;
 			set => this.RaiseAndSetIfChanged(ref _HddProtectionPollSeconds, Math.Max(5, value));
 		}
-		int _HddProtectionWarnTemperatureC = 48;
+		int _HddProtectionWarnTemperatureC = 50;
 		[JsonPropertyName("HddProtectionWarnTemperatureC")]
 		public int HddProtectionWarnTemperatureC {
 			get => _HddProtectionWarnTemperatureC;
 			set => this.RaiseAndSetIfChanged(ref _HddProtectionWarnTemperatureC, Math.Clamp(value, 20, 80));
 		}
-		int _HddProtectionPauseTemperatureC = 50;
+		int _HddProtectionPauseTemperatureC = 52;
 		[JsonPropertyName("HddProtectionPauseTemperatureC")]
 		public int HddProtectionPauseTemperatureC {
 			get => _HddProtectionPauseTemperatureC;
 			set => this.RaiseAndSetIfChanged(ref _HddProtectionPauseTemperatureC, Math.Clamp(value, 20, 80));
 		}
-		int _HddProtectionResumeTemperatureC = 45;
+		int _HddProtectionResumeTemperatureC = 48;
 		[JsonPropertyName("HddProtectionResumeTemperatureC")]
 		public int HddProtectionResumeTemperatureC {
 			get => _HddProtectionResumeTemperatureC;

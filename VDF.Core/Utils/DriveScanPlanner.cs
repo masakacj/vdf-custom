@@ -105,6 +105,7 @@ namespace VDF.Core.Utils {
 					HddProtectionEnabled = protection != null,
 					PhysicalDiskSlot = protection?.DiskSlot,
 					TemperatureC = protection?.TemperatureC,
+					TemperatureSampleUtc = protection?.SampleUtc,
 					HddProtectionBlocked = protection?.IsBlocked == true,
 					HddProtectionCooling = protection?.IsCooling == true,
 					HddProtectionWaitingForTemperature = protection?.IsWaitingForTemperature == true,
