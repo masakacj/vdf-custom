@@ -73,7 +73,7 @@
                     <DataTemplate x:DataType="vm:BlacklistEntryVM">
                         <StackPanel Margin="2">
                             <TextBlock Text="{Binding PathsDisplay}"
-                                       FontFamily="Consolas, Menlo, monospace"
+                                       FontFamily="Consolas,Microsoft YaHei UI,Microsoft YaHei,PingFang SC,Noto Sans CJK SC,Menlo,monospace"
                                        FontSize="12"
                                        TextWrapping="NoWrap" />
                         </StackPanel>

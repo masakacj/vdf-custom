@@ -57,7 +57,7 @@
             <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
         <Style Selector="Border.kbd TextBlock">
-            <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,Menlo,monospace" />
+            <Setter Property="FontFamily" Value="Cascadia Mono,Consolas,Microsoft YaHei UI,Microsoft YaHei,PingFang SC,Noto Sans CJK SC,Menlo,monospace" />
             <Setter Property="FontSize" Value="11" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Opacity" Value="0.75" />
