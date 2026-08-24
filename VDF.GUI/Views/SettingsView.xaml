@@ -1004,7 +1004,7 @@
                                IsVisible="{Binding IsFilePairTestRunning}" />
                 </StackPanel>
                 <TextBox MinHeight="160" AcceptsReturn="True" IsReadOnly="True" TextWrapping="NoWrap"
-                         FontFamily="Cascadia Mono,Consolas,Menlo,monospace" FontSize="12"
+                         FontFamily="Cascadia Mono,Consolas,Microsoft YaHei UI,Microsoft YaHei,PingFang SC,Noto Sans CJK SC,Menlo,monospace" FontSize="12"
                          Text="{Binding FilePairTestResult}" />
                 <Border Height="1" Background="{actipro:ThemeResource Container3BorderBrush}" Margin="0,6" />
                 <TextBlock FontSize="14" FontWeight="SemiBold"

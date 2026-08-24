@@ -74,23 +74,45 @@ namespace VDF.GUI {
 			return rootCommand.Parse(args).Invoke();
 		}
 
+		internal static readonly string[] WindowsCjkFallbackFamilies = [
+			"Microsoft YaHei UI",
+			"Microsoft YaHei",
+			"DengXian",
+			"SimSun",
+			"Segoe UI Symbol",
+			"Segoe UI Emoji",
+		];
+
+		internal static readonly string[] MacCjkFallbackFamilies = [
+			"PingFang SC",
+			"Hiragino Sans GB",
+			"Hiragino Sans",
+			"Noto Sans CJK SC",
+		];
+
 		public static AppBuilder BuildAvaloniaApp() {
 			var builder = AppBuilder.Configure<App>()
 				.UsePlatformDetect()
 				.With(new X11PlatformOptions { UseDBusFilePicker = false });
 
-			// The explicit list was added for macOS CoreText CJK fallback. Applying that
-			// cross-platform forced Windows through unavailable/non-native font families and
-			// is a plausible trigger for machine-specific silent exits when zh-Hans is active.
-			// Windows already has DirectWrite font fallback; let it use the installed system
-			// Chinese fonts. Only macOS keeps the explicit fallback chain it actually needs.
-			if (OperatingSystem.IsMacOS()) {
+			// Avalonia/Skia does not always follow DirectWrite's normal Win32 fallback path,
+			// especially when a control explicitly requests a Latin-only monospace face such
+			// as Consolas/Cascadia Mono. Chinese paths/status text could therefore render as
+			// tofu squares even though Windows has CJK fonts installed. Keep the fallback
+			// chains platform-specific so Windows never probes macOS-only faces (an older
+			// cross-platform chain was associated with machine-specific startup failures).
+			if (OperatingSystem.IsWindows()) {
 				builder = builder.With(new FontManagerOptions {
-					FontFallbacks = new[] {
-						new FontFallback { FontFamily = new FontFamily("PingFang SC") },
-						new FontFallback { FontFamily = new FontFamily("Hiragino Sans") },
-						new FontFallback { FontFamily = new FontFamily("Noto Sans CJK SC") },
-					},
+					FontFallbacks = WindowsCjkFallbackFamilies
+						.Select(name => new FontFallback { FontFamily = new FontFamily(name) })
+						.ToArray(),
+				});
+			}
+			else if (OperatingSystem.IsMacOS()) {
+				builder = builder.With(new FontManagerOptions {
+					FontFallbacks = MacCjkFallbackFamilies
+						.Select(name => new FontFallback { FontFamily = new FontFamily(name) })
+						.ToArray(),
 				});
 			}
 

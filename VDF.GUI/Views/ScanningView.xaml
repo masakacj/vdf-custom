@@ -69,7 +69,7 @@
           <Run Text="{Binding TimeElapsed, Mode=OneWay}" />
         </TextBlock>
         <TextBlock FontSize="12" Opacity="0.55" MaxWidth="520"
-                   FontFamily="Cascadia Mono,Consolas,monospace"
+                   FontFamily="Cascadia Mono,Consolas,Microsoft YaHei UI,Microsoft YaHei,PingFang SC,Noto Sans CJK SC,Menlo,monospace"
                    TextTrimming="PrefixCharacterEllipsis"
                    Text="{Binding ScanCurrentFile}" />
       </StackPanel>
@@ -89,7 +89,7 @@
               <DataTemplate x:DataType="data:ScanEnumerationRow">
                 <Grid RowDefinitions="Auto,Auto" ColumnDefinitions="*,Auto,145" ColumnSpacing="10">
                   <TextBlock Grid.Column="0" FontSize="12.5" FontWeight="SemiBold"
-                             FontFamily="Cascadia Mono,Consolas,monospace"
+                             FontFamily="Cascadia Mono,Consolas,Microsoft YaHei UI,Microsoft YaHei,PingFang SC,Noto Sans CJK SC,Menlo,monospace"
                              TextTrimming="PrefixCharacterEllipsis" Text="{Binding RootPath}"
                              ToolTip.Tip="{Binding RootPath}" />
                   <Border Grid.Column="1" Classes="enumeration-chip"
