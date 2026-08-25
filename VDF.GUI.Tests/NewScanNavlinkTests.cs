@@ -48,9 +48,9 @@ public class NewScanNavlinkTests {
 	}
 
 	[Fact]
-	public void SetupScreenScanButton_StillStartsFullScan() {
+	public void SetupScreenScanButtons_KeepFullScanAndExposeExactPassSeparately() {
 		var scanButtons = ElementsBoundTo("SetupView.xaml", "Command", "{Binding StartScanCommand}").ToList();
-		Assert.NotEmpty(scanButtons);
-		Assert.All(scanButtons, b => Assert.Equal("FullScan", (string?)b.Attribute("CommandParameter")));
+		Assert.Contains(scanButtons, b => (string?)b.Attribute("CommandParameter") == "FullScan");
+		Assert.Contains(scanButtons, b => (string?)b.Attribute("CommandParameter") == "ExactDuplicates");
 	}
 }
