@@ -127,6 +127,45 @@ namespace VDF.Core {
 		/// </summary>
 		[MemoryPackOrder(10)]
 		public string? OsHash;
+		/// <summary>
+		/// Full-file SHA-256 computed by the exact-duplicate pass. This is deliberately
+		/// separate from <see cref="OsHash"/>: OsHash only samples the head/tail and is a
+		/// fast move/rename fingerprint, while ExactSha256 covers every byte and is safe
+		/// for byte-identical duplicate grouping. The accompanying size/mtime fields make
+		/// the cache self-invalidating when the file changes.
+		/// </summary>
+		// MemoryPack order 11 is permanently reserved for wire compatibility: an interim
+		// historical build stored AI Embeddings there. The setter consumes that legacy
+		// payload and intentionally discards it; the getter always writes null, so loading
+		// an old database cannot re-bloat later saves and the new exact fields never shift.
+		[MemoryPackOrder(11)]
+		public Dictionary<double, byte[]?>? LegacyEmbeddingsCompatibility {
+			get => null;
+			set { /* legacy payload intentionally discarded */ }
+		}
+		[MemoryPackOrder(12)]
+		public string? ExactSha256;
+		[MemoryPackOrder(13)]
+		public long ExactHashFileSize;
+		[MemoryPackOrder(14)]
+		public DateTime ExactHashDateModified;
+		[MemoryPackIgnore]
+		public bool HasCurrentExactHash =>
+			ExactSha256 is { Length: 64 } &&
+			ExactHashFileSize == FileSize &&
+			ExactHashDateModified == DateModified;
+
+		public void SetExactHash(string sha256) {
+			ExactSha256 = sha256;
+			ExactHashFileSize = FileSize;
+			ExactHashDateModified = DateModified;
+		}
+
+		public void ClearExactHash() {
+			ExactSha256 = null;
+			ExactHashFileSize = 0;
+			ExactHashDateModified = default;
+		}
 		// Neural embeddings deliberately do NOT live on FileEntry: at library scale they
 		// would permanently bloat the main database and resident memory even for users who
 		// never enable AI matching. They are cached in the UnionEmbeddingStore sidecar

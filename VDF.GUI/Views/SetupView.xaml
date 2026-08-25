@@ -265,6 +265,17 @@
                 </StackPanel>
               </Button>
               <Button
+                  FontSize="13"
+                  VerticalAlignment="Center"
+                  Command="{Binding StartScanCommand}"
+                  CommandParameter="ExactDuplicates"
+                  ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[Setup.ExactDuplicatesTip]}">
+                <StackPanel Orientation="Horizontal" Spacing="7">
+                  <TextBlock Text="≡" FontSize="13" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding Source={x:Static local:App.Lang}, Path=[Setup.ExactDuplicates]}" />
+                </StackPanel>
+              </Button>
+              <Button
                   Classes="hyperlink"
                   FontSize="13"
                   VerticalAlignment="Center"

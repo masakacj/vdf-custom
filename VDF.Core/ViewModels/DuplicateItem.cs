@@ -188,6 +188,8 @@ namespace VDF.Core.ViewModels {
 		/// <summary>This pair was found only by the AI embedding pass (chip in the results list).</summary>
 		[JsonIgnore]
 		public bool IsAiMatched => Flags.HasFlag(DuplicateFlags.AiMatched);
+		[JsonIgnore]
+		public bool IsByteIdentical => Flags.HasFlag(DuplicateFlags.ByteIdentical);
 
 		[JsonIgnore]
 		public Action? ThumbnailsUpdated;

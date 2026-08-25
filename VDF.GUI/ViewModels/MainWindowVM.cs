@@ -734,6 +734,7 @@ namespace VDF.GUI.ViewModels {
 
 		void Scanner_ScanAborted(object? sender, EventArgs e) =>
 			Dispatcher.UIThread.InvokeAsync(() => {
+				exactDuplicateScanInProgress = false;
 				IsScanning = false;
 				IsBusy = false;
 				IsReadyToCompare = false;
@@ -744,10 +745,15 @@ namespace VDF.GUI.ViewModels {
 
 		void Scanner_ScanDone(object? sender, EventArgs e) =>
 			Dispatcher.UIThread.InvokeAsync(() => {
+				bool completedExactDuplicateScan = exactDuplicateScanInProgress;
+				exactDuplicateScanInProgress = false;
 				IsScanning = false;
 				IsBusy = false;
-				IsReadyToCompare = true;
-				IsGathered = true;
+				// The exact pass refreshes the index and hashes file bytes only. New files may
+				// still have no media probe/frame samples, so do not advertise a compare-only
+				// visual rescan as ready until a normal gather has run.
+				IsReadyToCompare = !completedExactDuplicateScan;
+				IsGathered = !completedExactDuplicateScan;
 				ScanProgressText = string.Empty;
 				RemainingTime = TimeSpan.Zero.Format();
 				ScanProgressValue = 0;
@@ -761,13 +767,15 @@ namespace VDF.GUI.ViewModels {
 					Scanner.Duplicates.RemoveWhere(d => blacklistedGids.Contains(d.GroupId));
 
 				AddDuplicatesInBulk(Scanner.Duplicates.Select(item => new DuplicateItemVM(item)));
+				if (completedExactDuplicateScan)
+					SetResultsDisplayMode(ResultsDisplayMode.SimilarityGroups);
 
 				// A completed scan that matched nothing drops back to the Setup screen; flag
 				// it so the screen shows a "no duplicates found" notice instead of looking
 				// identical to the never-scanned state.
 				ShowNoDuplicatesNotice = SetupNotice.ShowAfterScanDone(Duplicates.Count);
 
-				if (SettingsFile.Instance.GeneratePreviewThumbnails) {
+				if (!completedExactDuplicateScan && SettingsFile.Instance.GeneratePreviewThumbnails) {
 					ShowThumbnailRetrievalProgressBar = true;
 					ThumbnailRetrievalProgressText = "Starting to retrieve thumbnails for preview";
 					Scanner.RetrieveThumbnails();
@@ -1614,7 +1622,10 @@ Non-Windows setup:
 			return string.Format(App.Lang["Message.NativeFfmpegLibrariesMissing"], versionPart, archPart, libNames);
 		}
 
+		bool exactDuplicateScanInProgress;
+
 		public ReactiveCommand<string, Unit> StartScanCommand => ReactiveCommand.CreateFromTask(async (string command) => {
+			bool exactDuplicateScan = command == "ExactDuplicates";
 			if (!string.IsNullOrEmpty(SettingsFile.Instance.CustomDatabaseFolder) && !Directory.Exists(SettingsFile.Instance.CustomDatabaseFolder)) {
 				await MessageBoxService.Show(App.Lang["Message.CustomDatabaseFolderMissing"]);
 				return;
@@ -1625,45 +1636,47 @@ Non-Windows setup:
 				}
 			}
 
-			if ((SettingsFile.Instance.UseNativeFfmpegBinding && !ScanEngine.NativeFFmpegExists) ||
-				(!SettingsFile.Instance.UseNativeFfmpegBinding && !ScanEngine.FFmpegExists) ||
-				!ScanEngine.FFprobeExists) {
-				await DownloadSharedFfmpegAsync();
-			}
-			// Native binding on, shared libraries still missing, but the ffmpeg/ffprobe
-			// executables ARE present: don't claim "FFmpeg was not found" — point the user
-			// at the actual distinction (native needs shared libs) and the one-click way out
-			// (disable native binding to use the executable). See issue #788.
-			if (SettingsFile.Instance.UseNativeFfmpegBinding && !ScanEngine.NativeFFmpegExists &&
-				ScanEngine.FFmpegExists && ScanEngine.FFprobeExists) {
-				await MessageBoxService.Show(GetNativeLibrariesMissingMessage());
-				return;
-			}
-			if ((SettingsFile.Instance.UseNativeFfmpegBinding && !ScanEngine.NativeFFmpegExists) ||
-				(!SettingsFile.Instance.UseNativeFfmpegBinding && !ScanEngine.FFmpegExists)) {
-				await MessageBoxService.Show(GetRequiredFfmpegPackage(CoreUtils.CurrentFolder));
-				return;
-			}
-			if (!ScanEngine.FFprobeExists) {
-				if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
-					await MessageBoxService.Show(App.Lang["Message.FFprobeMissingWithHint"]);
+			if (!exactDuplicateScan) {
+				if ((SettingsFile.Instance.UseNativeFfmpegBinding && !ScanEngine.NativeFFmpegExists) ||
+					(!SettingsFile.Instance.UseNativeFfmpegBinding && !ScanEngine.FFmpegExists) ||
+					!ScanEngine.FFprobeExists) {
+					await DownloadSharedFfmpegAsync();
 				}
-				else {
-					await MessageBoxService.Show(App.Lang["Message.FFprobeMissing"]);
+				// Native binding on, shared libraries still missing, but the ffmpeg/ffprobe
+				// executables ARE present: don't claim "FFmpeg was not found" — point the user
+				// at the actual distinction (native needs shared libs) and the one-click way out
+				// (disable native binding to use the executable). See issue #788.
+				if (SettingsFile.Instance.UseNativeFfmpegBinding && !ScanEngine.NativeFFmpegExists &&
+					ScanEngine.FFmpegExists && ScanEngine.FFprobeExists) {
+					await MessageBoxService.Show(GetNativeLibrariesMissingMessage());
+					return;
 				}
-				return;
-			}
-			if (SettingsFile.Instance.UseNativeFfmpegBinding && SettingsFile.Instance.HardwareAccelerationMode == Core.FFTools.FFHardwareAccelerationMode.auto) {
-				await MessageBoxService.Show(App.Lang["Message.NativeFfmpegAutoNotSupported"]);
-				return;
-			}
-			if (SettingsFile.Instance.NeedsAiComponents &&
-				!VDF.Core.AI.AiComponents.IsReady) {
-				if (await MessageBoxService.Show(App.Lang["Message.AiComponentsMissingPrompt"], MessageBoxButtons.Yes | MessageBoxButtons.No) != MessageBoxButtons.Yes)
+				if ((SettingsFile.Instance.UseNativeFfmpegBinding && !ScanEngine.NativeFFmpegExists) ||
+					(!SettingsFile.Instance.UseNativeFfmpegBinding && !ScanEngine.FFmpegExists)) {
+					await MessageBoxService.Show(GetRequiredFfmpegPackage(CoreUtils.CurrentFolder));
 					return;
-				await DownloadAiComponentsAsync();
-				if (!VDF.Core.AI.AiComponents.IsReady)
+				}
+				if (!ScanEngine.FFprobeExists) {
+					if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) {
+						await MessageBoxService.Show(App.Lang["Message.FFprobeMissingWithHint"]);
+					}
+					else {
+						await MessageBoxService.Show(App.Lang["Message.FFprobeMissing"]);
+					}
 					return;
+				}
+				if (SettingsFile.Instance.UseNativeFfmpegBinding && SettingsFile.Instance.HardwareAccelerationMode == Core.FFTools.FFHardwareAccelerationMode.auto) {
+					await MessageBoxService.Show(App.Lang["Message.NativeFfmpegAutoNotSupported"]);
+					return;
+				}
+				if (SettingsFile.Instance.NeedsAiComponents &&
+					!VDF.Core.AI.AiComponents.IsReady) {
+					if (await MessageBoxService.Show(App.Lang["Message.AiComponentsMissingPrompt"], MessageBoxButtons.Yes | MessageBoxButtons.No) != MessageBoxButtons.Yes)
+						return;
+					await DownloadAiComponentsAsync();
+					if (!VDF.Core.AI.AiComponents.IsReady)
+						return;
+				}
 			}
 			if (SettingsFile.Instance.Includes.Count == 0) {
 				await MessageBoxService.Show(App.Lang["Message.NoScanFolders"]);
@@ -1673,7 +1686,7 @@ Non-Windows setup:
 				await MessageBoxService.Show(App.Lang["Message.MaxDegreeOfParallelismInvalid"]);
 				return;
 			}
-			if (SettingsFile.Instance.EnableHddProtection && command == "FullScan") {
+			if (SettingsFile.Instance.EnableHddProtection && (command == "FullScan" || exactDuplicateScan)) {
 				bool invalidHddProtection = string.IsNullOrWhiteSpace(SettingsFile.Instance.HddProtectionSnmpHost)
 					|| string.IsNullOrWhiteSpace(SettingsFile.Instance.HddProtectionSnmpUser)
 					|| VDF.Core.Utils.HddProtectionMappings.Parse(SettingsFile.Instance.HddProtectionDriveMappings).Count == 0
@@ -1698,6 +1711,9 @@ Non-Windows setup:
 				if (await MessageBoxService.Show(App.Lang["Message.RescanConfirm"], MessageBoxButtons.Yes | MessageBoxButtons.No) != MessageBoxButtons.Yes)
 					return;
 				break;
+			case "ExactDuplicates":
+				isFreshScan = false;
+				break;
 			default:
 				await MessageBoxService.Show(App.Lang["Message.CommandNotImplemented"]);
 				break;
@@ -1713,6 +1729,7 @@ Non-Windows setup:
 			Utils.ThumbCacheHelpers.SetActiveProvider(Utils.ThumbPack.Open(TempDirectory.Path));
 
 			IsScanning = true;
+			exactDuplicateScanInProgress = exactDuplicateScan;
 			IsReadyToCompare = false;
 			IsGathered = false;
 			TotalDuplicateGroups = 0;
@@ -1726,7 +1743,10 @@ Non-Windows setup:
 			ChangeIsBusyMessage();
 			IsBusy = true;
 
-			if (isFreshScan) {
+			if (exactDuplicateScan) {
+				Scanner.StartExactDuplicateScan();
+			}
+			else if (isFreshScan) {
 				Scanner.StartSearch();
 			}
 			else {

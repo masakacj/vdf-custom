@@ -572,6 +572,12 @@
                 <TextBlock FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource VdfPrimaryBrush}" Text="{Binding Title}" />
                 <TextBlock Classes="meta" FontSize="11.5" VerticalAlignment="Center" Text="{Binding Summary}" />
                 <TextBlock FontSize="11" Opacity="0.6" VerticalAlignment="Center" Text="{Binding SimilarityRangeDisplay}" />
+                <Border Classes="simchip" Padding="5,0" CornerRadius="3" VerticalAlignment="Center"
+                        IsVisible="{Binding HasByteIdenticalMatches}"
+                        ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[Results.Group.ByteIdenticalTip]}">
+                  <TextBlock FontSize="10" FontWeight="Bold"
+                             Text="{Binding Source={x:Static local:App.Lang}, Path=[Results.Group.ByteIdentical]}" />
+                </Border>
                 <!-- Combined-mode badges (#842): which classic algorithm(s) matched in
                      this group. Only ever set by the combined grayscale+pHash scan. -->
                 <Border Classes="simchip" Padding="5,0" CornerRadius="3" VerticalAlignment="Center"
