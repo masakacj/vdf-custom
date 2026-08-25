@@ -70,6 +70,7 @@ public partial class FileEntryEmbeddingsTests {
 		Assert.Equal(42UL, restored.PHashes[12.5]);
 		Assert.Equal(1234, restored.FileSize);
 		Assert.Equal("abc123", restored.OsHash);
+		Assert.Null(restored.ExactSha256); // legacy order 11 must never alias the new exact-hash fields
 		Assert.Equal(new uint[] { 1, 2, 3 }, restored.AudioFingerprint);
 	}
 
@@ -78,15 +79,17 @@ public partial class FileEntryEmbeddingsTests {
 		// The reverse direction: a database written by the current schema is a valid
 		// prefix of the interim embeddings schema (its Embeddings member is simply
 		// missing), and of course round-trips through itself.
-		var entry = new FileEntry { Folder = @"D:\media" };
+		var entry = new FileEntry { Folder = @"D:\media", FileSize = 1234, DateModified = new DateTime(2026, 8, 25, 1, 2, 3, DateTimeKind.Utc) };
 		entry.Path = @"D:\media\old.mp4";
 		entry.grayBytes[12.5] = new byte[] { 1, 2, 3 };
+		entry.SetExactHash("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
 
 		byte[] payload = MemoryPackSerializer.Serialize(entry);
 
 		FileEntry? roundTripped = MemoryPackSerializer.Deserialize<FileEntry>(payload);
 		Assert.NotNull(roundTripped);
 		Assert.Equal(new byte[] { 1, 2, 3 }, roundTripped!.grayBytes[12.5]);
+		Assert.Equal(entry.ExactSha256, roundTripped.ExactSha256);
 
 		FileEntryWithEmbeddingsMember? asEmbeddingsBuild =
 			MemoryPackSerializer.Deserialize<FileEntryWithEmbeddingsMember>(payload);

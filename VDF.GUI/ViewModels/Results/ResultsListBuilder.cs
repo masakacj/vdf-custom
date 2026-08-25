@@ -102,7 +102,7 @@ namespace VDF.GUI.ViewModels {
 				float simMin = float.MaxValue, simMax = float.MinValue;
 				int onDisk = 0;
 				bool hasTombstone = false, hasOffline = false, hasChecked = false;
-				bool hasGrayscale = false, hasPHash = false;
+				bool hasGrayscale = false, hasPHash = false, hasByteIdentical = false;
 				foreach (var m in members) {
 					long size = Math.Max(0, m.ItemInfo.SizeLong);
 					total += size;
@@ -117,6 +117,7 @@ namespace VDF.GUI.ViewModels {
 					hasChecked |= m.Checked;
 					hasGrayscale |= m.ItemInfo.Flags.HasFlag(Core.DuplicateFlags.GrayscaleMatched);
 					hasPHash |= m.ItemInfo.Flags.HasFlag(Core.DuplicateFlags.PHashMatched);
+					hasByteIdentical |= m.ItemInfo.Flags.HasFlag(Core.DuplicateFlags.ByteIdentical);
 				}
 
 				var rows = members.Select(m => new ResultsItemRow(m)).ToList();
@@ -134,6 +135,7 @@ namespace VDF.GUI.ViewModels {
 					IsCollapsed = request.CollapsedGroups?.Contains(gid) == true,
 					HasGrayscaleMatches = hasGrayscale,
 					HasPHashMatches = hasPHash,
+					HasByteIdenticalMatches = hasByteIdentical,
 				};
 				foreach (var row in rows)
 					row.Group = header;

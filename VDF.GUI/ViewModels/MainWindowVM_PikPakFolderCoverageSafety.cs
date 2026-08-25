@@ -157,6 +157,8 @@ namespace VDF.GUI.ViewModels {
 				throw new ArgumentException("At least one candidate is required.", nameof(candidates));
 			if (candidates.Count == 1)
 				return new BestRecommendation(candidates[0], true, "BEST：当前只有一个候选副本。");
+			if (TryRecommendByteIdentical(candidates, out BestRecommendation exact))
+				return exact;
 
 			bool confirmed = TryPickDecisiveQualityWinner(candidates, out DuplicateItemVM decisive);
 			DuplicateItemVM winner = confirmed ? decisive : PickLikelyQualityWinner(candidates);
@@ -175,6 +177,8 @@ namespace VDF.GUI.ViewModels {
 				throw new ArgumentException("At least one candidate is required.", nameof(candidates));
 			if (candidates.Count == 1)
 				return new BestRecommendation(candidates[0], true, "BEST：当前只有一个候选副本。");
+			if (TryRecommendByteIdentical(candidates, out BestRecommendation exact))
+				return exact;
 
 			var criteria = ResolveBestCriteria(criteriaOrder).ToList();
 			// BEST must not depend on the current UI sort order. QualityRanker deliberately
@@ -193,6 +197,20 @@ namespace VDF.GUI.ViewModels {
 			bool hasDecisive = TryPickDecisiveQualityWinner(candidates, out DuplicateItemVM decisive);
 			bool confirmed = hasDecisive && ReferenceEquals(preferred, decisive);
 			return BuildBestRecommendation(preferred, candidates, confirmed, sizeIsWeakTieBreaker: false);
+		}
+
+		static bool TryRecommendByteIdentical(IReadOnlyList<DuplicateItemVM> candidates, out BestRecommendation recommendation) {
+			if (!candidates.All(item => item.ItemInfo.IsByteIdentical)) {
+				recommendation = null!;
+				return false;
+			}
+			DuplicateItemVM keeper = candidates
+				.OrderBy(item => item.ItemInfo.Path, StringComparer.OrdinalIgnoreCase)
+				.ThenBy(item => item.ItemInfo.Path, StringComparer.Ordinal)
+				.First();
+			recommendation = new BestRecommendation(keeper, true,
+				"字节完全相同：完整文件 SHA-256 一致；任意副本内容相同，当前按路径稳定选择一个保留项。");
+			return true;
 		}
 
 		static BestRecommendation BuildBestRecommendation(
