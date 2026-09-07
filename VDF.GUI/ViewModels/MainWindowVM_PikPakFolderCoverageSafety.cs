@@ -182,12 +182,12 @@ namespace VDF.GUI.ViewModels {
 
 			var criteria = ResolveBestCriteria(criteriaOrder).ToList();
 			// BEST must not depend on the current UI sort order. QualityRanker deliberately
-			// preserves the first candidate when every configured criterion stays tied; the
-			// results list sorts members before asking for BEST while bulk selectors usually
-			// see database/original order. Canonicalize that final tie by path first so every
-			// caller receives the same winner regardless of size/date/path display sorting.
+			// preserves the first candidate when every configured criterion stays tied. For
+			// videos whose quality/technical fields all tie, prefer the longer filename stem as
+			// the more informative copy, then fall back to path for deterministic stability.
 			var canonicalCandidates = candidates
-				.OrderBy(item => item.ItemInfo.Path, StringComparer.OrdinalIgnoreCase)
+				.OrderByDescending(BestFileNameInformationLength)
+				.ThenBy(item => item.ItemInfo.Path, StringComparer.OrdinalIgnoreCase)
 				.ThenBy(item => item.ItemInfo.Path, StringComparer.Ordinal)
 				.ToList();
 			DuplicateItemVM preferred = VDF.Core.Utils.QualityRanker.PickKeeper(
@@ -199,17 +199,23 @@ namespace VDF.GUI.ViewModels {
 			return BuildBestRecommendation(preferred, candidates, confirmed, sizeIsWeakTieBreaker: false);
 		}
 
+		internal static int BestFileNameInformationLength(DuplicateItemVM item) {
+			if (item.ItemInfo.IsImage) return 0;
+			return (Path.GetFileNameWithoutExtension(item.ItemInfo.Path) ?? string.Empty).Length;
+		}
+
 		static bool TryRecommendByteIdentical(IReadOnlyList<DuplicateItemVM> candidates, out BestRecommendation recommendation) {
 			if (!candidates.All(item => item.ItemInfo.IsByteIdentical)) {
 				recommendation = null!;
 				return false;
 			}
 			DuplicateItemVM keeper = candidates
-				.OrderBy(item => item.ItemInfo.Path, StringComparer.OrdinalIgnoreCase)
+				.OrderByDescending(BestFileNameInformationLength)
+				.ThenBy(item => item.ItemInfo.Path, StringComparer.OrdinalIgnoreCase)
 				.ThenBy(item => item.ItemInfo.Path, StringComparer.Ordinal)
 				.First();
 			recommendation = new BestRecommendation(keeper, true,
-				"字节完全相同：完整文件 SHA-256 一致；任意副本内容相同，当前按路径稳定选择一个保留项。");
+				"字节完全相同：完整文件 SHA-256 一致；视频优先保留文件名信息更完整的副本，再按路径稳定裁决。");
 			return true;
 		}
 
@@ -251,6 +257,9 @@ namespace VDF.GUI.ViewModels {
 				// Size is deliberately a very late tie-breaker, and larger is weakly preferred
 				// because the goal is most-likely source quality rather than smallest storage.
 				.ThenByDescending(item => Math.Max(0, item.Candidate.ItemInfo.SizeLong))
+				.ThenByDescending(item => BestFileNameInformationLength(item.Candidate))
+				.ThenBy(item => item.Candidate.ItemInfo.Path, StringComparer.OrdinalIgnoreCase)
+				.ThenBy(item => item.Candidate.ItemInfo.Path, StringComparer.Ordinal)
 				.ThenBy(item => item.Index)
 				.ToList();
 			return scored[0].Candidate;
@@ -272,7 +281,7 @@ namespace VDF.GUI.ViewModels {
 				score += CompareHigherWeighted((double)candidateBpp, (double)otherBpp, 2.5d, requirePositive: true, nearTieRatio: 0.05d);
 				score += CompareHigherWeighted((double)candidate.ItemInfo.AudioBitRateKbs, (double)other.ItemInfo.AudioBitRateKbs, 1d, requirePositive: true, nearTieRatio: 0.05d);
 				score += CompareHigherWeighted(candidate.ItemInfo.AudioSampleRate, other.ItemInfo.AudioSampleRate, 0.75d, requirePositive: true);
-			// Physical size is intentionally tiny compared with every actual quality signal.
+				// Physical size is intentionally tiny compared with every actual quality signal.
 				score += CompareHigherWeighted(Math.Max(0, candidate.ItemInfo.SizeLong), Math.Max(0, other.ItemInfo.SizeLong), 0.15d, requirePositive: true, nearTieRatio: 0.03d);
 			}
 			return score;
@@ -327,12 +336,19 @@ namespace VDF.GUI.ViewModels {
 				strengths.Add("音频码率更高");
 
 			if (strengths.Count == 0) {
-				long maxSize = group.Max(item => Math.Max(0, item.ItemInfo.SizeLong));
-				if (maxSize > 0 && Math.Max(0, winner.ItemInfo.SizeLong) == maxSize &&
-					group.Any(item => Math.Max(0, item.ItemInfo.SizeLong) < maxSize))
-					strengths.Add("主要质量指标接近，较大的文件体积仅作为弱参考");
-				else
-					strengths.Add("可比质量指标基本打平，按稳定顺序给出最可能候选");
+				int winnerNameLength = BestFileNameInformationLength(winner);
+				int maxNameLength = group.Max(BestFileNameInformationLength);
+				if (winnerNameLength > 0 && winnerNameLength == maxNameLength &&
+					group.Any(item => BestFileNameInformationLength(item) < maxNameLength))
+					strengths.Add("主要质量指标打平，文件名包含的信息更完整");
+				else {
+					long maxSize = group.Max(item => Math.Max(0, item.ItemInfo.SizeLong));
+					if (maxSize > 0 && Math.Max(0, winner.ItemInfo.SizeLong) == maxSize &&
+						group.Any(item => Math.Max(0, item.ItemInfo.SizeLong) < maxSize))
+						strengths.Add("主要质量指标接近，较大的文件体积仅作为弱参考");
+					else
+						strengths.Add("可比质量指标基本打平，按稳定顺序给出最可能候选");
+				}
 			}
 			return string.Join("、", strengths.Take(4));
 		}

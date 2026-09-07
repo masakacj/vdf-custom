@@ -1,0 +1,232 @@
+// /*
+//     Copyright (C) 2026 0x90d
+//     This file is part of VideoDuplicateFinder
+// */
+
+using System.Collections.Specialized;
+using System.Linq;
+using ReactiveUI;
+using VDF.GUI.Data;
+
+namespace VDF.GUI.ViewModels {
+	public partial class MainWindowVM {
+		readonly HashSet<Guid> resultsDirtyGroupIds = new();
+		readonly Dictionary<Guid, List<DuplicateItemVM>> resultsItemsByGroup = new();
+		bool resultsMutationTrackingInstalled;
+		bool resultsIncrementalInvalidated = true;
+		ResultsIncrementalSignature? lastResultsIncrementalSignature;
+
+		readonly record struct ResultsIncrementalSignature(
+			string FileType,
+			string PathFilter,
+			int SimilarityFrom,
+			int SimilarityTo,
+			bool CheckedGroupsOnly,
+			ResultsSortMode SortMode,
+			bool SortDescending,
+			bool BestFirst,
+			ResultsDisplayMode DisplayMode,
+			bool QualityDiagnostics,
+			string QualityOrder);
+
+		/// <summary>
+		/// Result mutation tracking is intentionally presentation-only. It never reads or writes
+		/// ScannedFiles.db and therefore cannot migrate or invalidate a long-running scan database.
+		/// A Reset (new scan/import) invalidates incremental state until the next full rebuild.
+		/// </summary>
+		void EnsureResultsMutationTracking() {
+			if (resultsMutationTrackingInstalled) return;
+			Duplicates.CollectionChanged += ResultsDuplicatesCollectionChanged;
+			resultsMutationTrackingInstalled = true;
+		}
+
+		void ResultsDuplicatesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) {
+			if (e.Action == NotifyCollectionChangedAction.Reset) {
+				resultsIncrementalInvalidated = true;
+				resultsDirtyGroupIds.Clear();
+				resultsItemsByGroup.Clear();
+				return;
+			}
+
+			// During a reset/import the collection may receive hundreds of thousands of Add
+			// notifications. Ignore them until the next full build reconstructs the index once.
+			if (resultsIncrementalInvalidated) return;
+
+			if (e.OldItems != null) {
+				foreach (object? value in e.OldItems) {
+					if (value is not DuplicateItemVM item) continue;
+					Guid groupId = item.ItemInfo.GroupId;
+					resultsDirtyGroupIds.Add(groupId);
+					if (!resultsItemsByGroup.TryGetValue(groupId, out var members)) continue;
+					members.Remove(item);
+					if (members.Count == 0)
+						resultsItemsByGroup.Remove(groupId);
+				}
+			}
+
+			if (e.NewItems != null) {
+				foreach (object? value in e.NewItems) {
+					if (value is not DuplicateItemVM item) continue;
+					Guid groupId = item.ItemInfo.GroupId;
+					resultsDirtyGroupIds.Add(groupId);
+					if (!resultsItemsByGroup.TryGetValue(groupId, out var members))
+						resultsItemsByGroup[groupId] = members = new List<DuplicateItemVM>();
+					members.Add(item);
+				}
+			}
+		}
+
+		ResultsIncrementalSignature CaptureResultsIncrementalSignature() => new(
+			FileType.Name,
+			FilterByPath ?? string.Empty,
+			FilterSimilarityFrom,
+			FilterSimilarityTo,
+			FilterGroupsWithCheckedItems,
+			SettingsFile.Instance.ResultsSortMode,
+			SettingsFile.Instance.ResultsSortDescending,
+			SettingsFile.Instance.ResultsBestFirst,
+			ActiveResultsDisplayMode,
+			EnableLightweightQualityDiagnostics,
+			string.Join('\u001f', QualityCriteriaOrder));
+
+		/// <summary>Called after an intentional full rebuild to establish a safe incremental baseline.</summary>
+		void AfterFullResultsRebuild() {
+			resultsItemsByGroup.Clear();
+			foreach (DuplicateItemVM item in Duplicates) {
+				Guid groupId = item.ItemInfo.GroupId;
+				if (!resultsItemsByGroup.TryGetValue(groupId, out var members))
+					resultsItemsByGroup[groupId] = members = new List<DuplicateItemVM>();
+				members.Add(item);
+			}
+			resultsDirtyGroupIds.Clear();
+			resultsIncrementalInvalidated = false;
+			lastResultsIncrementalSignature = CaptureResultsIncrementalSignature();
+			RebuildResultSelectionIndexes(resultsGroups);
+		}
+
+		/// <summary>
+		/// Rebuilds only groups touched by collection mutations. Global filter/sort/rule changes,
+		/// reset/import state and resource-consolidation presentation deliberately fall back to
+		/// the original full rebuild. This keeps the optimization fail-safe and DB-neutral.
+		/// </summary>
+		bool TryRefreshResultsIncrementally() {
+			EnsureResultsMutationTracking();
+			if (resultsIncrementalInvalidated || resultsDirtyGroupIds.Count == 0)
+				return false;
+			if (ActiveResultsDisplayMode != ResultsDisplayMode.SimilarityGroups)
+				return false;
+
+			ResultsIncrementalSignature signature = CaptureResultsIncrementalSignature();
+			if (lastResultsIncrementalSignature is not { } previous || previous != signature)
+				return false;
+
+			// A path-search hit makes the whole group visible. If the path that caused the hit
+			// was removed, refresh that tiny lookup before rebuilding the dirty group(s).
+			if (!string.IsNullOrEmpty(FilterByPath))
+				RebuildSearchPathIndex();
+
+			var dirtyIds = resultsDirtyGroupIds.ToHashSet();
+			var oldGroupOrder = resultsGroups.Select(group => group.GroupId).ToList();
+			var oldOrderIndex = oldGroupOrder
+				.Select((groupId, index) => (groupId, index))
+				.ToDictionary(pair => pair.groupId, pair => pair.index);
+
+			var dirtyItems = new List<DuplicateItemVM>();
+			foreach (Guid groupId in dirtyIds)
+				if (resultsItemsByGroup.TryGetValue(groupId, out var members))
+					dirtyItems.AddRange(members);
+
+			var partial = ResultsListBuilder.Build(new ResultsBuildRequest {
+				Items = dirtyItems,
+				Filter = DuplicatesFilterCore,
+				SortMode = SettingsFile.Instance.ResultsSortMode,
+				SortDescending = SettingsFile.Instance.ResultsSortDescending,
+				BestFirst = SettingsFile.Instance.ResultsBestFirst,
+				CollapsedGroups = collapsedResultsGroups,
+				ExpandedDetails = expandedResultsDetails,
+				RecommendBest = members => RecommendBestUsingCurrentRules(members),
+				Formats = BuildGroupSummaryFormats(),
+			});
+			ApplyFolderStats(partial.Groups);
+			ResultsRowReconciler.ReuseItemRows(ResultsRows, partial, expandedResultsDetails);
+			foreach (ResultsGroupHeader group in partial.Groups) {
+				string warning = BuildLightweightQualityGroupSummary(group);
+				if (warning.Length > 0)
+					group.Summary += " · " + warning;
+			}
+
+			var merged = resultsGroups.Where(group => !dirtyIds.Contains(group.GroupId)).ToList();
+			merged.AddRange(partial.Groups);
+			SortIncrementalResultGroups(merged, oldOrderIndex);
+
+			GroupSummaryFormats formats = BuildGroupSummaryFormats();
+			var displayRows = new List<object>();
+			bool hasPartialClips = false;
+			for (int i = 0; i < merged.Count; i++) {
+				ResultsGroupHeader header = merged[i];
+				header.GroupNumber = i + 1;
+				header.Title = string.Format(formats.GroupTitle, header.GroupNumber);
+				displayRows.Add(header);
+				foreach (ResultsItemRow row in header.Rows) {
+					hasPartialClips |= row.Item.ItemInfo.Flags.HasFlag(VDF.Core.DuplicateFlags.PartialClip);
+					if (header.IsCollapsed) continue;
+					displayRows.Add(row);
+					if (expandedResultsDetails.Contains(row.Item))
+						displayRows.Add(new ResultsDetailsRow(row));
+				}
+			}
+
+			ResultsScrollAnchor.Capture? anchor = ResultsAnchorProvider?.Invoke();
+			resultsGroups = merged;
+			resultsHavePartialClips = hasPartialClips;
+			ResultsRowReconciler.Apply(ResultsRows, displayRows);
+			this.RaisePropertyChanged(nameof(ResultsShowClipOffsetColumn));
+			if (anchor is { } a && ResultsScrollAnchor.FindRestoreTarget(a.Row, oldGroupOrder, displayRows) is { } target)
+				ResultsScrollToRow?.Invoke(target, a.ViewportOffsetY);
+
+			resultsDirtyGroupIds.Clear();
+			lastResultsIncrementalSignature = signature;
+			RebuildResultSelectionIndexes(resultsGroups);
+			return true;
+		}
+
+		void SortIncrementalResultGroups(List<ResultsGroupHeader> groups, IReadOnlyDictionary<Guid, int> oldOrder) {
+			Comparison<ResultsGroupHeader> comparison = SettingsFile.Instance.ResultsSortMode switch {
+				ResultsSortMode.WastedSpace => (a, b) => a.WastedBytes.CompareTo(b.WastedBytes),
+				ResultsSortMode.TotalSize => (a, b) => a.TotalBytes.CompareTo(b.TotalBytes),
+				ResultsSortMode.LargestFile => (a, b) => IncrementalMaxSize(a).CompareTo(IncrementalMaxSize(b)),
+				ResultsSortMode.FileCount => (a, b) => a.FileCount.CompareTo(b.FileCount),
+				ResultsSortMode.Similarity => (a, b) => a.SimilarityMax.CompareTo(b.SimilarityMax),
+				ResultsSortMode.DateCreated => (a, b) => IncrementalMaxDate(a).CompareTo(IncrementalMaxDate(b)),
+				ResultsSortMode.Duration => (a, b) => IncrementalMaxDuration(a).CompareTo(IncrementalMaxDuration(b)),
+				ResultsSortMode.Resolution => (a, b) => IncrementalMaxFrameSize(a).CompareTo(IncrementalMaxFrameSize(b)),
+				ResultsSortMode.FolderPath => (a, b) => string.Compare(IncrementalFirstPath(a), IncrementalFirstPath(b), StringComparison.OrdinalIgnoreCase),
+				ResultsSortMode.GroupsWithCheckedItems => (a, b) => a.HasCheckedItems.CompareTo(b.HasCheckedItems),
+				_ => (a, b) => 0,
+			};
+			if (SettingsFile.Instance.ResultsSortDescending) {
+				Comparison<ResultsGroupHeader> inner = comparison;
+				comparison = (a, b) => inner(b, a);
+			}
+			groups.Sort((a, b) => {
+				int value = comparison(a, b);
+				if (value != 0) return value;
+				int ai = oldOrder.TryGetValue(a.GroupId, out int av) ? av : int.MaxValue;
+				int bi = oldOrder.TryGetValue(b.GroupId, out int bv) ? bv : int.MaxValue;
+				value = ai.CompareTo(bi);
+				return value != 0 ? value : a.GroupId.CompareTo(b.GroupId);
+			});
+		}
+
+		static long IncrementalMaxSize(ResultsGroupHeader group) =>
+			group.Rows.Count == 0 ? 0 : group.Rows.Max(row => row.Item.ItemInfo.SizeLong);
+		static DateTime IncrementalMaxDate(ResultsGroupHeader group) =>
+			group.Rows.Count == 0 ? DateTime.MinValue : group.Rows.Max(row => row.Item.ItemInfo.DateCreated);
+		static TimeSpan IncrementalMaxDuration(ResultsGroupHeader group) =>
+			group.Rows.Count == 0 ? TimeSpan.Zero : group.Rows.Max(row => row.Item.ItemInfo.Duration);
+		static int IncrementalMaxFrameSize(ResultsGroupHeader group) =>
+			group.Rows.Count == 0 ? 0 : group.Rows.Max(row => row.Item.ItemInfo.FrameSizeInt);
+		static string IncrementalFirstPath(ResultsGroupHeader group) =>
+			group.Rows.Count == 0 ? string.Empty : group.Rows[0].Item.ItemInfo.Path;
+	}
+}
