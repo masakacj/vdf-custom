@@ -14,6 +14,7 @@
 // */
 //
 
+using System.Diagnostics;
 using System.Linq;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -43,6 +44,36 @@ namespace VDF.GUI {
 				}
 			}
 			catch { /* diagnostics must never interfere with startup */ }
+		}
+
+		static string GetDatabaseLoadingText(TimeSpan elapsed) {
+			try {
+				string folder = VDF.Core.Utils.CoreUtils.ResolveDatabaseFolder(SettingsFile.Instance.CustomDatabaseFolder);
+				string path = Path.Combine(folder, "ScannedFiles.db");
+				if (File.Exists(path)) {
+					double gib = new FileInfo(path).Length / 1024d / 1024d / 1024d;
+					return $"正在加载扫描数据库 / Loading database… {gib:F2} GB · {elapsed:hh\\:mm\\:ss}";
+				}
+			}
+			catch { }
+			return $"正在加载扫描数据库 / Loading database… {elapsed:hh\\:mm\\:ss}";
+		}
+
+		static void StartDatabaseLoadingStatus(MainWindowVM viewModel) {
+			var elapsed = Stopwatch.StartNew();
+			var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+			timer.Tick += (_, _) => {
+				if (!viewModel.IsBusy) {
+					timer.Stop();
+					return;
+				}
+				if (viewModel.IsBusyOverlayText.StartsWith("Loading database", StringComparison.OrdinalIgnoreCase) ||
+					viewModel.IsBusyOverlayText.StartsWith("正在加载扫描数据库", StringComparison.Ordinal))
+					viewModel.IsBusyOverlayText = GetDatabaseLoadingText(elapsed.Elapsed);
+				else
+					timer.Stop();
+			};
+			timer.Start();
 		}
 
 		public override void Initialize() {
@@ -76,20 +107,20 @@ namespace VDF.GUI {
 				TraceStartup("MainWindow assigned to desktop lifetime");
 				window.Opened += (_, _) => TraceStartup("MainWindow Opened");
 
-				// The lifetime Startup handler loads ScannedFiles.db on a worker and then restores
-				// backup.scanresults. With very large saved result sets, make sure the shell is
-				// visible as soon as the first async database load yields instead of leaving the
-				// user with a silent process while hundreds of thousands of rows are reconstructed.
-				Dispatcher.UIThread.Post(() => {
-					try {
-						if (!window.IsVisible)
-							window.Show();
-						TraceStartup("Early MainWindow show dispatched");
-					}
-					catch (Exception ex) {
-						TraceStartup($"Early MainWindow show failed: {ex.GetType().Name}: {ex.Message}");
-					}
-				}, DispatcherPriority.Background);
+				// ClassicDesktopLifetime raises Startup before its normal automatic MainWindow
+				// show. A multi-GB ScannedFiles.db load therefore used to leave a perfectly alive
+				// process with no visible window for many minutes. Show the shell synchronously
+				// before base.OnFrameworkInitializationCompleted() can enter that Startup path.
+				try {
+					viewModel.IsBusy = true;
+					viewModel.IsBusyOverlayText = GetDatabaseLoadingText(TimeSpan.Zero);
+					window.Show();
+					StartDatabaseLoadingStatus(viewModel);
+					TraceStartup("MainWindow shown synchronously before Startup database load");
+				}
+				catch (Exception ex) {
+					TraceStartup($"Synchronous MainWindow show failed: {ex.GetType().Name}: {ex.Message}");
+				}
 
 				desktop.ShutdownRequested += OnShutdownRequested;
 				desktop.Exit += OnExitCleanup; //fallback
