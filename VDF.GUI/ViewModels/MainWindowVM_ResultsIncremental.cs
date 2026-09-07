@@ -184,7 +184,7 @@ namespace VDF.GUI.ViewModels {
 				ResultsSortMode.FileCount => (a, b) => a.FileCount.CompareTo(b.FileCount),
 				ResultsSortMode.Similarity => (a, b) => a.SimilarityMax.CompareTo(b.SimilarityMax),
 				ResultsSortMode.DateCreated => (a, b) => IncrementalMaxDate(a).CompareTo(IncrementalMaxDate(b)),
-				ResultsSortMode.Duration => (a, b) => IncrementalMaxDuration(a).CompareTo(b.IncrementalMaxDuration()),
+				ResultsSortMode.Duration => (a, b) => IncrementalMaxDuration(a).CompareTo(IncrementalMaxDuration(b)),
 				ResultsSortMode.Resolution => (a, b) => IncrementalMaxFrameSize(a).CompareTo(IncrementalMaxFrameSize(b)),
 				ResultsSortMode.FolderPath => (a, b) => string.Compare(IncrementalFirstPath(a), IncrementalFirstPath(b), StringComparison.OrdinalIgnoreCase),
 				ResultsSortMode.GroupsWithCheckedItems => (a, b) => a.HasCheckedItems.CompareTo(b.HasCheckedItems),
