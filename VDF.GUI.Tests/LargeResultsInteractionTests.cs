@@ -3,6 +3,7 @@
 //     This file is part of VideoDuplicateFinder
 // */
 
+using Avalonia.Collections;
 using VDF.Core;
 using VDF.Core.ViewModels;
 using VDF.GUI.ViewModels;
@@ -104,5 +105,20 @@ public class LargeResultsInteractionTests {
 
         Assert.Single(otherFolderHits);
         Assert.Same(otherFolderSameGroup, otherFolderHits[0]);
+    }
+
+    [Fact]
+    public void InitialLargeResultRestore_UsesBulkCollectionChange() {
+        var target = new AvaloniaList<object>();
+        object[] desired = Enumerable.Range(0, 50_000).Select(i => (object)i).ToArray();
+        int notifications = 0;
+        target.CollectionChanged += (_, _) => notifications++;
+
+        ResultsRowReconciler.Apply(target, desired);
+
+        Assert.Equal(desired.Length, target.Count);
+        Assert.Equal(desired[0], target[0]);
+        Assert.Equal(desired[^1], target[^1]);
+        Assert.InRange(notifications, 1, 4);
     }
 }
