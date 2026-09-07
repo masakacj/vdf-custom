@@ -13,6 +13,8 @@ namespace VDF.GUI.ViewModels {
 	/// smallest practical collection changes instead of Clear()+AddRange().
 	/// </summary>
 	internal static class ResultsRowReconciler {
+		const int BulkRebuildMiddleThreshold = 8192;
+
 		internal static void ReuseItemRows(
 			IReadOnlyList<object> currentRows,
 			ResultsBuildResult build,
@@ -70,14 +72,28 @@ namespace VDF.GUI.ViewModels {
 		/// move-preserving reconciliation only inside the small middle span. This keeps stable
 		/// virtualized row containers (Move rather than remove/reinsert) while avoiding the old
 		/// whole-list O(N²) searches for a deletion near the top of a 200k-group result set.
-		/// Global reorder operations can still have a large middle span, but those are explicit
-		/// full-list operations rather than the common single-group delete/edit path.
+		/// Initial restore and genuinely large global changes deliberately use a bulk reset so a
+		/// huge backup does not emit hundreds of thousands of individual UI collection events.
 		/// </summary>
 		internal static void Apply(AvaloniaList<object> target, IReadOnlyList<object> desiredRows) {
 			int oldCount = target.Count;
 			int newCount = desiredRows.Count;
-			int commonLimit = Math.Min(oldCount, newCount);
 
+			// Startup/result import begins from an empty collection. Per-row Add/Insert raises a
+			// CollectionChanged event for every header/file row and can make a 200k-group backup
+			// look like the application never started. AvaloniaList.AddRange performs the initial
+			// population as one bulk collection operation.
+			if (oldCount == 0) {
+				if (newCount > 0)
+					target.AddRange(desiredRows);
+				return;
+			}
+			if (newCount == 0) {
+				target.Clear();
+				return;
+			}
+
+			int commonLimit = Math.Min(oldCount, newCount);
 			int prefix = 0;
 			while (prefix < commonLimit && SameIdentity(target[prefix], desiredRows[prefix]))
 				prefix++;
@@ -86,6 +102,16 @@ namespace VDF.GUI.ViewModels {
 			while (suffix < commonLimit - prefix &&
 				SameIdentity(target[oldCount - 1 - suffix], desiredRows[newCount - 1 - suffix]))
 				suffix++;
+
+			int oldMiddleCount = oldCount - prefix - suffix;
+			int newMiddleCount = newCount - prefix - suffix;
+			if (Math.Max(oldMiddleCount, newMiddleCount) > BulkRebuildMiddleThreshold) {
+				// A large reorder/filter switch has little virtualization state worth preserving,
+				// while move/search reconciliation can become quadratic. Prefer one bounded reset.
+				target.Clear();
+				target.AddRange(desiredRows);
+				return;
+			}
 
 			// Logical identity may survive through a freshly built presentation header. Refresh
 			// those edge objects in place; reused ResultsItemRow references stay untouched.
