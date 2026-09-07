@@ -63,47 +63,54 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		/// <summary>
-		/// Applies a desired row sequence without resetting the collection. Stable item
-		/// rows are moved rather than recreated; headers/details are replaced in place when
-		/// their logical position survives. This avoids invalidating every virtualized row.
+		/// Applies a desired row sequence without resetting the collection.
+		///
+		/// The old implementation searched the remainder of both collections for every
+		/// mismatch. A single removed group near the top of a very large result set could
+		/// therefore degrade toward O(N²). Large VDF databases can contain hundreds of
+		/// thousands of groups, so that turns an otherwise tiny edit into a long UI stall.
+		///
+		/// Result rebuilds are normally highly similar: an unchanged prefix, a small changed
+		/// region, then an unchanged suffix. Detect those identity-equivalent edges in two
+		/// linear passes, replace only the middle span, and refresh newly-created header/detail
+		/// objects on the stable edges. This is O(N + changedRows) and never touches the scan DB.
 		/// </summary>
 		internal static void Apply(AvaloniaList<object> target, IReadOnlyList<object> desiredRows) {
-			for (int i = 0; i < desiredRows.Count; i++) {
-				object desired = desiredRows[i];
-				if (i < target.Count && ReferenceEquals(target[i], desired)) continue;
+			int oldCount = target.Count;
+			int newCount = desiredRows.Count;
+			int commonLimit = Math.Min(oldCount, newCount);
 
-				int existingIndex = IndexOfReference(target, desired, i + 1);
-				if (existingIndex >= 0) {
-					target.Move(existingIndex, i);
-					continue;
-				}
+			int prefix = 0;
+			while (prefix < commonLimit && SameIdentity(target[prefix], desiredRows[prefix]))
+				prefix++;
 
-				if (i >= target.Count) {
-					target.Add(desired);
-					continue;
-				}
+			int suffix = 0;
+			while (suffix < commonLimit - prefix &&
+				SameIdentity(target[oldCount - 1 - suffix], desiredRows[newCount - 1 - suffix]))
+				suffix++;
 
-				object current = target[i];
-				if (ReferenceAppearsLater(desiredRows, current, i + 1))
-					target.Insert(i, desired);
-				else
-					target[i] = desired;
+			// Identity can be the same while the presentation object itself is new (most
+			// notably ResultsGroupHeader after a rebuild). Refresh those edge slots in place;
+			// stable ResultsItemRow references produced by ReuseItemRows remain untouched.
+			for (int i = 0; i < prefix; i++)
+				if (!ReferenceEquals(target[i], desiredRows[i]))
+					target[i] = desiredRows[i];
+
+			int oldMiddleCount = oldCount - prefix - suffix;
+			int newMiddleCount = newCount - prefix - suffix;
+			for (int i = 0; i < oldMiddleCount; i++)
+				target.RemoveAt(prefix);
+			for (int i = 0; i < newMiddleCount; i++)
+				target.Insert(prefix + i, desiredRows[prefix + i]);
+
+			int targetSuffixStart = prefix + newMiddleCount;
+			int desiredSuffixStart = newCount - suffix;
+			for (int i = 0; i < suffix; i++) {
+				int targetIndex = targetSuffixStart + i;
+				object desired = desiredRows[desiredSuffixStart + i];
+				if (!ReferenceEquals(target[targetIndex], desired))
+					target[targetIndex] = desired;
 			}
-
-			while (target.Count > desiredRows.Count)
-				target.RemoveAt(target.Count - 1);
-		}
-
-		static int IndexOfReference(IReadOnlyList<object> rows, object value, int start) {
-			for (int i = Math.Max(0, start); i < rows.Count; i++)
-				if (ReferenceEquals(rows[i], value)) return i;
-			return -1;
-		}
-
-		static bool ReferenceAppearsLater(IReadOnlyList<object> rows, object value, int start) {
-			for (int i = Math.Max(0, start); i < rows.Count; i++)
-				if (ReferenceEquals(rows[i], value)) return true;
-			return false;
 		}
 
 		static bool SameIdentity(object current, object desired) {
