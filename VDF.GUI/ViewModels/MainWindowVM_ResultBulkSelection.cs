@@ -10,26 +10,6 @@ using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
 	public partial class MainWindowVM {
-		readonly Dictionary<Guid, List<DuplicateItemVM>> resultsVisibleItemsByGroup = new();
-		readonly Dictionary<string, List<DuplicateItemVM>> resultsVisibleItemsByFolder = new(
-			CoreUtils.IsWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-
-		void RebuildResultSelectionIndexes(IReadOnlyList<ResultsGroupHeader> groups) {
-			resultsVisibleItemsByGroup.Clear();
-			resultsVisibleItemsByFolder.Clear();
-			foreach (ResultsGroupHeader group in groups) {
-				var members = group.Rows.Select(row => row.Item).ToList();
-				if (members.Count == 0) continue;
-				resultsVisibleItemsByGroup[group.GroupId] = members;
-				foreach (DuplicateItemVM item in members) {
-					string folder = ResultFolderKey(item);
-					if (!resultsVisibleItemsByFolder.TryGetValue(folder, out var folderItems))
-						resultsVisibleItemsByFolder[folder] = folderItems = new List<DuplicateItemVM>();
-					folderItems.Add(item);
-				}
-			}
-		}
-
 		static string ResultFolderKey(DuplicateItemVM item) {
 			string folder = !string.IsNullOrWhiteSpace(item.ItemInfo.Folder)
 				? item.ItemInfo.Folder
@@ -37,12 +17,14 @@ namespace VDF.GUI.ViewModels {
 			return NormalizeFolderStatsKey(folder);
 		}
 
+		IEnumerable<DuplicateItemVM> EnumerateVisibleResultItems() =>
+			resultsGroups.SelectMany(group => group.Rows.Select(row => row.Item));
+
 		public ReactiveCommand<DuplicateItemVM, Unit> CheckFolderResultHitsCommand =>
 			ReactiveCommand.Create<DuplicateItemVM>(anchor => {
 				if (anchor?.ItemInfo == null) return;
-				string folder = ResultFolderKey(anchor);
-				if (!resultsVisibleItemsByFolder.TryGetValue(folder, out var matches) || matches.Count == 0)
-					return;
+				var matches = ComputeFolderResultHits(EnumerateVisibleResultItems(), anchor);
+				if (matches.Count == 0) return;
 				using (BeginSelectionUndoBatch()) {
 					foreach (DuplicateItemVM item in matches)
 						item.Checked = true;
@@ -53,14 +35,13 @@ namespace VDF.GUI.ViewModels {
 		public ReactiveCommand<DuplicateItemVM, Unit> CheckOtherFolderGroupHitsCommand =>
 			ReactiveCommand.Create<DuplicateItemVM>(anchor => {
 				if (anchor?.ItemInfo == null) return;
-				if (!resultsVisibleItemsByGroup.TryGetValue(anchor.ItemInfo.GroupId, out var group) || group.Count == 0)
-					return;
-				string currentFolder = ResultFolderKey(anchor);
+				ResultsGroupHeader? visibleGroup = resultsGroups.FirstOrDefault(group => group.GroupId == anchor.ItemInfo.GroupId);
+				if (visibleGroup == null) return;
+				var matches = ComputeOtherFolderGroupHits(visibleGroup.Rows.Select(row => row.Item), anchor);
+				if (matches.Count == 0) return;
 				using (BeginSelectionUndoBatch()) {
-					foreach (DuplicateItemVM item in group)
-						if (!ResultFolderKey(item).Equals(currentFolder,
-							CoreUtils.IsWindows ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
-							item.Checked = true;
+					foreach (DuplicateItemVM item in matches)
+						item.Checked = true;
 				}
 				RefreshAfterContextBulkCheck();
 			});
