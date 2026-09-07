@@ -5,6 +5,7 @@
 
 using System.Collections.Specialized;
 using System.Linq;
+using ReactiveUI;
 using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
