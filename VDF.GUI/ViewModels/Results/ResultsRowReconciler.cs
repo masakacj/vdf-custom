@@ -65,15 +65,13 @@ namespace VDF.GUI.ViewModels {
 		/// <summary>
 		/// Applies a desired row sequence without resetting the collection.
 		///
-		/// The old implementation searched the remainder of both collections for every
-		/// mismatch. A single removed group near the top of a very large result set could
-		/// therefore degrade toward O(N²). Large VDF databases can contain hundreds of
-		/// thousands of groups, so that turns an otherwise tiny edit into a long UI stall.
-		///
-		/// Result rebuilds are normally highly similar: an unchanged prefix, a small changed
-		/// region, then an unchanged suffix. Detect those identity-equivalent edges in two
-		/// linear passes, replace only the middle span, and refresh newly-created header/detail
-		/// objects on the stable edges. This is O(N + changedRows) and never touches the scan DB.
+		/// Large result mutations are normally local: a huge unchanged prefix/suffix surrounds
+		/// one changed duplicate group. Detect those edges in O(N), then run the original
+		/// move-preserving reconciliation only inside the small middle span. This keeps stable
+		/// virtualized row containers (Move rather than remove/reinsert) while avoiding the old
+		/// whole-list O(N²) searches for a deletion near the top of a 200k-group result set.
+		/// Global reorder operations can still have a large middle span, but those are explicit
+		/// full-list operations rather than the common single-group delete/edit path.
 		/// </summary>
 		internal static void Apply(AvaloniaList<object> target, IReadOnlyList<object> desiredRows) {
 			int oldCount = target.Count;
@@ -89,28 +87,64 @@ namespace VDF.GUI.ViewModels {
 				SameIdentity(target[oldCount - 1 - suffix], desiredRows[newCount - 1 - suffix]))
 				suffix++;
 
-			// Identity can be the same while the presentation object itself is new (most
-			// notably ResultsGroupHeader after a rebuild). Refresh those edge slots in place;
-			// stable ResultsItemRow references produced by ReuseItemRows remain untouched.
+			// Logical identity may survive through a freshly built presentation header. Refresh
+			// those edge objects in place; reused ResultsItemRow references stay untouched.
 			for (int i = 0; i < prefix; i++)
 				if (!ReferenceEquals(target[i], desiredRows[i]))
 					target[i] = desiredRows[i];
 
-			int oldMiddleCount = oldCount - prefix - suffix;
-			int newMiddleCount = newCount - prefix - suffix;
-			for (int i = 0; i < oldMiddleCount; i++)
-				target.RemoveAt(prefix);
-			for (int i = 0; i < newMiddleCount; i++)
-				target.Insert(prefix + i, desiredRows[prefix + i]);
+			int desiredMiddleEnd = newCount - suffix;
+			for (int i = prefix; i < desiredMiddleEnd; i++) {
+				object desired = desiredRows[i];
+				if (i < target.Count && ReferenceEquals(target[i], desired)) continue;
 
-			int targetSuffixStart = prefix + newMiddleCount;
-			int desiredSuffixStart = newCount - suffix;
-			for (int i = 0; i < suffix; i++) {
-				int targetIndex = targetSuffixStart + i;
-				object desired = desiredRows[desiredSuffixStart + i];
-				if (!ReferenceEquals(target[targetIndex], desired))
-					target[targetIndex] = desired;
+				int targetMiddleEnd = target.Count - suffix;
+				int existingIndex = IndexOfReference(target, desired, i + 1, targetMiddleEnd);
+				if (existingIndex >= 0) {
+					target.Move(existingIndex, i);
+					continue;
+				}
+
+				// No old-middle row is left at this position; insert before the preserved suffix.
+				if (i >= target.Count - suffix) {
+					target.Insert(i, desired);
+					continue;
+				}
+
+				object current = target[i];
+				if (ReferenceAppearsLater(desiredRows, current, i + 1, desiredMiddleEnd))
+					target.Insert(i, desired);
+				else
+					target[i] = desired;
 			}
+
+			// Remove only obsolete middle rows. The common suffix has deliberately been kept
+			// alive and slides left automatically as rows before it are removed.
+			while (target.Count - suffix > desiredMiddleEnd)
+				target.RemoveAt(desiredMiddleEnd);
+
+			// Headers/details in the logical suffix may be newly built objects with the same
+			// identity. Replace those presentation objects in place while preserving stable rows.
+			for (int i = 0; i < suffix; i++) {
+				int index = desiredMiddleEnd + i;
+				object desired = desiredRows[index];
+				if (!ReferenceEquals(target[index], desired))
+					target[index] = desired;
+			}
+		}
+
+		static int IndexOfReference(IReadOnlyList<object> rows, object value, int start, int endExclusive) {
+			int end = Math.Min(rows.Count, Math.Max(0, endExclusive));
+			for (int i = Math.Max(0, start); i < end; i++)
+				if (ReferenceEquals(rows[i], value)) return i;
+			return -1;
+		}
+
+		static bool ReferenceAppearsLater(IReadOnlyList<object> rows, object value, int start, int endExclusive) {
+			int end = Math.Min(rows.Count, Math.Max(0, endExclusive));
+			for (int i = Math.Max(0, start); i < end; i++)
+				if (ReferenceEquals(rows[i], value)) return true;
+			return false;
 		}
 
 		static bool SameIdentity(object current, object desired) {
