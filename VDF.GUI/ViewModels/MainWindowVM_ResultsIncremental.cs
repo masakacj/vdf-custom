@@ -11,7 +11,6 @@ using VDF.GUI.Data;
 namespace VDF.GUI.ViewModels {
 	public partial class MainWindowVM {
 		readonly HashSet<Guid> resultsDirtyGroupIds = new();
-		readonly Dictionary<Guid, List<DuplicateItemVM>> resultsItemsByGroup = new();
 		bool resultsMutationTrackingInstalled;
 		bool resultsIncrementalInvalidated = true;
 		ResultsIncrementalSignature? lastResultsIncrementalSignature;
@@ -44,34 +43,24 @@ namespace VDF.GUI.ViewModels {
 			if (e.Action == NotifyCollectionChangedAction.Reset) {
 				resultsIncrementalInvalidated = true;
 				resultsDirtyGroupIds.Clear();
-				resultsItemsByGroup.Clear();
 				return;
 			}
 
 			// During a reset/import the collection may receive hundreds of thousands of Add
-			// notifications. Ignore them until the next full build reconstructs the index once.
+			// notifications. Ignore them until the next full build establishes a baseline.
 			if (resultsIncrementalInvalidated) return;
 
 			if (e.OldItems != null) {
 				foreach (object? value in e.OldItems) {
-					if (value is not DuplicateItemVM item) continue;
-					Guid groupId = item.ItemInfo.GroupId;
-					resultsDirtyGroupIds.Add(groupId);
-					if (!resultsItemsByGroup.TryGetValue(groupId, out var members)) continue;
-					members.Remove(item);
-					if (members.Count == 0)
-						resultsItemsByGroup.Remove(groupId);
+					if (value is DuplicateItemVM item)
+						resultsDirtyGroupIds.Add(item.ItemInfo.GroupId);
 				}
 			}
 
 			if (e.NewItems != null) {
 				foreach (object? value in e.NewItems) {
-					if (value is not DuplicateItemVM item) continue;
-					Guid groupId = item.ItemInfo.GroupId;
-					resultsDirtyGroupIds.Add(groupId);
-					if (!resultsItemsByGroup.TryGetValue(groupId, out var members))
-						resultsItemsByGroup[groupId] = members = new List<DuplicateItemVM>();
-					members.Add(item);
+					if (value is DuplicateItemVM item)
+						resultsDirtyGroupIds.Add(item.ItemInfo.GroupId);
 				}
 			}
 		}
@@ -89,19 +78,15 @@ namespace VDF.GUI.ViewModels {
 			EnableLightweightQualityDiagnostics,
 			string.Join('\u001f', QualityCriteriaOrder));
 
-		/// <summary>Called after an intentional full rebuild to establish a safe incremental baseline.</summary>
+		/// <summary>
+		/// Called after an intentional full rebuild to establish a safe incremental baseline.
+		/// Do not build a second all-results membership index here: on very large result sets that
+		/// duplicates hundreds of thousands of lists during application startup.
+		/// </summary>
 		void AfterFullResultsRebuild() {
-			resultsItemsByGroup.Clear();
-			foreach (DuplicateItemVM item in Duplicates) {
-				Guid groupId = item.ItemInfo.GroupId;
-				if (!resultsItemsByGroup.TryGetValue(groupId, out var members))
-					resultsItemsByGroup[groupId] = members = new List<DuplicateItemVM>();
-				members.Add(item);
-			}
 			resultsDirtyGroupIds.Clear();
 			resultsIncrementalInvalidated = false;
 			lastResultsIncrementalSignature = CaptureResultsIncrementalSignature();
-			RebuildResultSelectionIndexes(resultsGroups);
 		}
 
 		/// <summary>
@@ -131,10 +116,12 @@ namespace VDF.GUI.ViewModels {
 				.Select((groupId, index) => (groupId, index))
 				.ToDictionary(pair => pair.groupId, pair => pair.index);
 
-			var dirtyItems = new List<DuplicateItemVM>();
-			foreach (Guid groupId in dirtyIds)
-				if (resultsItemsByGroup.TryGetValue(groupId, out var members))
-					dirtyItems.AddRange(members);
+			// Keep startup memory flat. Resolve the handful of dirty groups with one linear pass
+			// only when a local mutation actually occurs instead of maintaining a full duplicate
+			// GroupId -> List index for the lifetime of the application.
+			var dirtyItems = Duplicates
+				.Where(item => dirtyIds.Contains(item.ItemInfo.GroupId))
+				.ToList();
 
 			var partial = ResultsListBuilder.Build(new ResultsBuildRequest {
 				Items = dirtyItems,
@@ -186,7 +173,6 @@ namespace VDF.GUI.ViewModels {
 
 			resultsDirtyGroupIds.Clear();
 			lastResultsIncrementalSignature = signature;
-			RebuildResultSelectionIndexes(resultsGroups);
 			return true;
 		}
 
@@ -198,7 +184,7 @@ namespace VDF.GUI.ViewModels {
 				ResultsSortMode.FileCount => (a, b) => a.FileCount.CompareTo(b.FileCount),
 				ResultsSortMode.Similarity => (a, b) => a.SimilarityMax.CompareTo(b.SimilarityMax),
 				ResultsSortMode.DateCreated => (a, b) => IncrementalMaxDate(a).CompareTo(IncrementalMaxDate(b)),
-				ResultsSortMode.Duration => (a, b) => IncrementalMaxDuration(a).CompareTo(IncrementalMaxDuration(b)),
+				ResultsSortMode.Duration => (a, b) => IncrementalMaxDuration(a).CompareTo(b.IncrementalMaxDuration()),
 				ResultsSortMode.Resolution => (a, b) => IncrementalMaxFrameSize(a).CompareTo(IncrementalMaxFrameSize(b)),
 				ResultsSortMode.FolderPath => (a, b) => string.Compare(IncrementalFirstPath(a), IncrementalFirstPath(b), StringComparison.OrdinalIgnoreCase),
 				ResultsSortMode.GroupsWithCheckedItems => (a, b) => a.HasCheckedItems.CompareTo(b.HasCheckedItems),
