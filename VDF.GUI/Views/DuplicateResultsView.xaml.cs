@@ -31,6 +31,8 @@ namespace VDF.GUI.Views {
 	public partial class DuplicateResultsView : UserControl {
 		const string ConsolidateMenuTag = "vdf-single-resource-consolidate";
 		const string GroupMergeMenuTag = "vdf-group-merge";
+		const string CheckFolderHitsMenuTag = "vdf-check-folder-hits";
+		const string CheckOtherFolderGroupHitsMenuTag = "vdf-check-other-folder-group-hits";
 		long scrollRestoreGeneration;
 
 		public DuplicateResultsView() {
@@ -139,22 +141,56 @@ namespace VDF.GUI.Views {
 				EnsureConsolidateMenu(source, group);
 
 			if (container?.DataContext is not ResultsItemRow fileRow) return;
+			EnsureBulkCheckMenu(source, fileRow);
 			if (ResultsListControl.SelectedItems?.Contains(fileRow) == true) return;
 			ResultsListControl.SelectedItems?.Clear();
 			ResultsListControl.SelectedItem = fileRow;
 		}
 
-		void EnsureConsolidateMenu(Control source, ResultsGroupHeader group) {
-			if (ViewModel is not MainWindowVM vm) return;
-			ContextMenu? menu = null;
+		static ContextMenu? FindContextMenu(Control source) {
 			Control? current = source;
 			while (current != null) {
-				if (current.ContextMenu is ContextMenu found) {
-					menu = found;
-					break;
-				}
+				if (current.ContextMenu is ContextMenu found)
+					return found;
 				current = current.GetVisualParent() as Control;
 			}
+			return null;
+		}
+
+		void EnsureBulkCheckMenu(Control source, ResultsItemRow row) {
+			if (ViewModel is not MainWindowVM vm) return;
+			ContextMenu? menu = FindContextMenu(source);
+			if (menu == null) return;
+
+			MenuItem? folderItem = menu.Items.OfType<MenuItem>()
+				.FirstOrDefault(item => Equals(item.Tag, CheckFolderHitsMenuTag));
+			MenuItem? otherFolderItem = menu.Items.OfType<MenuItem>()
+				.FirstOrDefault(item => Equals(item.Tag, CheckOtherFolderGroupHitsMenuTag));
+			if (folderItem == null || otherFolderItem == null) {
+				menu.Items.Insert(0, new Separator());
+				otherFolderItem = new MenuItem {
+					Header = "勾选其他文件夹中与此文件同组的命中文件",
+					Tag = CheckOtherFolderGroupHitsMenuTag,
+					Command = vm.CheckOtherFolderGroupHitsCommand,
+				};
+				menu.Items.Insert(0, otherFolderItem);
+				folderItem = new MenuItem {
+					Header = "勾选此文件夹下所有命中文件",
+					Tag = CheckFolderHitsMenuTag,
+					Command = vm.CheckFolderResultHitsCommand,
+				};
+				menu.Items.Insert(0, folderItem);
+			}
+
+			// Virtualized containers/context menus can be reused for another row. Refresh the
+			// parameter on every right click rather than capturing the first row forever.
+			folderItem.CommandParameter = row.Item;
+			otherFolderItem.CommandParameter = row.Item;
+		}
+
+		void EnsureConsolidateMenu(Control source, ResultsGroupHeader group) {
+			if (ViewModel is not MainWindowVM vm) return;
+			ContextMenu? menu = FindContextMenu(source);
 			if (menu == null) return;
 			if (!menu.Items.OfType<MenuItem>().Any(item => Equals(item.Tag, GroupMergeMenuTag))) {
 				menu.Items.Insert(0, new MenuItem {
