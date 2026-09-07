@@ -27,15 +27,36 @@ using VDF.GUI.Views;
 namespace VDF.GUI {
 	public class App : Application {
 		public static LanguageService Lang { get; } = new();
+		static readonly object startupTraceLock = new();
+
+		static void TraceStartup(string phase, bool reset = false) {
+			try {
+				string folder = VDF.Core.Utils.CoreUtils.SettingsFolder;
+				Directory.CreateDirectory(folder);
+				string path = Path.Combine(folder, "startup-trace.txt");
+				string line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {phase}{Environment.NewLine}";
+				lock (startupTraceLock) {
+					if (reset)
+						File.WriteAllText(path, line);
+					else
+						File.AppendAllText(path, line);
+				}
+			}
+			catch { /* diagnostics must never interfere with startup */ }
+		}
 
 		public override void Initialize() {
+			TraceStartup("App.Initialize begin", reset: true);
 			// Product default is Simplified Chinese. A user-selected language can still
 			// replace CurrentLanguage later through Settings; fresh installs start here.
 			Lang.LoadLanguage(SettingsFile.DefaultLanguageCode);
+			TraceStartup("Default language loaded");
 			AvaloniaXamlLoader.Load(this);
+			TraceStartup("App XAML loaded");
 		}
 
 		public override void OnFrameworkInitializationCompleted() {
+			TraceStartup("Framework initialization begin");
 			if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop) {
 				// Crash logging must be wired BEFORE the window is constructed: an exception
 				// escaping the MainWindow/MainWindowVM constructors used to terminate the
@@ -43,21 +64,47 @@ namespace VDF.GUI {
 				AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
 				Dispatcher.UIThread.UnhandledException += OnDispatcherUnhandledException;
 				TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
-				desktop.MainWindow = new MainWindow {
-					DataContext = new MainWindowVM(),
-				};
+				TraceStartup("Crash handlers installed");
+
+				TraceStartup("Constructing MainWindow");
+				var window = new MainWindow();
+				TraceStartup("MainWindow constructed");
+				var viewModel = new MainWindowVM();
+				TraceStartup("MainWindowVM constructed");
+				window.DataContext = viewModel;
+				desktop.MainWindow = window;
+				TraceStartup("MainWindow assigned to desktop lifetime");
+				window.Opened += (_, _) => TraceStartup("MainWindow Opened");
+
+				// The lifetime Startup handler loads ScannedFiles.db on a worker and then restores
+				// backup.scanresults. With very large saved result sets, make sure the shell is
+				// visible as soon as the first async database load yields instead of leaving the
+				// user with a silent process while hundreds of thousands of rows are reconstructed.
+				Dispatcher.UIThread.Post(() => {
+					try {
+						if (!window.IsVisible)
+							window.Show();
+						TraceStartup("Early MainWindow show dispatched");
+					}
+					catch (Exception ex) {
+						TraceStartup($"Early MainWindow show failed: {ex.GetType().Name}: {ex.Message}");
+					}
+				}, DispatcherPriority.Background);
+
 				desktop.ShutdownRequested += OnShutdownRequested;
 				desktop.Exit += OnExitCleanup; //fallback
 				AppDomain.CurrentDomain.ProcessExit += (_, __) => SafeCleanup();
 			}
 
 			base.OnFrameworkInitializationCompleted();
+			TraceStartup("Framework initialization completed");
 		}
 		void OnShutdownRequested(object? sender, ShutdownRequestedEventArgs e) => SafeCleanup();
 		void OnExitCleanup(object? sender, ControlledApplicationLifetimeExitEventArgs e) => SafeCleanup();
 		static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e) {
 			try {
 				string detail = e.ExceptionObject is Exception ex ? ex.ToString() : e.ExceptionObject?.ToString() ?? "<null>";
+				TraceStartup($"FATAL unhandled exception (terminating={e.IsTerminating}): {detail}");
 				VDF.Core.Utils.Logger.Instance.Error($"FATAL: Unhandled exception (terminating={e.IsTerminating}): {detail}");
 			}
 			catch { /* never let logging failure mask the original crash */ }
@@ -65,6 +112,7 @@ namespace VDF.GUI {
 		}
 		static void OnDispatcherUnhandledException(object? sender, DispatcherUnhandledExceptionEventArgs e) {
 			try {
+				TraceStartup($"Dispatcher exception: {e.Exception}");
 				VDF.Core.Utils.Logger.Instance.Error($"Unhandled dispatcher exception: {e.Exception}");
 			}
 			catch { /* never let logging failure mask the original error */ }
@@ -73,6 +121,7 @@ namespace VDF.GUI {
 		}
 		static void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e) {
 			try {
+				TraceStartup($"Unobserved task exception: {e.Exception}");
 				VDF.Core.Utils.Logger.Instance.Error($"Unobserved task exception: {e.Exception}");
 			}
 			catch { /* never let logging failure mask the original error */ }
