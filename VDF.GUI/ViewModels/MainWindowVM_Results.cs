@@ -150,6 +150,7 @@ namespace VDF.GUI.ViewModels {
 
 		/// <summary>Rebuilds the flattened list from the current duplicates, filter and sort.</summary>
 		internal void RebuildResultsList() {
+			EnsureResultsMutationTracking();
 			List<Guid> oldGroupOrder = resultsGroups.ConvertAll(g => g.GroupId);
 
 			var result = ResultsListBuilder.Build(new ResultsBuildRequest {
@@ -201,6 +202,7 @@ namespace VDF.GUI.ViewModels {
 
 			if (anchor is { } a && ResultsScrollAnchor.FindRestoreTarget(a.Row, oldGroupOrder, displayRows) is { } target)
 				ResultsScrollToRow?.Invoke(target, a.ViewportOffsetY);
+			AfterFullResultsRebuild();
 		}
 
 		IReadOnlyList<PikPakFolderCoverageOption> BuildResourceCoverageOptions(IReadOnlyList<ResultsGroupHeader> canonicalGroups) {
@@ -232,7 +234,10 @@ namespace VDF.GUI.ViewModels {
 			return ComputePikPakFolderCoverageOptions(groups, stats);
 		}
 
-		internal void RefreshResultsView() => RebuildResultsList();
+		internal void RefreshResultsView() {
+			if (!TryRefreshResultsIncrementally())
+				RebuildResultsList();
+		}
 
 		void ApplyFolderStats(IReadOnlyList<ResultsGroupHeader> groups) {
 			if (resultsFolderStatsCache == null) {
