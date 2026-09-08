@@ -118,13 +118,21 @@ namespace VDF.GUI.ViewModels {
 		internal async Task<FolderConsolidationResult> ExecutePikPakFolderConsolidationAsync(FolderConsolidationPlan plan) {
 			var successfulGroupLosers = new List<DuplicateItemVM>();
 			var keeperPathUpdates = new List<(DuplicateItemVM Item, string NewPath)>();
-			var databaseMoves = new List<(string OldPath, string NewPath)>();
 			int groupMoveFailures = 0;
 			int keeperMovesSucceeded = 0;
 			int uniqueMovesSucceeded = 0;
 			int uniqueMoveFailures = 0;
 
 			await Task.Run(() => {
+				void PersistMoveOrCheckpoint(string oldPath, string newPath) {
+					if (ScanEngine.PersistInteractiveDatabaseMove(oldPath, newPath, out string journalError))
+						return;
+					// A physical move has already completed. Durability beats latency if the tiny
+					// sidecar cannot be written: immediately fall back to the legacy full checkpoint.
+					Logger.Instance.Warn($"Folder consolidation journal failed; falling back to full DB checkpoint: {journalError}");
+					ScanEngine.SaveDatabase();
+				}
+
 				foreach (var group in plan.Groups) {
 					bool groupSafe = true;
 					if (group.KeeperNeedsMove) {
@@ -141,7 +149,7 @@ namespace VDF.GUI.ViewModels {
 							keeperMovesSucceeded++;
 							if (dbEntry != null) {
 								ScanEngine.UpdateFilePathInDatabase(moved.NewPath, dbEntry);
-								databaseMoves.Add((oldPath, moved.NewPath));
+								PersistMoveOrCheckpoint(oldPath, moved.NewPath);
 							}
 							keeperPathUpdates.Add((group.Keeper, moved.NewPath));
 						}
@@ -162,14 +170,8 @@ namespace VDF.GUI.ViewModels {
 					uniqueMovesSucceeded++;
 					if (dbEntry != null) {
 						ScanEngine.UpdateFilePathInDatabase(moved.NewPath, dbEntry);
-						databaseMoves.Add((file.Path, moved.NewPath));
+						PersistMoveOrCheckpoint(file.Path, moved.NewPath);
 					}
-				}
-
-				if (databaseMoves.Count > 0 &&
-					!ScanEngine.PersistInteractiveDatabaseMoves(databaseMoves, out string journalError)) {
-					Logger.Instance.Warn($"Folder consolidation journal failed; falling back to full DB checkpoint: {journalError}");
-					ScanEngine.SaveDatabase();
 				}
 			});
 
