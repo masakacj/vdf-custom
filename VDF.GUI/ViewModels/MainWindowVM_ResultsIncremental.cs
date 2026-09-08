@@ -90,12 +90,13 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		/// <summary>
-		/// Rebuilds only groups touched by collection mutations. Global filter/sort/rule changes,
-		/// reset/import state and resource-consolidation presentation deliberately fall back to
-		/// the original full rebuild. This keeps the optimization fail-safe and DB-neutral.
+		/// Rebuilds only groups touched by collection mutations. Large global filters are routed
+		/// through the cancellable background builder; ordinary local changes stay group-local.
 		/// </summary>
 		bool TryRefreshResultsIncrementally() {
 			EnsureResultsMutationTracking();
+			if (TryStartAsyncFilterResultsRefresh())
+				return true;
 			if (resultsIncrementalInvalidated || resultsDirtyGroupIds.Count == 0)
 				return false;
 			if (ActiveResultsDisplayMode != ResultsDisplayMode.SimilarityGroups)
@@ -105,10 +106,14 @@ namespace VDF.GUI.ViewModels {
 			if (lastResultsIncrementalSignature is not { } previous || previous != signature)
 				return false;
 
-			// A path-search hit makes the whole group visible. If the path that caused the hit
-			// was removed, refresh that tiny lookup before rebuilding the dirty group(s).
-			if (!string.IsNullOrEmpty(FilterByPath))
-				RebuildSearchPathIndex();
+			// A removed/moved path can change whether an entire group matches the path search.
+			// For large collections rebuild that global path hit set on the worker; small sets
+			// keep the original synchronous path and then continue with the dirty-group refresh.
+			if (!string.IsNullOrEmpty(FilterByPath)) {
+				RequestFilterResultsRefresh();
+				if (TryStartAsyncFilterResultsRefresh())
+					return true;
+			}
 
 			var dirtyIds = resultsDirtyGroupIds.ToHashSet();
 			var oldGroupOrder = resultsGroups.Select(group => group.GroupId).ToList();
