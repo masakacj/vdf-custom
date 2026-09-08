@@ -14,8 +14,8 @@ namespace VDF.Core {
 	public sealed partial class ScanEngine {
 		/// <summary>
 		/// Validates the database side of a single-resource consolidation before the GUI
-		/// touches files. A destination may already be occupied only when that entry is one
-		/// of the known duplicate copies that the operation is explicitly replacing/removing.
+		/// touches files. HashSet lookup is path-based, so this stays O(group size) even when
+		/// ScannedFiles.db contains millions of entries.
 		/// </summary>
 		public static bool ValidateConsolidationDatabaseChange(
 			string keeperOriginalPath,
@@ -29,15 +29,13 @@ namespace VDF.Core {
 				var known = new HashSet<string>(knownDuplicatePaths.Select(NormalizeConsolidationPath), comparer);
 				known.Add(keeperPath);
 
-				FileEntry[] snapshot = DatabaseUtils.Database.ToArray();
-				if (!snapshot.Any(entry => comparer.Equals(NormalizeConsolidationPath(entry.Path), keeperPath))) {
+				if (!DatabaseUtils.Database.TryGetValue(new FileEntry(keeperPath), out _)) {
 					error = "BEST file is not present in the active VDF database.";
 					return false;
 				}
 
-				FileEntry? occupant = snapshot.FirstOrDefault(entry =>
-					comparer.Equals(NormalizeConsolidationPath(entry.Path), destination));
-				if (occupant != null && !known.Contains(NormalizeConsolidationPath(occupant.Path))) {
+				if (DatabaseUtils.Database.TryGetValue(new FileEntry(destination), out FileEntry? occupant) &&
+					occupant != null && !known.Contains(NormalizeConsolidationPath(occupant.Path))) {
 					error = "The destination is occupied by a VDF database entry outside this duplicate group.";
 					return false;
 				}
@@ -52,11 +50,10 @@ namespace VDF.Core {
 		}
 
 		/// <summary>
-		/// Commits the metadata switch after the verified filesystem operation completed.
-		/// The BEST entry keeps its fingerprints/media metadata and is moved to the final
-		/// destination; only duplicate entries whose physical copies are confirmed gone are
-		/// removed. HashSet membership is updated before mutating FileEntry.Path because Path
-		/// participates in FileEntry equality/hash semantics.
+		/// Commits only the affected entries after the verified filesystem operation completed.
+		/// A tiny durable sidecar journal records the mutation instead of rewriting a multi-GB
+		/// ScannedFiles.db after every consolidation. The base database format is unchanged and
+		/// the journal is replayed on startup until a later normal checkpoint absorbs it.
 		/// </summary>
 		public static bool CommitConsolidationDatabaseChange(
 			string keeperOriginalPath,
@@ -83,26 +80,22 @@ namespace VDF.Core {
 			string oldKeeperPath = string.Empty;
 			lock (DatabaseUtils.Database) {
 				try {
-					FileEntry[] snapshot = DatabaseUtils.Database.ToArray();
-					keeper = snapshot.FirstOrDefault(entry =>
-						comparer.Equals(NormalizeConsolidationPath(entry.Path), keeperPath));
-					if (keeper == null) {
+					if (!DatabaseUtils.Database.TryGetValue(new FileEntry(keeperPath), out keeper) || keeper == null) {
 						error = "BEST file disappeared from the active VDF database before consolidation could be committed.";
 						return false;
 					}
 
-					FileEntry? occupant = snapshot.FirstOrDefault(entry =>
-						!ReferenceEquals(entry, keeper) &&
-						comparer.Equals(NormalizeConsolidationPath(entry.Path), destination));
-					if (occupant != null && !removed.Contains(NormalizeConsolidationPath(occupant.Path))) {
+					if (DatabaseUtils.Database.TryGetValue(new FileEntry(destination), out FileEntry? occupant) &&
+						occupant != null && !ReferenceEquals(occupant, keeper) &&
+						!removed.Contains(NormalizeConsolidationPath(occupant.Path))) {
 						error = "The final destination is occupied by a database entry that was not removed by this consolidation.";
 						return false;
 					}
 
 					oldKeeperPath = keeper.Path;
-					foreach (FileEntry entry in snapshot) {
-						if (ReferenceEquals(entry, keeper)) continue;
-						if (removed.Contains(NormalizeConsolidationPath(entry.Path)))
+					foreach (string path in removed) {
+						if (DatabaseUtils.Database.TryGetValue(new FileEntry(path), out FileEntry? entry) &&
+							entry != null && !ReferenceEquals(entry, keeper))
 							removedEntries.Add(entry);
 					}
 
@@ -111,7 +104,16 @@ namespace VDF.Core {
 						DatabaseUtils.Database.Remove(entry);
 					keeper.Path = destinationPath;
 					DatabaseUtils.Database.Add(keeper);
-					DatabaseUtils.SaveDatabase();
+
+					var moves = comparer.Equals(keeperPath, destination)
+						? Array.Empty<(string OldPath, string NewPath)>()
+						: new[] { (OldPath: keeperPath, NewPath: destination) };
+					if (!PersistInteractiveDatabaseMutations(moves, removed, out string journalError)) {
+						// Durability must win over latency. Journal failure is exceptional; fall back
+						// to the legacy full checkpoint so a completed file operation is never lost.
+						Logger.Instance.Warn($"Interactive database journal failed; falling back to a full database checkpoint: {journalError}");
+						DatabaseUtils.SaveDatabase();
+					}
 					error = string.Empty;
 					return true;
 				}
@@ -125,7 +127,6 @@ namespace VDF.Core {
 						}
 						foreach (FileEntry entry in removedEntries)
 							DatabaseUtils.Database.Add(entry);
-						DatabaseUtils.SaveDatabase();
 					}
 					catch (Exception rollbackEx) {
 						Logger.Instance.Error($"Consolidation DB rollback failed: {rollbackEx}");
