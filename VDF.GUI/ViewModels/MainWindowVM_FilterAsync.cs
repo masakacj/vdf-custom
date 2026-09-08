@@ -3,8 +3,8 @@
 //     This file is part of VideoDuplicateFinder
 // */
 
-using System.Collections.Specialized;
 using Avalonia.Threading;
+using ReactiveUI;
 using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
@@ -69,7 +69,6 @@ namespace VDF.GUI.ViewModels {
 
 			_ = Task.Run(() => {
 				try {
-				{
 					token.ThrowIfCancellationRequested();
 					HashSet<Guid> pathHitGroups = BuildPathHitGroups(items, pathFilter, token);
 					int predicateCounter = 0;
