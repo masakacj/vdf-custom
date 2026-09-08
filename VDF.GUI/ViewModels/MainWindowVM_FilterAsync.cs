@@ -3,6 +3,7 @@
 //     This file is part of VideoDuplicateFinder
 // */
 
+using System.Threading;
 using Avalonia.Threading;
 using ReactiveUI;
 using VDF.GUI.Data;
