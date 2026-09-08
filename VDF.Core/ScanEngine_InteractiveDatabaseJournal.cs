@@ -39,6 +39,13 @@ namespace VDF.Core {
 			out string error) {
 			try {
 				var lines = new List<string>();
+				// Deletes intentionally precede moves. A consolidation can replace a lower-quality
+				// database occupant at the destination; replay must remove that old occupant before
+				// moving the keeper into the same path.
+				foreach (string path in deletedPaths) {
+					if (string.IsNullOrWhiteSpace(path)) continue;
+					lines.Add($"D\t{EncodeInteractivePath(NormalizeInteractivePath(path))}");
+				}
 				foreach (var move in moves) {
 					if (string.IsNullOrWhiteSpace(move.OldPath) || string.IsNullOrWhiteSpace(move.NewPath))
 						continue;
@@ -47,10 +54,6 @@ namespace VDF.Core {
 					if (InteractivePathComparer.Equals(oldPath, newPath))
 						continue;
 					lines.Add($"M\t{EncodeInteractivePath(oldPath)}\t{EncodeInteractivePath(newPath)}");
-				}
-				foreach (string path in deletedPaths) {
-					if (string.IsNullOrWhiteSpace(path)) continue;
-					lines.Add($"D\t{EncodeInteractivePath(NormalizeInteractivePath(path))}");
 				}
 				if (lines.Count == 0) {
 					error = string.Empty;
