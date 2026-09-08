@@ -26,7 +26,6 @@ namespace VDF.Core {
 		static async Task AutoReplayInteractiveDatabaseJournalAsync() {
 			for (int i = 0; i < 14_400; i++) { // up to one hour for multi-GB startup loads
 				try {
-				{
 					if (DatabaseUtils.Database.Count > 0) {
 						ReplayInteractiveDatabaseJournal();
 						return;
