@@ -18,23 +18,6 @@ namespace VDF.Core {
 	public sealed partial class ScanEngine {
 		static readonly object interactiveDatabaseJournalLock = new();
 		const string InteractiveDatabaseJournalFileName = "ScannedFiles.interactive.log";
-		// ScanEngine is constructed before the startup database task begins. Do not resolve the
-		// journal path here (a custom DB folder is configured inside LoadDatabase); instead wait
-		// until the base HashSet has been swapped in, then replay on a worker thread.
-		static readonly Task interactiveDatabaseJournalAutoReplay = Task.Run(AutoReplayInteractiveDatabaseJournalAsync);
-
-		static async Task AutoReplayInteractiveDatabaseJournalAsync() {
-			for (int i = 0; i < 14_400; i++) { // up to one hour for multi-GB startup loads
-				try {
-					if (DatabaseUtils.Database.Count > 0) {
-						ReplayInteractiveDatabaseJournal();
-						return;
-					}
-				}
-				catch { /* database may be switching wrappers during startup; retry */ }
-				await Task.Delay(250).ConfigureAwait(false);
-			}
-		}
 
 		static string InteractiveDatabaseJournalPath =>
 			Path.Combine(DatabaseUtils.GetDatabaseFolderPath(), InteractiveDatabaseJournalFileName);
@@ -103,6 +86,8 @@ namespace VDF.Core {
 		/// Replays the durable sidecar after ScannedFiles.db is loaded. Records that are already
 		/// reflected in the base database are dropped; records still required relative to the base
 		/// are retained so another restart remains safe until a normal full checkpoint absorbs them.
+		/// The GUI calls this synchronously at the LoadDatabaseAsync busy->idle boundary, before
+		/// backup.scanresults restoration starts.
 		/// </summary>
 		public static int ReplayInteractiveDatabaseJournal() {
 			lock (interactiveDatabaseJournalLock) {
