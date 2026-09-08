@@ -121,4 +121,30 @@ public class LargeResultsInteractionTests {
         Assert.Equal(desired[^1], target[^1]);
         Assert.InRange(notifications, 1, 4);
     }
+
+    [Fact]
+    public void PathFilter_BuildsGroupHitSetOnce_AndOneMatchingSiblingExposesWholeGroup() {
+        Guid matchingGroup = Guid.NewGuid();
+        Guid otherGroup = Guid.NewGuid();
+        var matchingSibling = Video(@"D:\Library\Season 01\Episode.01.mkv", matchingGroup);
+        var nonMatchingSibling = Video(@"D:\Archive\different-name.mkv", matchingGroup);
+        var unrelated = Video(@"D:\Archive\Episode.02.mkv", otherGroup);
+
+        HashSet<Guid> hits = MainWindowVM.BuildPathHitGroups(
+            new[] { matchingSibling, nonMatchingSibling, unrelated }, "Season 01");
+
+        Assert.Single(hits);
+        Assert.Contains(matchingGroup, hits);
+        Assert.DoesNotContain(otherGroup, hits);
+    }
+
+    [Fact]
+    public void PathFilter_WildcardSemanticsRemainSupported() {
+        Guid group = Guid.NewGuid();
+        var item = Video(@"D:\Shows\Season 01\Episode.07.1080p.mkv", group);
+
+        HashSet<Guid> hits = MainWindowVM.BuildPathHitGroups(new[] { item }, @"Season ?\Episode.*1080p");
+
+        Assert.Contains(group, hits);
+    }
 }
