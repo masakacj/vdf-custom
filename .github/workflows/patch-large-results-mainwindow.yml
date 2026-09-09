@@ -1,0 +1,216 @@
+name: Apply guarded large-results MainWindow patch
+
+on:
+  push:
+    branches:
+      - perf/large-results-interactions-filter-db
+    paths:
+      - .github/workflows/patch-large-results-mainwindow.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: perf/large-results-interactions-filter-db
+          fetch-depth: 0
+
+      - name: Apply exact guarded replacements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('VDF.GUI/ViewModels/MainWindowVM.cs')
+          text = path.read_text(encoding='utf-8')
+
+          def replace_once(label: str, old: str, new: str):
+              global text
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected exactly 1 match, found {count}')
+              text = text.replace(old, new, 1)
+              print(f'patched: {label}')
+
+          replace_once(
+              'rename uses durable move journal',
+              '''\t\t\ttry {
+\t\t\t\tScanEngine.GetFromDatabase(currentItem.ItemInfo.Path, out var dbEntry);
+\t\t\t\tfi.MoveTo(newName, true);
+\t\t\t\tScanEngine.UpdateFilePathInDatabase(newName, dbEntry!);
+\t\t\t\tcurrentItem.ItemInfo.Path = newName;
+\t\t\t\tScanEngine.SaveDatabase();
+\t\t\t}
+''',
+              '''\t\t\ttry {
+\t\t\t\tstring oldPath = currentItem.ItemInfo.Path;
+\t\t\t\tScanEngine.GetFromDatabase(oldPath, out var dbEntry);
+\t\t\t\tfi.MoveTo(newName, true);
+\t\t\t\tScanEngine.UpdateFilePathInDatabase(newName, dbEntry!);
+\t\t\t\tcurrentItem.ItemInfo.Path = newName;
+\t\t\t\tif (!ScanEngine.PersistInteractiveDatabaseMove(oldPath, newName, out string journalError)) {
+\t\t\t\t\tLogger.Instance.Warn($"Interactive rename journal failed; falling back to a full database checkpoint: {journalError}");
+\t\t\t\t\tScanEngine.SaveDatabase();
+\t\t\t\t}
+\t\t\t}
+''')
+
+          replace_once(
+              'mark group avoids global regroup',
+              '''\t\t\t\t// Drop singleton groups
+\t\t\t\tDropSingletonGroups();
+\t\t\t\tRefreshGroupStats();
+\t\t\t\tRefreshResultsView();
+''',
+              '''\t\t\t\t// Removing one whole group cannot create a singleton in any other group.
+\t\t\t\t// CollectionChanged already updated the incremental counters, so avoid two
+\t\t\t\t// all-results GroupBy passes for a local not-a-match action.
+\t\t\t\tRefreshGroupStatsFast();
+\t\t\t\tRefreshResultsView();
+''')
+
+          replace_once(
+              'keeper lookup only affected groups',
+              '''\t\t\tvar keepByGroup = Duplicates
+\t\t\t\t   .GroupBy(d => d.ItemInfo.GroupId)
+\t\t\t\t   .ToDictionary(
+\t\t\t\t\t   g => g.Key,
+\t\t\t\t\t   g => g.FirstOrDefault(x => !x.Checked)
+\t\t\t\t   );
+
+\t\t\tvar actuallyDeleted = new HashSet<DuplicateItemVM>(toDelete.Count, ReferenceEqualityComparer<DuplicateItemVM>.Instance);
+''',
+              '''\t\t\tvar affectedGroupIds = toDelete.Select(d => d.ItemInfo.GroupId).ToHashSet();
+\t\t\tvar keepByGroup = new Dictionary<Guid, DuplicateItemVM?>();
+\t\t\tforeach (DuplicateItemVM item in Duplicates) {
+\t\t\t\tGuid groupId = item.ItemInfo.GroupId;
+\t\t\t\tif (!affectedGroupIds.Contains(groupId) || item.Checked || keepByGroup.ContainsKey(groupId))
+\t\t\t\t\tcontinue;
+\t\t\t\tkeepByGroup[groupId] = item;
+\t\t\t}
+
+\t\t\tvar actuallyDeleted = new HashSet<DuplicateItemVM>(toDelete.Count, ReferenceEqualityComparer<DuplicateItemVM>.Instance);
+\t\t\tvar databaseDeletedPaths = new List<string>(toDelete.Count);
+''')
+
+          replace_once(
+              'collect database delete paths',
+              '''\t\t\t\t\t\t\t\tif (!keepAsTombstone)
+\t\t\t\t\t\t\t\t\tScanEngine.RemoveFromDatabase(fe);
+''',
+              '''\t\t\t\t\t\t\t\tif (!keepAsTombstone) {
+\t\t\t\t\t\t\t\t\tScanEngine.RemoveFromDatabase(fe);
+\t\t\t\t\t\t\t\t\tdatabaseDeletedPaths.Add(dub.ItemInfo.Path);
+\t\t\t\t\t\t\t\t}
+''')
+
+          replace_once(
+              'delete uses durable journal instead of full db rewrite',
+              '''\t\t\t\t\t// Persist the database changes while still off the UI thread. This used
+\t\t\t\t\t// to run last, after the results refresh, on the UI thread - where an
+\t\t\t\t\t// exception in the refresh (dispatcher exceptions are swallowed to keep
+\t\t\t\t\t// the app alive) could silently skip the save.
+\t\t\t\t\tif (actuallyDeleted.Count > 0)
+\t\t\t\t\t\tScanEngine.SaveDatabase();
+''',
+              '''\t\t\t\t\t// Persist normal interactive removals as one tiny durable journal append.
+\t\t\t\t\t// A blacklist mutation changes FileEntry flags and is not representable by the
+\t\t\t\t\t// delete/move journal, so that exceptional path keeps the legacy full checkpoint.
+\t\t\t\t\tif (actuallyDeleted.Count > 0) {
+\t\t\t\t\t\tif (blackList) {
+\t\t\t\t\t\t\tScanEngine.SaveDatabase();
+\t\t\t\t\t\t}
+\t\t\t\t\t\telse if (!ScanEngine.PersistInteractiveDatabaseDeletes(databaseDeletedPaths, out string journalError)) {
+\t\t\t\t\t\t\tLogger.Instance.Warn($"Interactive delete journal failed; falling back to a full database checkpoint: {journalError}");
+\t\t\t\t\t\t\tScanEngine.SaveDatabase();
+\t\t\t\t\t\t}
+\t\t\t\t\t}
+''')
+
+          replace_once(
+              'post-delete cleanup only affected groups',
+              '''\t\t\t\t// When ExcludeHardLinks is enabled, remove items within each group
+\t\t\t\t// that are hardlinks of another remaining item in the same group.
+\t\t\t\tif (SettingsFile.Instance.ExcludeHardLinks)
+\t\t\t\t\tDropHardLinkDuplicates();
+
+\t\t\t\t// Drop groups that have only one item left (no longer duplicates)
+\t\t\t\tDropSingletonGroups();
+
+\t\t\t\tRefreshGroupStats();
+\t\t\t\tRefreshResultsView();
+''',
+              '''\t\t\t\t// Deletion can only change the groups that contained a selected item.
+\t\t\t\t// Keep hard-link probes and singleton detection scoped to those groups.
+\t\t\t\tif (SettingsFile.Instance.ExcludeHardLinks)
+\t\t\t\t\tDropHardLinkDuplicates(affectedGroupIds);
+
+\t\t\t\tDropSingletonGroups(affectedGroupIds);
+\t\t\t\tRefreshGroupStatsFast();
+\t\t\t\tRefreshResultsView();
+''')
+
+          replace_once(
+              'singleton cleanup supports touched-group fast path',
+              '''\t\tvoid DropSingletonGroups() {
+\t\t\tvar singletonGroups = Duplicates
+\t\t\t\t.GroupBy(d => d.ItemInfo.GroupId)
+\t\t\t\t.Where(g => g.Count() <= 1)
+\t\t\t\t.Select(g => g.Key)
+\t\t\t\t.ToHashSet();
+
+\t\t\tif (singletonGroups.Count == 0) return;
+
+\t\t\tfor (int i = Duplicates.Count - 1; i >= 0; i--)
+\t\t\t\tif (singletonGroups.Contains(Duplicates[i].ItemInfo.GroupId))
+\t\t\t\t\tDuplicates.RemoveAt(i);
+\t\t}
+''',
+              '''\t\tvoid DropSingletonGroups(IReadOnlySet<Guid>? onlyGroups = null) {
+\t\t\tHashSet<Guid> singletonGroups = onlyGroups != null
+\t\t\t\t? FindSingletonGroupsFast(onlyGroups)
+\t\t\t\t: Duplicates
+\t\t\t\t\t.GroupBy(d => d.ItemInfo.GroupId)
+\t\t\t\t\t.Where(g => g.Count() <= 1)
+\t\t\t\t\t.Select(g => g.Key)
+\t\t\t\t\t.ToHashSet();
+
+\t\t\tif (singletonGroups.Count == 0) return;
+
+\t\t\tfor (int i = Duplicates.Count - 1; i >= 0; i--)
+\t\t\t\tif (singletonGroups.Contains(Duplicates[i].ItemInfo.GroupId))
+\t\t\t\t\tDuplicates.RemoveAt(i);
+\t\t}
+''')
+
+          replace_once(
+              'hardlink cleanup supports touched-group scope',
+              '''\t\tvoid DropHardLinkDuplicates() {
+\t\t\tvar toRemove = new List<DuplicateItemVM>();
+\t\t\tforeach (var group in Duplicates.GroupBy(d => d.ItemInfo.GroupId)) {
+''',
+              '''\t\tvoid DropHardLinkDuplicates(IReadOnlySet<Guid>? onlyGroups = null) {
+\t\t\tvar toRemove = new List<DuplicateItemVM>();
+\t\t\tIEnumerable<DuplicateItemVM> candidates = onlyGroups == null
+\t\t\t\t? Duplicates
+\t\t\t\t: Duplicates.Where(d => onlyGroups.Contains(d.ItemInfo.GroupId));
+\t\t\tforeach (var group in candidates.GroupBy(d => d.ItemInfo.GroupId)) {
+''')
+
+          path.write_text(text, encoding='utf-8', newline='')
+          PY
+
+      - name: Commit guarded patch and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "vdf-performance-bot"
+          git config user.email "vdf-performance-bot@users.noreply.github.com"
+          git add VDF.GUI/ViewModels/MainWindowVM.cs
+          git rm .github/workflows/patch-large-results-mainwindow.yml
+          git diff --cached --check
+          git commit -m "Journal interactive deletes and scope post-delete cleanup"
+          git push origin HEAD:perf/large-results-interactions-filter-db
