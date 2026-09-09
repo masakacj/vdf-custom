@@ -1,0 +1,55 @@
+name: Patch bulk cleanup removal
+
+on:
+  push:
+    branches:
+      - perf/large-results-interactions-filter-db
+    paths:
+      - .github/workflows/patch-bulk-cleanup-remove.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: perf/large-results-interactions-filter-db
+          fetch-depth: 0
+      - name: Apply guarded replacements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('VDF.GUI/ViewModels/MainWindowVM.cs')
+          s = p.read_text(encoding='utf-8')
+          reps = [
+            ('singleton cleanup bulk remove',
+             '''\t\t\tif (singletonGroups.Count == 0) return;\n\n\t\t\tfor (int i = Duplicates.Count - 1; i >= 0; i--)\n\t\t\t\tif (singletonGroups.Contains(Duplicates[i].ItemInfo.GroupId))\n\t\t\t\t\tDuplicates.RemoveAt(i);\n''',
+             '''\t\t\tif (singletonGroups.Count == 0) return;\n\n\t\t\tvar singletonItems = Duplicates\n\t\t\t\t.Where(item => singletonGroups.Contains(item.ItemInfo.GroupId))\n\t\t\t\t.ToList();\n\t\t\tif (singletonItems.Count > 0)\n\t\t\t\tDuplicates.RemoveAll(singletonItems);\n'''),
+            ('hardlink cleanup bulk remove',
+             '''\t\t\tforeach (var item in toRemove)\n\t\t\t\tfor (int i = Duplicates.Count - 1; i >= 0; i--)\n\t\t\t\t\tif (ReferenceEquals(Duplicates[i], item)) { Duplicates.RemoveAt(i); break; }\n''',
+             '''\t\t\tif (toRemove.Count > 0)\n\t\t\t\tDuplicates.RemoveAll(toRemove);\n'''),
+            ('expand all background refresh',
+             '''\t\tpublic ReactiveCommand<Unit, Unit> ExpandAllGroupsCommand => ReactiveCommand.Create(() => {\n\t\t\tcollapsedResultsGroups.Clear();\n\t\t\tRebuildResultsList();\n\t\t});\n\n\t\tpublic ReactiveCommand<Unit, Unit> CollapseAllGroupsCommand => ReactiveCommand.Create(() => {\n\t\t\tforeach (var group in resultsGroups)\n\t\t\t\tcollapsedResultsGroups.Add(group.GroupId);\n\t\t\tRebuildResultsList();\n\t\t});\n''',
+             '''\t\tpublic ReactiveCommand<Unit, Unit> ExpandAllGroupsCommand => ReactiveCommand.Create(() => {\n\t\t\tcollapsedResultsGroups.Clear();\n\t\t\tRequestFilterResultsRefresh();\n\t\t\tRefreshResultsView();\n\t\t});\n\n\t\tpublic ReactiveCommand<Unit, Unit> CollapseAllGroupsCommand => ReactiveCommand.Create(() => {\n\t\t\tforeach (var group in resultsGroups)\n\t\t\t\tcollapsedResultsGroups.Add(group.GroupId);\n\t\t\tRequestFilterResultsRefresh();\n\t\t\tRefreshResultsView();\n\t\t});\n''')
+          ]
+          for label, old, new in reps:
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {n}')
+              s = s.replace(old, new, 1)
+              print('patched', label)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "vdf-performance-bot"
+          git config user.email "vdf-performance-bot@users.noreply.github.com"
+          git add VDF.GUI/ViewModels/MainWindowVM.cs
+          git diff --cached --check
+          git commit -m "Bulk-remove cleanup rows and background global collapse"
+          git push origin HEAD:perf/large-results-interactions-filter-db
