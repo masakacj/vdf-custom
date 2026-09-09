@@ -142,6 +142,40 @@ public class LargeResultsInteractionTests {
     }
 
     [Fact]
+    public void StartupBackupRecovery_AppliesPendingMove_FiltersDeleted_AndDropsSingletons() {
+        string root = Path.Combine(Path.GetTempPath(), "vdf-startup-backup-recovery", Guid.NewGuid().ToString("N"));
+        Guid movedGroup = Guid.NewGuid();
+        Guid staleGroup = Guid.NewGuid();
+
+        var moved = Video(Path.Combine(root, "old", "episode.mkv"), movedGroup);
+        var movedPartner = Video(Path.Combine(root, "partner.mkv"), movedGroup);
+        var staleDeleted = Video(Path.Combine(root, "deleted.mkv"), staleGroup);
+        var stalePartner = Video(Path.Combine(root, "still-in-db.mkv"), staleGroup);
+        var items = new List<DuplicateItemVM> { moved, movedPartner, staleDeleted, stalePartner };
+
+        string newPath = Path.GetFullPath(Path.Combine(root, "renamed", "episode-renamed.mkv"));
+        var databasePaths = new HashSet<string>(VDF.Core.Utils.PathComparer.ForCurrentPlatform) {
+            newPath,
+            movedPartner.ItemInfo.Path,
+            stalePartner.ItemInfo.Path,
+        };
+        var moves = new List<(string OldPath, string NewPath)> {
+            (moved.ItemInfo.Path, newPath),
+        };
+
+        int removed = MainWindowVM.ReconcileStartupBackupItems(items, databasePaths, moves);
+
+        Assert.Equal(2, removed); // deleted stale row + the stranded singleton partner
+        Assert.Equal(2, items.Count);
+        Assert.Contains(moved, items);
+        Assert.Contains(movedPartner, items);
+        Assert.DoesNotContain(staleDeleted, items);
+        Assert.DoesNotContain(stalePartner, items);
+        Assert.Equal(newPath, moved.ItemInfo.Path);
+        Assert.Equal(Path.GetDirectoryName(newPath), moved.ItemInfo.Folder);
+    }
+
+    [Fact]
     public void PathFilter_BuildsGroupHitSetOnce_AndOneMatchingSiblingExposesWholeGroup() {
         Guid matchingGroup = Guid.NewGuid();
         Guid otherGroup = Guid.NewGuid();
