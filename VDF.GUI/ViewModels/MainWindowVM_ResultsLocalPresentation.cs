@@ -45,8 +45,36 @@ namespace VDF.GUI.ViewModels {
 				return false;
 
 			ApplyFolderStats(partial.Groups);
-			ResultsRowReconciler.ReuseItemRows(ResultsRows, partial, expandedResultsDetails);
 			ResultsGroupHeader freshHeader = partial.Groups[0];
+
+			// Reuse only this group's stable rows. Calling ResultsRowReconciler.ReuseItemRows
+			// here would first index the entire 200k-group flattened list, defeating the point
+			// of a local collapse/expand operation.
+			var stableRows = new List<ResultsItemRow>(freshHeader.Rows.Count);
+			foreach (ResultsItemRow freshRow in freshHeader.Rows) {
+				ResultsItemRow? stable = oldHeader.Rows.FirstOrDefault(
+					candidate => ReferenceEquals(candidate.Item, freshRow.Item));
+				if (stable != null) {
+					stable.RefreshPresentationFrom(freshRow);
+					stable.Group = freshHeader;
+					stableRows.Add(stable);
+				}
+				else {
+					freshRow.Group = freshHeader;
+					stableRows.Add(freshRow);
+				}
+			}
+			freshHeader.RebindRows(stableRows);
+			partial.Rows.Clear();
+			partial.Rows.Add(freshHeader);
+			if (!freshHeader.IsCollapsed) {
+				foreach (ResultsItemRow row in freshHeader.Rows) {
+					partial.Rows.Add(row);
+					if (expandedResultsDetails.Contains(row.Item))
+						partial.Rows.Add(new ResultsDetailsRow(row));
+				}
+			}
+
 			freshHeader.GroupNumber = oldHeader.GroupNumber;
 			freshHeader.Title = oldHeader.Title;
 			string warning = BuildLightweightQualityGroupSummary(freshHeader);
