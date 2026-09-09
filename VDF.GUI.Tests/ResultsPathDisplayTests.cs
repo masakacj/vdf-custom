@@ -48,8 +48,21 @@ public class ResultsPathDisplayTests {
         Assert.Contains("TextWrapping=\"Wrap\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"{Binding Item.ItemInfo.Path}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("ToolTip.Tip=\"{Binding Item.ItemInfo.Path}\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("<Grid RowDefinitions=\"*,Auto\">", xaml, StringComparison.Ordinal);
-        Assert.Contains("Grid.Row=\"1\"", xaml, StringComparison.Ordinal);
-        Assert.Contains("including underneath Duration/Size/Bitrate/Format/Similarity", xaml, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void FullPathRow_SpansBelowAllMetadataColumns() {
+        string xaml = File.ReadAllText(Path.Combine(RepoRoot(), "VDF.GUI", "Views", "DuplicateResultsView.xaml"));
+        const string spanningGrid = "<Grid RowDefinitions=\"*,Auto\">";
+        const string metadataRow = "<DockPanel Grid.Row=\"0\" LastChildFill=\"True\">";
+        const string pathRow = "Grid.Row=\"1\"";
+
+        int gridIndex = xaml.IndexOf(spanningGrid, StringComparison.Ordinal);
+        int metadataIndex = xaml.IndexOf(metadataRow, gridIndex >= 0 ? gridIndex : 0, StringComparison.Ordinal);
+        int pathIndex = xaml.IndexOf(pathRow, metadataIndex >= 0 ? metadataIndex : 0, StringComparison.Ordinal);
+
+        Assert.True(gridIndex >= 0, "result content must have a two-row spanning grid");
+        Assert.True(metadataIndex > gridIndex, "metadata must stay in the upper row");
+        Assert.True(pathIndex > metadataIndex, "full path must be a separate lower row spanning beneath metadata columns");
     }
 }
