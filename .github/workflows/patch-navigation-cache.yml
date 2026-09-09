@@ -1,0 +1,61 @@
+name: Patch result navigation cache
+
+on:
+  push:
+    branches:
+      - perf/large-results-interactions-filter-db
+    paths:
+      - .github/workflows/patch-navigation-cache.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: perf/large-results-interactions-filter-db
+          fetch-depth: 0
+      - name: Apply guarded navigation replacements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def patch(path_s, reps):
+              p = Path(path_s)
+              s = p.read_text(encoding='utf-8')
+              for label, old, new in reps:
+                  n = s.count(old)
+                  if n != 1:
+                      raise SystemExit(f'{label}: expected 1 match, found {n}')
+                  s = s.replace(old, new, 1)
+                  print('patched', label)
+              p.write_text(s, encoding='utf-8')
+
+          patch('VDF.GUI/ViewModels/MainWindowVM_Results.cs', [
+              ('cached current group lookup',
+               '''\t\t\tGuid? referenceGroupId = fromGroupId ?? GetSelectedDuplicateItem()?.ItemInfo.GroupId;\n\t\t\tint currentIndex = -1;\n\t\t\tif (referenceGroupId.HasValue)\n\t\t\t\tcurrentIndex = resultsGroups.FindIndex(g => g.GroupId == referenceGroupId.Value);\n''',
+               '''\t\t\tGuid? referenceGroupId = fromGroupId ?? GetSelectedDuplicateItem()?.ItemInfo.GroupId;\n\t\t\tint currentIndex = referenceGroupId.HasValue\n\t\t\t\t? FindResultsGroupIndex(referenceGroupId.Value)\n\t\t\t\t: -1;\n'''),
+              ('reuse target index after local expand',
+               '''\t\t\t\tif (!TryRefreshSingleGroupPresentation(target.GroupId))\n\t\t\t\t\tRebuildResultsList();\n\t\t\t\ttarget = resultsGroups.FirstOrDefault(g => g.GroupId == target.GroupId) ?? target;\n\t\t\t}\n\t\t\tvar firstRow = target.Rows.FirstOrDefault();\n\t\t\tif (firstRow == null) return null;\n\t\t\tNewResultsSelectAndScrollTo?.Invoke(firstRow);\n\t\t\treturn target.GroupId;\n''',
+               '''\t\t\t\tif (!TryRefreshSingleGroupPresentation(target.GroupId))\n\t\t\t\t\tRebuildResultsList();\n\t\t\t\tif (targetIndex >= 0 && targetIndex < resultsGroups.Count)\n\t\t\t\t\ttarget = resultsGroups[targetIndex];\n\t\t\t}\n\t\t\tvar firstRow = target.Rows.FirstOrDefault();\n\t\t\tif (firstRow == null) return null;\n\t\t\tRememberResultNavigationIndex(targetIndex);\n\t\t\tNewResultsSelectAndScrollTo?.Invoke(firstRow);\n\t\t\treturn target.GroupId;\n''')
+          ])
+
+          patch('VDF.GUI/ViewModels/MainWindowVM_ResultsLocalPresentation.cs', [
+              ('cached local presentation group lookup',
+               '''\t\t\tint groupIndex = resultsGroups.FindIndex(group => group.GroupId == groupId);\n''',
+               '''\t\t\tint groupIndex = FindResultsGroupIndex(groupId);\n''')
+          ])
+          PY
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "vdf-performance-bot"
+          git config user.email "vdf-performance-bot@users.noreply.github.com"
+          git add VDF.GUI/ViewModels/MainWindowVM_Results.cs VDF.GUI/ViewModels/MainWindowVM_ResultsLocalPresentation.cs
+          git diff --cached --check
+          git commit -m "Use cached index for sequential result navigation"
+          git push origin HEAD:perf/large-results-interactions-filter-db
