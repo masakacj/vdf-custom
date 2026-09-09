@@ -121,4 +121,85 @@ public class LargeResultsInteractionTests {
         Assert.Equal(desired[^1], target[^1]);
         Assert.InRange(notifications, 1, 4);
     }
+
+    [Fact]
+    public void AvaloniaList_RemoveAll_UsesOneBulkCollectionNotification() {
+        var target = new AvaloniaList<int>();
+        target.AddRange(Enumerable.Range(0, 20_000));
+        int notifications = 0;
+        int removed = 0;
+        target.CollectionChanged += (_, e) => {
+            notifications++;
+            removed += e.OldItems?.Count ?? 0;
+        };
+
+        int[] toRemove = Enumerable.Range(5_000, 10_000).ToArray();
+        target.RemoveAll(toRemove);
+
+        Assert.Equal(10_000, target.Count);
+        Assert.Equal(10_000, removed);
+        Assert.Equal(1, notifications);
+    }
+
+    [Fact]
+    public void StartupBackupRecovery_AppliesPendingMove_FiltersDeleted_AndDropsSingletons() {
+        string root = Path.Combine(Path.GetTempPath(), "vdf-startup-backup-recovery", Guid.NewGuid().ToString("N"));
+        Guid movedGroup = Guid.NewGuid();
+        Guid staleGroup = Guid.NewGuid();
+
+        var moved = Video(Path.Combine(root, "old", "episode.mkv"), movedGroup);
+        var movedPartner = Video(Path.Combine(root, "partner.mkv"), movedGroup);
+        var staleDeleted = Video(Path.Combine(root, "deleted.mkv"), staleGroup);
+        var stalePartner = Video(Path.Combine(root, "still-in-db.mkv"), staleGroup);
+        var items = new List<DuplicateItemVM> { moved, movedPartner, staleDeleted, stalePartner };
+
+        string newPath = Path.GetFullPath(Path.Combine(root, "renamed", "episode-renamed.mkv"));
+        var databasePaths = new HashSet<string>(VDF.Core.Utils.PathComparer.ForCurrentPlatform) {
+            newPath,
+            movedPartner.ItemInfo.Path,
+            stalePartner.ItemInfo.Path,
+        };
+        var moves = new List<(string OldPath, string NewPath)> {
+            (moved.ItemInfo.Path, newPath),
+        };
+
+        int removed = MainWindowVM.ReconcileStartupBackupItems(items, databasePaths, moves);
+
+        Assert.Equal(2, removed); // deleted stale row + the stranded singleton partner
+        Assert.Equal(2, items.Count);
+        Assert.Contains(moved, items);
+        Assert.Contains(movedPartner, items);
+        Assert.DoesNotContain(staleDeleted, items);
+        Assert.DoesNotContain(stalePartner, items);
+        Assert.Equal(newPath, moved.ItemInfo.Path);
+        Assert.Equal(Path.GetDirectoryName(newPath), moved.ItemInfo.Folder);
+    }
+
+    [Fact]
+    public void PathFilter_BuildsGroupHitSetOnce_AndOneMatchingSiblingExposesWholeGroup() {
+        Guid matchingGroup = Guid.NewGuid();
+        Guid otherGroup = Guid.NewGuid();
+        var matchingSibling = Video(@"D:\Library\Season 01\Episode.01.mkv", matchingGroup);
+        var nonMatchingSibling = Video(@"D:\Archive\different-name.mkv", matchingGroup);
+        var unrelated = Video(@"D:\Archive\Episode.02.mkv", otherGroup);
+
+        HashSet<Guid> hits = MainWindowVM.BuildPathHitGroups(
+            new[] { matchingSibling, nonMatchingSibling, unrelated }, "Season 01");
+
+        Assert.Single(hits);
+        Assert.Contains(matchingGroup, hits);
+        Assert.DoesNotContain(otherGroup, hits);
+    }
+
+    [Fact]
+    public void PathFilter_WildcardSemanticsRemainSupported() {
+        Guid group = Guid.NewGuid();
+        var item = Video(@"D:\Shows\Season 01\Episode.07.1080p.mkv", group);
+
+        // '?' matches exactly one character. Season "01" therefore needs two wildcards;
+        // this keeps the production filter's established FileSystemName semantics intact.
+        HashSet<Guid> hits = MainWindowVM.BuildPathHitGroups(new[] { item }, @"Season ??\Episode.*1080p");
+
+        Assert.Contains(group, hits);
+    }
 }

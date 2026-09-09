@@ -132,7 +132,7 @@ namespace VDF.GUI.ViewModels {
 				best.Checked = false;
 
 			RefreshResultsView();
-			RefreshGroupStats();
+			RefreshGroupStatsFast();
 
 			string dbWarning = execution.DatabaseCommitted ? string.Empty
 				: $"\n\n⚠ 文件整合已经完成，但 VDF 数据库更新失败：{execution.Error}\n请重新扫描该目录以刷新数据库。";

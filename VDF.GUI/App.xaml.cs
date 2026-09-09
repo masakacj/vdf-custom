@@ -2,11 +2,11 @@
 //     Copyright (C) 2026 0x90d
 //     This file is part of VideoDuplicateFinder
 //     VideoDuplicateFinder is free software: you can redistribute it and/or modify
-//     it under the terms of the GNU Affero General Public License as published by
+//     it under the GNU Affero General Public License as published by
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -102,6 +102,33 @@ namespace VDF.GUI {
 				TraceStartup("MainWindow constructed");
 				var viewModel = new MainWindowVM();
 				TraceStartup("MainWindowVM constructed");
+
+				// Interactive file operations may be journaled instead of forcing a multi-GB
+				// ScannedFiles.db checkpoint. Replay that tiny journal at the exact boundary where
+				// LoadDatabaseAsync has finished loading/migrating the base DB but before its async
+				// continuation can start restoring backup.scanresults. PropertyChanged is synchronous,
+				// so this cannot race result restoration.
+				bool sawStartupDatabaseBusy = false;
+				System.ComponentModel.PropertyChangedEventHandler? replayHandler = null;
+				replayHandler = (_, e) => {
+					if (e.PropertyName != nameof(MainWindowVM.IsBusy)) return;
+					if (viewModel.IsBusy) {
+						sawStartupDatabaseBusy = true;
+						return;
+					}
+					if (!sawStartupDatabaseBusy) return;
+					viewModel.PropertyChanged -= replayHandler;
+					try {
+						int replayed = VDF.Core.ScanEngine.ReplayInteractiveDatabaseJournal();
+						TraceStartup($"Interactive DB journal replay completed ({replayed:N0} mutation(s))");
+					}
+					catch (Exception ex) {
+						TraceStartup($"Interactive DB journal replay failed: {ex.GetType().Name}: {ex.Message}");
+						VDF.Core.Utils.Logger.Instance.Error($"Interactive DB journal replay failed: {ex}");
+					}
+				};
+				viewModel.PropertyChanged += replayHandler;
+
 				window.DataContext = viewModel;
 				desktop.MainWindow = window;
 				TraceStartup("MainWindow assigned to desktop lifetime");

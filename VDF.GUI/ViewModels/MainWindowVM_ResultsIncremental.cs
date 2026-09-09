@@ -87,15 +87,20 @@ namespace VDF.GUI.ViewModels {
 			resultsDirtyGroupIds.Clear();
 			resultsIncrementalInvalidated = false;
 			lastResultsIncrementalSignature = CaptureResultsIncrementalSignature();
+			// Install the O(1)-per-mutation group-stat tracker while we already have a canonical
+			// full result baseline. Reset/import invalidates it; the next intentional rebuild
+			// primes it once, so later deletes/marks do not need another all-group aggregation.
+			PrimeFastGroupStats();
 		}
 
 		/// <summary>
-		/// Rebuilds only groups touched by collection mutations. Global filter/sort/rule changes,
-		/// reset/import state and resource-consolidation presentation deliberately fall back to
-		/// the original full rebuild. This keeps the optimization fail-safe and DB-neutral.
+		/// Rebuilds only groups touched by collection mutations. Large global filters are routed
+		/// through the cancellable background builder; ordinary local changes stay group-local.
 		/// </summary>
 		bool TryRefreshResultsIncrementally() {
 			EnsureResultsMutationTracking();
+			if (TryStartAsyncFilterResultsRefresh())
+				return true;
 			if (resultsIncrementalInvalidated || resultsDirtyGroupIds.Count == 0)
 				return false;
 			if (ActiveResultsDisplayMode != ResultsDisplayMode.SimilarityGroups)
@@ -105,16 +110,23 @@ namespace VDF.GUI.ViewModels {
 			if (lastResultsIncrementalSignature is not { } previous || previous != signature)
 				return false;
 
-			// A path-search hit makes the whole group visible. If the path that caused the hit
-			// was removed, refresh that tiny lookup before rebuilding the dirty group(s).
-			if (!string.IsNullOrEmpty(FilterByPath))
-				RebuildSearchPathIndex();
+			// A removed/moved path can change whether an entire group matches the path search.
+			// For large collections rebuild that global path hit set on the worker; small sets
+			// keep the original synchronous path and then continue with the dirty-group refresh.
+			if (!string.IsNullOrEmpty(FilterByPath)) {
+				RequestFilterResultsRefresh();
+				if (TryStartAsyncFilterResultsRefresh())
+					return true;
+			}
 
 			var dirtyIds = resultsDirtyGroupIds.ToHashSet();
 			var oldGroupOrder = resultsGroups.Select(group => group.GroupId).ToList();
-			var oldOrderIndex = oldGroupOrder
-				.Select((groupId, index) => (groupId, index))
-				.ToDictionary(pair => pair.groupId, pair => pair.index);
+			// Keep only the old headers for the handful of groups that are changing. The previous
+			// implementation allocated a 200k-entry GroupId->order dictionary and then indexed the
+			// entire flattened ResultsRows list merely to refresh one or two groups.
+			var oldDirtyGroups = resultsGroups
+				.Where(group => dirtyIds.Contains(group.GroupId))
+				.ToDictionary(group => group.GroupId);
 
 			// Keep startup memory flat. Resolve the handful of dirty groups with one linear pass
 			// only when a local mutation actually occurs instead of maintaining a full duplicate
@@ -135,8 +147,14 @@ namespace VDF.GUI.ViewModels {
 				Formats = BuildGroupSummaryFormats(),
 			});
 			ApplyFolderStats(partial.Groups);
-			ResultsRowReconciler.ReuseItemRows(ResultsRows, partial, expandedResultsDetails);
+			ReuseDirtyGroupItemRows(partial.Groups, oldDirtyGroups);
 			foreach (ResultsGroupHeader group in partial.Groups) {
+				// Preserve the old display position as a zero-allocation stable-sort tiebreaker.
+				// A newly appearing local group has no previous position and therefore sorts last
+				// among otherwise-equal groups until the next canonical rebuild renumbers it.
+				group.GroupNumber = oldDirtyGroups.TryGetValue(group.GroupId, out ResultsGroupHeader? oldGroup)
+					? oldGroup.GroupNumber
+					: int.MaxValue;
 				string warning = BuildLightweightQualityGroupSummary(group);
 				if (warning.Length > 0)
 					group.Summary += " · " + warning;
@@ -144,7 +162,7 @@ namespace VDF.GUI.ViewModels {
 
 			var merged = resultsGroups.Where(group => !dirtyIds.Contains(group.GroupId)).ToList();
 			merged.AddRange(partial.Groups);
-			SortIncrementalResultGroups(merged, oldOrderIndex);
+			SortIncrementalResultGroups(merged);
 
 			GroupSummaryFormats formats = BuildGroupSummaryFormats();
 			var displayRows = new List<object>();
@@ -176,7 +194,32 @@ namespace VDF.GUI.ViewModels {
 			return true;
 		}
 
-		void SortIncrementalResultGroups(List<ResultsGroupHeader> groups, IReadOnlyDictionary<Guid, int> oldOrder) {
+		static void ReuseDirtyGroupItemRows(
+			IReadOnlyList<ResultsGroupHeader> freshGroups,
+			IReadOnlyDictionary<Guid, ResultsGroupHeader> oldGroups) {
+			foreach (ResultsGroupHeader freshGroup in freshGroups) {
+				if (!oldGroups.TryGetValue(freshGroup.GroupId, out ResultsGroupHeader? oldGroup))
+					continue;
+
+				var stableRows = new List<ResultsItemRow>(freshGroup.Rows.Count);
+				foreach (ResultsItemRow freshRow in freshGroup.Rows) {
+					ResultsItemRow? stable = oldGroup.Rows.FirstOrDefault(
+						candidate => ReferenceEquals(candidate.Item, freshRow.Item));
+					if (stable != null) {
+						stable.RefreshPresentationFrom(freshRow);
+						stable.Group = freshGroup;
+						stableRows.Add(stable);
+					}
+					else {
+						freshRow.Group = freshGroup;
+						stableRows.Add(freshRow);
+					}
+				}
+				freshGroup.RebindRows(stableRows);
+			}
+		}
+
+		void SortIncrementalResultGroups(List<ResultsGroupHeader> groups) {
 			Comparison<ResultsGroupHeader> comparison = SettingsFile.Instance.ResultsSortMode switch {
 				ResultsSortMode.WastedSpace => (a, b) => a.WastedBytes.CompareTo(b.WastedBytes),
 				ResultsSortMode.TotalSize => (a, b) => a.TotalBytes.CompareTo(b.TotalBytes),
@@ -197,9 +240,7 @@ namespace VDF.GUI.ViewModels {
 			groups.Sort((a, b) => {
 				int value = comparison(a, b);
 				if (value != 0) return value;
-				int ai = oldOrder.TryGetValue(a.GroupId, out int av) ? av : int.MaxValue;
-				int bi = oldOrder.TryGetValue(b.GroupId, out int bv) ? bv : int.MaxValue;
-				value = ai.CompareTo(bi);
+				value = a.GroupNumber.CompareTo(b.GroupNumber);
 				return value != 0 ? value : a.GroupId.CompareTo(b.GroupId);
 			});
 		}

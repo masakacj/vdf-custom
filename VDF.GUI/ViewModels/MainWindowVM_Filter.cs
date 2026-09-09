@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU General Public License for more details.
 //     You should have received a copy of the GNU General Public License
@@ -16,6 +16,7 @@
 
 using System.ComponentModel;
 using System.Linq;
+using System.Threading;
 using Avalonia.Collections;
 using ReactiveUI;
 using VDF.GUI.Data;
@@ -37,6 +38,7 @@ namespace VDF.GUI.ViewModels {
 				if (value.Name == _FileType.Name) return;
 				_FileType = value;
 				this.RaisePropertyChanged(nameof(FileType));
+				RequestFilterResultsRefresh();
 				RefreshResultsView();
 			}
 		}
@@ -46,19 +48,38 @@ namespace VDF.GUI.ViewModels {
 			set {
 				if (value == _FilterGroupsWithCheckedItems) return;
 				this.RaiseAndSetIfChanged(ref _FilterGroupsWithCheckedItems, value);
+				RequestFilterResultsRefresh();
 				RefreshResultsView();
 			}
 		}
 
+		internal bool HasActiveResultsFilter =>
+			!string.IsNullOrEmpty(FilterByPath) ||
+			FileType.Value != FileTypeFilter.All ||
+			FilterSimilarityFrom != 0 || FilterSimilarityTo != 100 ||
+			FilterGroupsWithCheckedItems;
+
 		HashSet<Guid> _groupsWithPathHit = new();
 		void RebuildSearchPathIndex() {
-			var needle = FilterByPath;
-			if (string.IsNullOrEmpty(needle)) { _groupsWithPathHit.Clear(); return; }
+			// The old implementation scanned every result path on the UI thread, then the
+			// result builder scanned the same paths again. Mark this global filter refresh and
+			// let MainWindowVM_FilterAsync build the hit set once on a worker thread.
+			if (string.IsNullOrEmpty(FilterByPath))
+				_groupsWithPathHit.Clear();
+			RequestFilterResultsRefresh();
+		}
 
-			_groupsWithPathHit = Duplicates
-				.Where(d => PathMatchesFilter(d.ItemInfo.Path, needle))
-				.Select(d => d.ItemInfo.GroupId)
-				.ToHashSet();
+		internal static HashSet<Guid> BuildPathHitGroups(
+			IEnumerable<DuplicateItemVM> items, string needle, CancellationToken cancellationToken = default) {
+			var result = new HashSet<Guid>();
+			if (string.IsNullOrEmpty(needle)) return result;
+			int n = 0;
+			foreach (DuplicateItemVM item in items) {
+				if ((n++ & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
+				if (PathMatchesFilter(item.ItemInfo.Path, needle))
+					result.Add(item.ItemInfo.GroupId);
+			}
+			return result;
 		}
 
 		/// <summary>
@@ -98,6 +119,7 @@ namespace VDF.GUI.ViewModels {
 			set {
 				if (value == _FilterSimilarityFrom) return;
 				this.RaiseAndSetIfChanged(ref _FilterSimilarityFrom, value);
+				RequestFilterResultsRefresh();
 				RefreshResultsView();
 			}
 		}
@@ -107,6 +129,7 @@ namespace VDF.GUI.ViewModels {
 			set {
 				if (value == _FilterSimilarityTo) return;
 				this.RaiseAndSetIfChanged(ref _FilterSimilarityTo, value);
+				RequestFilterResultsRefresh();
 				RefreshResultsView();
 			}
 		}
@@ -114,10 +137,8 @@ namespace VDF.GUI.ViewModels {
 		/// <summary>The results filter; the view exposes it as always-active toolbar chips.</summary>
 		internal bool DuplicatesFilterCore(DuplicateItemVM data) {
 			bool ok = true;
-			if (!string.IsNullOrEmpty(FilterByPath)) {
-				ok = PathMatchesFilter(data.ItemInfo.Path, FilterByPath)
-					 || _groupsWithPathHit.Contains(data.ItemInfo.GroupId);
-			}
+			if (!string.IsNullOrEmpty(FilterByPath))
+				ok = _groupsWithPathHit.Contains(data.ItemInfo.GroupId);
 
 			if (ok && FileType.Value != FileTypeFilter.All)
 				ok = FileType.Value == FileTypeFilter.Images ? data.ItemInfo.IsImage : !data.ItemInfo.IsImage;

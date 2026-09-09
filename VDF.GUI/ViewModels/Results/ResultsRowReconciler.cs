@@ -65,6 +65,32 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		/// <summary>
+		/// Predicts whether Apply will choose its bulk-reset path without mutating the target.
+		/// Large asynchronous sort/filter builds use this before ReuseItemRows so they don't
+		/// allocate/index hundreds of thousands of old rows that a bulk reset will discard anyway.
+		/// </summary>
+		internal static bool RequiresBulkRebuild(IReadOnlyList<object> currentRows, IReadOnlyList<object> desiredRows) {
+			int oldCount = currentRows.Count;
+			int newCount = desiredRows.Count;
+			if (oldCount == 0 || newCount == 0)
+				return false;
+
+			int commonLimit = Math.Min(oldCount, newCount);
+			int prefix = 0;
+			while (prefix < commonLimit && SameIdentity(currentRows[prefix], desiredRows[prefix]))
+				prefix++;
+
+			int suffix = 0;
+			while (suffix < commonLimit - prefix &&
+				SameIdentity(currentRows[oldCount - 1 - suffix], desiredRows[newCount - 1 - suffix]))
+				suffix++;
+
+			int oldMiddleCount = oldCount - prefix - suffix;
+			int newMiddleCount = newCount - prefix - suffix;
+			return Math.Max(oldMiddleCount, newMiddleCount) > BulkRebuildMiddleThreshold;
+		}
+
+		/// <summary>
 		/// Applies a desired row sequence without resetting the collection.
 		///
 		/// Large result mutations are normally local: a huge unchanged prefix/suffix surrounds

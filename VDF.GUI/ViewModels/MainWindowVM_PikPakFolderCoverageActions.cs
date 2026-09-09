@@ -39,7 +39,6 @@ namespace VDF.GUI.ViewModels {
 			if (plan.MatchedGroups == 0 || plan.ToCheck.Count == 0)
 				return 0;
 
-			// Manual-review groups keep their existing check state; only decided groups are touched.
 			var affected = plan.Keepers
 				.Concat(plan.ToCheck)
 				.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
@@ -125,6 +124,15 @@ namespace VDF.GUI.ViewModels {
 			int uniqueMoveFailures = 0;
 
 			await Task.Run(() => {
+				void PersistMoveOrCheckpoint(string oldPath, string newPath) {
+					if (ScanEngine.PersistInteractiveDatabaseMove(oldPath, newPath, out string journalError))
+						return;
+					// A physical move has already completed. Durability beats latency if the tiny
+					// sidecar cannot be written: immediately fall back to the legacy full checkpoint.
+					Logger.Instance.Warn($"Folder consolidation journal failed; falling back to full DB checkpoint: {journalError}");
+					ScanEngine.SaveDatabase();
+				}
+
 				foreach (var group in plan.Groups) {
 					bool groupSafe = true;
 					if (group.KeeperNeedsMove) {
@@ -139,8 +147,10 @@ namespace VDF.GUI.ViewModels {
 						}
 						else {
 							keeperMovesSucceeded++;
-							if (dbEntry != null)
+							if (dbEntry != null) {
 								ScanEngine.UpdateFilePathInDatabase(moved.NewPath, dbEntry);
+								PersistMoveOrCheckpoint(oldPath, moved.NewPath);
+							}
 							keeperPathUpdates.Add((group.Keeper, moved.NewPath));
 						}
 					}
@@ -158,12 +168,11 @@ namespace VDF.GUI.ViewModels {
 						continue;
 					}
 					uniqueMovesSucceeded++;
-					if (dbEntry != null)
+					if (dbEntry != null) {
 						ScanEngine.UpdateFilePathInDatabase(moved.NewPath, dbEntry);
+						PersistMoveOrCheckpoint(file.Path, moved.NewPath);
+					}
 				}
-
-				if (keeperMovesSucceeded > 0 || uniqueMovesSucceeded > 0)
-					ScanEngine.SaveDatabase();
 			});
 
 			foreach (var (item, newPath) in keeperPathUpdates)
@@ -176,7 +185,7 @@ namespace VDF.GUI.ViewModels {
 					loser.Checked = true;
 			}
 			RefreshResultsView();
-			RefreshGroupStats();
+			RefreshGroupStatsFast();
 
 			return new FolderConsolidationResult {
 				GroupsPrepared = plan.Groups.Count - groupMoveFailures,

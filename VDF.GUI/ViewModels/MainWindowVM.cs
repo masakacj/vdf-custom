@@ -500,10 +500,10 @@ namespace VDF.GUI.ViewModels {
 			Duplicates.CollectionChanged -= Duplicates_CollectionChanged;
 			int addedChecked = 0;
 			long addedCheckedSize = 0;
+			var batch = items as IReadOnlyCollection<DuplicateItemVM> ?? items.ToList();
 			try {
-				foreach (var item in items) {
+				foreach (var item in batch) {
 					item.PropertyChanged += DuplicateItemVM_PropertyChanged;
-					Duplicates.Add(item);
 					// Items can arrive already checked (restored backups); count them
 					// so the counters and the per-group index stay accurate.
 					if (item.Checked) {
@@ -513,6 +513,12 @@ namespace VDF.GUI.ViewModels {
 						checkedCountByGroup[item.ItemInfo.GroupId] = count + 1;
 					}
 				}
+
+				// AvaloniaList.AddRange emits one bulk collection change instead of one event
+				// per result. Incremental/stat/filter-version observers therefore see one
+				// restore event even when the backup contains hundreds of thousands of rows.
+				if (batch.Count > 0)
+					Duplicates.AddRange(batch);
 			}
 			finally {
 				Duplicates.CollectionChanged += Duplicates_CollectionChanged;
@@ -537,6 +543,7 @@ namespace VDF.GUI.ViewModels {
 				DuplicatesCheckedSizeInternal -= CheckedSizeOf((DuplicateItemVM)sender);
 				AdjustCheckedGroupIndex((DuplicateItemVM)sender, -1);
 			}
+			ScheduleCheckedStructureRefresh();
 		}
 
 		public async void Thumbnails_ValueChanged(object? sender, NumericUpDownValueChangedEventArgs e) {
@@ -608,7 +615,11 @@ namespace VDF.GUI.ViewModels {
 			if (result != MessageBoxButtons.Yes) {
 				return true;
 			}
-			await ExportScanResults(BackupScanResultsFile);
+			// Explicit exit/update save keeps the original synchronous path: show the
+			// saving overlay, report errors to the user, and do not exit before the file
+			// replacement completes. Automatic list-change backups use the one-string
+			// overload and remain coalesced/background.
+			await ExportScanResults(BackupScanResultsFile, includeThumbnails: true);
 			return true;
 		}
 
@@ -621,7 +632,7 @@ namespace VDF.GUI.ViewModels {
 		/// </summary>
 		public async Task RestoreBackupScanResultsAsync() {
 			if (File.Exists(BackupScanResultsFile))
-				await ImportScanResultsIncludingThumbnails(BackupScanResultsFile);
+				await ImportScanResultsIncludingThumbnails(BackupScanResultsFile, reconcileWithLoadedDatabase: true);
 		}
 
 		/// <summary>
@@ -783,7 +794,7 @@ namespace VDF.GUI.ViewModels {
 
 				BuildActiveResultsView();
 				RebuildSearchPathIndex();
-				RefreshGroupStats();
+				RefreshGroupStatsFast();
 
 				if (SettingsFile.Instance.AutoApplySelectionPresetEnabled &&
 					!string.IsNullOrEmpty(SettingsFile.Instance.AutoApplySelectionPreset)) {
@@ -1103,7 +1114,7 @@ namespace VDF.GUI.ViewModels {
 			await ImportScanResultsIncludingThumbnails(result);
 		});
 
-		async Task ImportScanResultsIncludingThumbnails(string? path = null) {
+		async Task ImportScanResultsIncludingThumbnails(string? path = null, bool reconcileWithLoadedDatabase = false) {
 			if (Duplicates.Count > 0) {
 				MessageBoxButtons? result = await MessageBoxService.Show(App.Lang["Message.ImportScanResultsClearConfirm"], MessageBoxButtons.Yes | MessageBoxButtons.No);
 				if (result != MessageBoxButtons.Yes) return;
@@ -1137,6 +1148,18 @@ namespace VDF.GUI.ViewModels {
 				if (items.Count == 0)
 					throw new JsonException("All scan result entries were corrupt");
 
+				if (reconcileWithLoadedDatabase) {
+					// The DB has already loaded and the interactive mutation journal has already
+					// replayed. Treat that durable state as truth: a coalesced automatic backup can
+					// legitimately lag a delete/rename by a fraction of a second if the process dies.
+					int reconciled = await Task.Run(() => ReconcileStartupBackupItems(
+						items,
+						ScanEngine.GetLoadedDatabasePathsSnapshot(),
+						ScanEngine.GetPendingInteractiveDatabaseMovesSnapshot()));
+					if (reconciled > 0)
+						Logger.Instance.Info($"Removed {reconciled:N0} stale startup-backup result item(s) after database/journal reconciliation.");
+				}
+
 				// Apply not-a-match blacklist; saved results may pre-date marks made just before a crash.
 				var importBlacklistedGids = ComputeBlacklistedGroupIds(
 					items.Select(i => (i.ItemInfo.GroupId, i.ItemInfo.Path)));
@@ -1164,7 +1187,7 @@ namespace VDF.GUI.ViewModels {
 				AddDuplicatesInBulk(items);
 
 				BuildActiveResultsView();
-				RefreshGroupStats();
+				RefreshGroupStatsFast();
 				IsBusy = false;
 				stream.Close();
 
@@ -1508,11 +1531,19 @@ namespace VDF.GUI.ViewModels {
 				newName = FileUtils.SafePathCombine(fi.DirectoryName!, newName + fi.Extension);
 			}
 			try {
-				ScanEngine.GetFromDatabase(currentItem.ItemInfo.Path, out var dbEntry);
+				string oldPath = currentItem.ItemInfo.Path;
+				bool hasDatabaseEntry = ScanEngine.GetFromDatabase(oldPath, out var dbEntry);
 				fi.MoveTo(newName, true);
-				ScanEngine.UpdateFilePathInDatabase(newName, dbEntry!);
+				if (hasDatabaseEntry && dbEntry != null) {
+					ScanEngine.UpdateFilePathInDatabase(newName, dbEntry);
+					if (!ScanEngine.PersistInteractiveDatabaseMove(oldPath, newName, out string journalError)) {
+						Logger.Instance.Warn($"Interactive rename journal failed; falling back to a full database checkpoint: {journalError}");
+						ScanEngine.SaveDatabase();
+					}
+				}
 				currentItem.ItemInfo.Path = newName;
-				ScanEngine.SaveDatabase();
+				MarkResultItemMutation(currentItem.ItemInfo.GroupId);
+				RefreshResultsView();
 			}
 			catch (Exception e) {
 				await MessageBoxService.Show(e.Message);
@@ -1905,9 +1936,10 @@ Non-Windows setup:
 						if (Duplicates[i].ItemInfo.GroupId == gid && Duplicates[i].ItemInfo.Path == path)
 							Duplicates.RemoveAt(i);
 
-				// Drop singleton groups
-				DropSingletonGroups();
-				RefreshGroupStats();
+				// Removing one whole group cannot create a singleton in any other group.
+				// CollectionChanged already updated the incremental counters, so avoid two
+				// all-results GroupBy passes for a local not-a-match action.
+				RefreshGroupStatsFast();
 				RefreshResultsView();
 
 				// Mirror the deletion path: keep backup.scanresults in sync so the mark
@@ -2033,14 +2065,17 @@ Non-Windows setup:
 				MessageBoxButtons.Yes | MessageBoxButtons.No);
 			if (dlgResult != MessageBoxButtons.Yes) return;
 
-			var keepByGroup = Duplicates
-				   .GroupBy(d => d.ItemInfo.GroupId)
-				   .ToDictionary(
-					   g => g.Key,
-					   g => g.FirstOrDefault(x => !x.Checked)
-				   );
+			var affectedGroupIds = toDelete.Select(d => d.ItemInfo.GroupId).ToHashSet();
+			var keepByGroup = new Dictionary<Guid, DuplicateItemVM?>();
+			foreach (DuplicateItemVM item in Duplicates) {
+				Guid groupId = item.ItemInfo.GroupId;
+				if (!affectedGroupIds.Contains(groupId) || item.Checked || keepByGroup.ContainsKey(groupId))
+					continue;
+				keepByGroup[groupId] = item;
+			}
 
 			var actuallyDeleted = new HashSet<DuplicateItemVM>(toDelete.Count, ReferenceEqualityComparer<DuplicateItemVM>.Instance);
+			var databaseDeletedPaths = new List<string>(toDelete.Count);
 			// With RememberDeletedContent on, a disk-delete that removes an ENTIRE group (no
 			// unchecked survivor) is a content rejection, not a duplicate cleanup: exactly one
 			// entry stays in the database as the tombstone so a re-download of this content is
@@ -2141,8 +2176,10 @@ Non-Windows setup:
 									SettingsFile.Instance.RememberDeletedContent &&
 									(!keepByGroup.TryGetValue(dub.ItemInfo.GroupId, out var survivor) || survivor == null) &&
 									tombstonedGroups.Add(dub.ItemInfo.GroupId);
-								if (!keepAsTombstone)
+								if (!keepAsTombstone) {
 									ScanEngine.RemoveFromDatabase(fe);
+									databaseDeletedPaths.Add(dub.ItemInfo.Path);
+								}
 							}
 
 							actuallyDeleted.Add(dub);
@@ -2159,12 +2196,18 @@ Non-Windows setup:
 					if (missingOnDisk > 0)
 						Logger.Instance.Warn($"{missingOnDisk} of {total} selected files were not found on disk; their entries were removed from the results, but no data was deleted for them.");
 
-					// Persist the database changes while still off the UI thread. This used
-					// to run last, after the results refresh, on the UI thread - where an
-					// exception in the refresh (dispatcher exceptions are swallowed to keep
-					// the app alive) could silently skip the save.
-					if (actuallyDeleted.Count > 0)
-						ScanEngine.SaveDatabase();
+					// Persist normal interactive removals as one tiny durable journal append.
+					// A blacklist mutation changes FileEntry flags and is not representable by the
+					// delete/move journal, so that exceptional path keeps the legacy full checkpoint.
+					if (actuallyDeleted.Count > 0) {
+						if (blackList) {
+							ScanEngine.SaveDatabase();
+						}
+						else if (!ScanEngine.PersistInteractiveDatabaseDeletes(databaseDeletedPaths, out string journalError)) {
+							Logger.Instance.Warn($"Interactive delete journal failed; falling back to a full database checkpoint: {journalError}");
+							ScanEngine.SaveDatabase();
+						}
+					}
 				});
 			}
 			finally {
@@ -2190,21 +2233,18 @@ Non-Windows setup:
 				return;
 
 			try {
-				// Remove deleted items from flat list (single pass; searching the list
-				// per deleted item was O(deleted x list) and stalled on big batches)
-				for (int i = Duplicates.Count - 1; i >= 0; i--)
-					if (actuallyDeleted.Contains(Duplicates[i]))
-						Duplicates.RemoveAt(i);
+				// AvaloniaList.RemoveAll emits one bulk removal instead of one collection
+				// event per deleted result. The collection observers already understand OldItems,
+				// so counters, dirty-group tracking and fast stats are updated in one batch.
+				Duplicates.RemoveAll(actuallyDeleted);
 
-				// When ExcludeHardLinks is enabled, remove items within each group
-				// that are hardlinks of another remaining item in the same group.
+				// Deletion can only change the groups that contained a selected item.
+				// Keep hard-link probes and singleton detection scoped to those groups.
 				if (SettingsFile.Instance.ExcludeHardLinks)
-					DropHardLinkDuplicates();
+					DropHardLinkDuplicates(affectedGroupIds);
 
-				// Drop groups that have only one item left (no longer duplicates)
-				DropSingletonGroups();
-
-				RefreshGroupStats();
+				DropSingletonGroups(affectedGroupIds);
+				RefreshGroupStatsFast();
 				RefreshResultsView();
 			}
 			catch (Exception ex) {
@@ -2217,18 +2257,22 @@ Non-Windows setup:
 				await ExportScanResults(BackupScanResultsFile);
 		}
 
-		void DropSingletonGroups() {
-			var singletonGroups = Duplicates
-				.GroupBy(d => d.ItemInfo.GroupId)
-				.Where(g => g.Count() <= 1)
-				.Select(g => g.Key)
-				.ToHashSet();
+		void DropSingletonGroups(IReadOnlySet<Guid>? onlyGroups = null) {
+			HashSet<Guid> singletonGroups = onlyGroups != null
+				? FindSingletonGroupsFast(onlyGroups)
+				: Duplicates
+					.GroupBy(d => d.ItemInfo.GroupId)
+					.Where(g => g.Count() <= 1)
+					.Select(g => g.Key)
+					.ToHashSet();
 
 			if (singletonGroups.Count == 0) return;
 
-			for (int i = Duplicates.Count - 1; i >= 0; i--)
-				if (singletonGroups.Contains(Duplicates[i].ItemInfo.GroupId))
-					Duplicates.RemoveAt(i);
+			var singletonItems = Duplicates
+				.Where(item => singletonGroups.Contains(item.ItemInfo.GroupId))
+				.ToList();
+			if (singletonItems.Count > 0)
+				Duplicates.RemoveAll(singletonItems);
 		}
 
 		/// <summary>
@@ -2236,9 +2280,12 @@ Non-Windows setup:
 		/// of each other. Within each group, keep only one representative per set
 		/// of hardlinked files.
 		/// </summary>
-		void DropHardLinkDuplicates() {
+		void DropHardLinkDuplicates(IReadOnlySet<Guid>? onlyGroups = null) {
 			var toRemove = new List<DuplicateItemVM>();
-			foreach (var group in Duplicates.GroupBy(d => d.ItemInfo.GroupId)) {
+			IEnumerable<DuplicateItemVM> candidates = onlyGroups == null
+				? Duplicates
+				: Duplicates.Where(d => onlyGroups.Contains(d.ItemInfo.GroupId));
+			foreach (var group in candidates.GroupBy(d => d.ItemInfo.GroupId)) {
 				var items = group.ToList();
 				if (items.Count <= 1) continue;
 				var kept = new List<DuplicateItemVM>();
@@ -2258,20 +2305,21 @@ Non-Windows setup:
 				}
 			}
 
-			foreach (var item in toRemove)
-				for (int i = Duplicates.Count - 1; i >= 0; i--)
-					if (ReferenceEquals(Duplicates[i], item)) { Duplicates.RemoveAt(i); break; }
+			if (toRemove.Count > 0)
+				Duplicates.RemoveAll(toRemove);
 		}
 
 		public ReactiveCommand<Unit, Unit> ExpandAllGroupsCommand => ReactiveCommand.Create(() => {
 			collapsedResultsGroups.Clear();
-			RebuildResultsList();
+			RequestFilterResultsRefresh();
+			RefreshResultsView();
 		});
 
 		public ReactiveCommand<Unit, Unit> CollapseAllGroupsCommand => ReactiveCommand.Create(() => {
 			foreach (var group in resultsGroups)
 				collapsedResultsGroups.Add(group.GroupId);
-			RebuildResultsList();
+			RequestFilterResultsRefresh();
+			RefreshResultsView();
 		});
 
 		public ReactiveCommand<Unit, Unit> NavigateNextGroupCommand => ReactiveCommand.Create(() => {
@@ -2284,8 +2332,25 @@ Non-Windows setup:
 			if (GetSelectedDuplicateItem() is DuplicateItemVM keeper) {
 				using var _ = BeginSelectionUndoBatch();
 				keeper.Checked = false;
-				foreach (var item in Duplicates)
-					if (item.ItemInfo.GroupId == keeper.ItemInfo.GroupId && !ReferenceEquals(item, keeper))
+
+				Guid groupId = keeper.ItemInfo.GroupId;
+				int groupIndex = FindResultsGroupIndex(groupId);
+				ResultsGroupHeader? visibleGroup = groupIndex >= 0 && groupIndex < resultsGroups.Count
+					? resultsGroups[groupIndex]
+					: null;
+				IEnumerable<DuplicateItemVM> members;
+				if (visibleGroup != null && visibleGroup.Rows.Count == GetFastGroupItemCount(groupId)) {
+					// Normal unfiltered keyboard triage: the visible canonical group is complete,
+					// so touch only its handful of rows instead of scanning every result.
+					members = visibleGroup.Rows.Select(row => row.Item);
+				}
+				else {
+					// A filter may hide members. Preserve the old all-group semantics in that
+					// uncommon case by falling back to the complete duplicate collection.
+					members = Duplicates.Where(item => item.ItemInfo.GroupId == groupId);
+				}
+				foreach (DuplicateItemVM item in members)
+					if (!ReferenceEquals(item, keeper))
 						item.Checked = true;
 			}
 			NavigateGroup(forward: true);
