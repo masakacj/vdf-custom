@@ -1,0 +1,43 @@
+name: Patch bulk duplicate restore
+
+on:
+  push:
+    branches:
+      - perf/large-results-interactions-filter-db
+    paths:
+      - .github/workflows/patch-bulk-duplicates-add.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: perf/large-results-interactions-filter-db
+          fetch-depth: 0
+      - name: Guarded bulk-add replacement
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('VDF.GUI/ViewModels/MainWindowVM.cs')
+          s = p.read_text(encoding='utf-8')
+          old = '''\t\tinternal void AddDuplicatesInBulk(IEnumerable<DuplicateItemVM> items) {\n\t\t\tDuplicates.CollectionChanged -= Duplicates_CollectionChanged;\n\t\t\tint addedChecked = 0;\n\t\t\tlong addedCheckedSize = 0;\n\t\t\ttry {\n\t\t\t\tforeach (var item in items) {\n\t\t\t\t\titem.PropertyChanged += DuplicateItemVM_PropertyChanged;\n\t\t\t\t\tDuplicates.Add(item);\n\t\t\t\t\t// Items can arrive already checked (restored backups); count them\n\t\t\t\t\t// so the counters and the per-group index stay accurate.\n\t\t\t\t\tif (item.Checked) {\n\t\t\t\t\t\taddedChecked++;\n\t\t\t\t\t\taddedCheckedSize += CheckedSizeOf(item);\n\t\t\t\t\t\tcheckedCountByGroup.TryGetValue(item.ItemInfo.GroupId, out int count);\n\t\t\t\t\t\tcheckedCountByGroup[item.ItemInfo.GroupId] = count + 1;\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t}\n\t\t\tfinally {\n\t\t\t\tDuplicates.CollectionChanged += Duplicates_CollectionChanged;\n\t\t\t}\n\t\t\tif (addedChecked > 0) {\n\t\t\t\tDuplicatesCheckedCounter += addedChecked;\n\t\t\t\tDuplicatesCheckedSizeInternal += addedCheckedSize;\n\t\t\t}\n\t\t\tRaiseScannerStateChanged();\n\t\t}\n'''
+          new = '''\t\tinternal void AddDuplicatesInBulk(IEnumerable<DuplicateItemVM> items) {\n\t\t\tDuplicates.CollectionChanged -= Duplicates_CollectionChanged;\n\t\t\tint addedChecked = 0;\n\t\t\tlong addedCheckedSize = 0;\n\t\t\tvar batch = items as IReadOnlyCollection<DuplicateItemVM> ?? items.ToList();\n\t\t\ttry {\n\t\t\t\tforeach (var item in batch) {\n\t\t\t\t\titem.PropertyChanged += DuplicateItemVM_PropertyChanged;\n\t\t\t\t\t// Items can arrive already checked (restored backups); count them\n\t\t\t\t\t// so the counters and the per-group index stay accurate.\n\t\t\t\t\tif (item.Checked) {\n\t\t\t\t\t\taddedChecked++;\n\t\t\t\t\t\taddedCheckedSize += CheckedSizeOf(item);\n\t\t\t\t\t\tcheckedCountByGroup.TryGetValue(item.ItemInfo.GroupId, out int count);\n\t\t\t\t\t\tcheckedCountByGroup[item.ItemInfo.GroupId] = count + 1;\n\t\t\t\t\t}\n\t\t\t\t}\n\n\t\t\t\t// AvaloniaList.AddRange emits one bulk collection change instead of one event\n\t\t\t\t// per result. Incremental/stat/filter-version observers therefore see one\n\t\t\t\t// restore event even when the backup contains hundreds of thousands of rows.\n\t\t\t\tif (batch.Count > 0)\n\t\t\t\t\tDuplicates.AddRange(batch);\n\t\t\t}\n\t\t\tfinally {\n\t\t\t\tDuplicates.CollectionChanged += Duplicates_CollectionChanged;\n\t\t\t}\n\t\t\tif (addedChecked > 0) {\n\t\t\t\tDuplicatesCheckedCounter += addedChecked;\n\t\t\t\tDuplicatesCheckedSizeInternal += addedCheckedSize;\n\t\t\t}\n\t\t\tRaiseScannerStateChanged();\n\t\t}\n'''
+          n = s.count(old)
+          if n != 1:
+              raise SystemExit(f'expected exactly one AddDuplicatesInBulk block, found {n}')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "vdf-performance-bot"
+          git config user.email "vdf-performance-bot@users.noreply.github.com"
+          git add VDF.GUI/ViewModels/MainWindowVM.cs
+          git diff --cached --check
+          git commit -m "Bulk-add restored duplicate results"
+          git push origin HEAD:perf/large-results-interactions-filter-db
