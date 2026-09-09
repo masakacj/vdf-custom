@@ -72,6 +72,7 @@ namespace VDF.GUI.ViewModels {
 							return;
 						}
 					}
+				}
 			}
 			catch (Exception ex) {
 				lock (automaticScanResultsBackupLock)
