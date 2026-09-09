@@ -87,6 +87,10 @@ namespace VDF.GUI.ViewModels {
 			resultsDirtyGroupIds.Clear();
 			resultsIncrementalInvalidated = false;
 			lastResultsIncrementalSignature = CaptureResultsIncrementalSignature();
+			// Install the O(1)-per-mutation group-stat tracker while we already have a canonical
+			// full result baseline. Reset/import invalidates it; the next intentional rebuild
+			// primes it once, so later deletes/marks do not need another all-group aggregation.
+			PrimeFastGroupStats();
 		}
 
 		/// <summary>
