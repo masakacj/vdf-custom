@@ -6,7 +6,7 @@
 //     the Free Software Foundation, either version 3 of the License, or
 //     (at your option) any later version.
 //     VideoDuplicateFinder is distributed in the hope that it will be useful,
-//     but WITHOUT ANY WARRANTY without even the implied warranty of
+//     but WITHOUT ANY WARRANTY; without even the implied warranty of
 //     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 //     GNU Affero General Public License for more details.
 //     You should have received a copy of the GNU Affero General Public License
@@ -70,7 +70,19 @@ namespace VDF.GUI.Utils {
 			Task.Run(() => {
 				int count = 0;
 				long bytes = 0;
+				bool terminalCallbackStarted = false;
 				var lastReport = System.Diagnostics.Stopwatch.StartNew();
+
+				void RemoveActiveRegistration() {
+					lock (gate) {
+						// A new request is allowed as soon as a terminal completion is
+						// reported. Only remove our own registration so a newer request
+						// can never be accidentally unregistered by this worker's finally.
+						if (active.TryGetValue(folderPath, out var current) && ReferenceEquals(current, cts))
+							active.Remove(folderPath);
+					}
+				}
+
 				try {
 					var options = new EnumerationOptions {
 						IgnoreInaccessible = true,
@@ -95,6 +107,8 @@ namespace VDF.GUI.Utils {
 					// Cancellation can race with the final item. Always re-check immediately
 					// before the terminal callback so Cancel()/CancelAll() suppress completion.
 					cts.Token.ThrowIfCancellationRequested();
+					RemoveActiveRegistration();
+					terminalCallbackStarted = true;
 					onProgress(new FolderCountProgress(count, bytes, Completed: true));
 				}
 				catch (OperationCanceledException) {
@@ -102,14 +116,16 @@ namespace VDF.GUI.Utils {
 				}
 				catch (Exception) {
 					// A cancellation that arrives while another exception is being surfaced
-					// is still cancellation, not a failed completed walk.
-					if (!cts.IsCancellationRequested)
+					// is still cancellation, not a failed completed walk. If a terminal
+					// callback itself throws, do not emit a second contradictory completion.
+					if (!cts.IsCancellationRequested && !terminalCallbackStarted) {
+						RemoveActiveRegistration();
+						terminalCallbackStarted = true;
 						onProgress(new FolderCountProgress(count, bytes, Completed: true, Failed: true));
+					}
 				}
 				finally {
-					lock (gate) {
-						active.Remove(folderPath);
-					}
+					RemoveActiveRegistration();
 					cts.Dispose();
 				}
 			}, CancellationToken.None);
