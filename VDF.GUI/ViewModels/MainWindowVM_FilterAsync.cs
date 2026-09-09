@@ -102,7 +102,8 @@ namespace VDF.GUI.ViewModels {
 					token.ThrowIfCancellationRequested();
 
 					Dispatcher.UIThread.Post(() => ApplyAsyncFilterResult(
-						generation, collectionVersion, items, visibility, pathHitGroups, result, token));
+						generation, collectionVersion, items, visibility, pathHitGroups, checkedGroups,
+						checkedOnly, sortMode, result, token));
 				}
 				catch (OperationCanceledException) { }
 				catch (Exception ex) {
@@ -118,6 +119,9 @@ namespace VDF.GUI.ViewModels {
 			IReadOnlyList<DuplicateItemVM> items,
 			IReadOnlyList<bool> visibility,
 			HashSet<Guid> pathHitGroups,
+			HashSet<Guid> checkedGroups,
+			bool checkedOnly,
+			ResultsSortMode sortMode,
 			ResultsBuildResult result,
 			CancellationToken token) {
 			if (token.IsCancellationRequested || generation != Volatile.Read(ref filterResultsGeneration))
@@ -125,6 +129,15 @@ namespace VDF.GUI.ViewModels {
 			if (collectionVersion != Volatile.Read(ref filterResultsCollectionVersion)) {
 				// The result set changed while the worker was building. Never paint a stale snapshot;
 				// queue one fresh pass instead.
+				RequestFilterResultsRefresh();
+				RefreshResultsView();
+				return;
+			}
+			if ((checkedOnly || sortMode == ResultsSortMode.GroupsWithCheckedItems) &&
+				!checkedGroups.SetEquals(checkedCountByGroup.Keys)) {
+				// Checked state is not a collection mutation, so the collection version above cannot
+				// detect it. A filter/sort that depends on checked groups must reject this stale
+				// snapshot and let the latest checked-group index drive a fresh worker pass.
 				RequestFilterResultsRefresh();
 				RefreshResultsView();
 				return;
