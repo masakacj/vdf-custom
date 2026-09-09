@@ -788,7 +788,7 @@ namespace VDF.GUI.ViewModels {
 
 				BuildActiveResultsView();
 				RebuildSearchPathIndex();
-				RefreshGroupStats();
+				RefreshGroupStatsFast();
 
 				if (SettingsFile.Instance.AutoApplySelectionPresetEnabled &&
 					!string.IsNullOrEmpty(SettingsFile.Instance.AutoApplySelectionPreset)) {
@@ -1169,7 +1169,7 @@ namespace VDF.GUI.ViewModels {
 				AddDuplicatesInBulk(items);
 
 				BuildActiveResultsView();
-				RefreshGroupStats();
+				RefreshGroupStatsFast();
 				IsBusy = false;
 				stream.Close();
 
