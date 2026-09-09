@@ -90,6 +90,7 @@ namespace VDF.GUI.ViewModels {
 
 					ResultsBuildResult result = ResultsListBuilder.Build(new ResultsBuildRequest {
 						Items = visibleItems,
+						CancellationToken = token,
 						Filter = _ => true,
 						SortMode = sortMode,
 						SortDescending = sortDescending,

@@ -22,6 +22,8 @@ namespace VDF.GUI.ViewModels {
 	/// <summary>Inputs of one flattened-list build. Only <see cref="Items"/> is required.</summary>
 	public sealed record ResultsBuildRequest {
 		public required IReadOnlyList<DuplicateItemVM> Items { get; init; }
+		/// <summary>Optional cancellation for large background result builds.</summary>
+		public CancellationToken CancellationToken { get; init; }
 		/// <summary>Per-item visibility (the results filter). Null shows everything.</summary>
 		public Func<DuplicateItemVM, bool>? Filter { get; init; }
 		public ResultsSortMode SortMode { get; init; } = ResultsSortMode.WastedSpace;
@@ -63,6 +65,8 @@ namespace VDF.GUI.ViewModels {
 	public static class ResultsListBuilder {
 
 		public static ResultsBuildResult Build(ResultsBuildRequest request) {
+			CancellationToken cancellationToken = request.CancellationToken;
+			cancellationToken.ThrowIfCancellationRequested();
 			Func<DuplicateItemVM, bool> filter = request.Filter ?? (_ => true);
 			Func<DuplicateItemVM, bool> isTombstone;
 			Func<DuplicateItemVM, bool> isOffline;
@@ -81,7 +85,9 @@ namespace VDF.GUI.ViewModels {
 			// Group in first-appearance order so ties keep a stable, predictable order.
 			var groupsById = new Dictionary<Guid, List<DuplicateItemVM>>();
 			var groupOrder = new List<Guid>();
+			int itemCancellationCounter = 0;
 			foreach (var item in request.Items) {
+				if ((itemCancellationCounter++ & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
 				if (!filter(item)) continue;
 				if (!groupsById.TryGetValue(item.ItemInfo.GroupId, out var members)) {
 					groupsById[item.ItemInfo.GroupId] = members = new List<DuplicateItemVM>();
@@ -91,7 +97,9 @@ namespace VDF.GUI.ViewModels {
 			}
 
 			var headers = new List<ResultsGroupHeader>(groupOrder.Count);
+			int groupCancellationCounter = 0;
 			foreach (var gid in groupOrder) {
+				if ((groupCancellationCounter++ & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
 				var members = groupsById[gid];
 				// A duplicate group needs at least two visible members. Per-item filters
 				// can strand a single row, which is not a meaningful duplicate group.
@@ -190,11 +198,14 @@ namespace VDF.GUI.ViewModels {
 				headers.Add(header);
 			}
 
+			cancellationToken.ThrowIfCancellationRequested();
 			SortGroups(headers, request.SortMode, request.SortDescending);
+			cancellationToken.ThrowIfCancellationRequested();
 
 			bool hasPartialClips = false;
 			var flat = new List<object>();
 			for (int i = 0; i < headers.Count; i++) {
+				if ((i & 255) == 0) cancellationToken.ThrowIfCancellationRequested();
 				var header = headers[i];
 				header.GroupNumber = i + 1;
 				header.Title = string.Format(request.Formats.GroupTitle, header.GroupNumber);
