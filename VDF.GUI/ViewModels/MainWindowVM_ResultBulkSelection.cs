@@ -48,14 +48,11 @@ namespace VDF.GUI.ViewModels {
 
 		void RefreshAfterContextBulkCheck() {
 			// Normal result rows bind Checked live. Only the checked-groups filter/sort changes
-			// list structure. Route that global work through the background filter path for large
-			// result sets instead of rebuilding 200k groups synchronously on the UI thread.
-			if (FilterGroupsWithCheckedItems) {
+			// list structure. Route both through the same cancellable background builder for large
+			// result sets instead of falling back to a synchronous 200k-group rebuild.
+			if (FilterGroupsWithCheckedItems || SettingsFile.Instance.ResultsSortMode == ResultsSortMode.GroupsWithCheckedItems) {
 				RequestFilterResultsRefresh();
 				RefreshResultsView();
-			}
-			else if (SettingsFile.Instance.ResultsSortMode == ResultsSortMode.GroupsWithCheckedItems) {
-				RebuildResultsList();
 			}
 		}
 
