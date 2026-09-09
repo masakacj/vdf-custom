@@ -151,9 +151,21 @@ namespace VDF.GUI.ViewModels {
 				items[i].IsVisibleInFilter = visibility[i];
 
 			_groupsWithPathHit = pathHitGroups;
-			List<Guid> oldGroupOrder = resultsGroups.ConvertAll(group => group.GroupId);
 			ApplyFolderStats(result.Groups);
-			ResultsRowReconciler.ReuseItemRows(ResultsRows, result, expandedResultsDetails);
+
+			// Probe structure BEFORE indexing every old ResultsItemRow. A large sort/filter switch
+			// will be bulk-reset by the reconciler anyway, so reusing hundreds of thousands of
+			// soon-to-be-discarded row objects only adds a large UI-thread dictionary allocation.
+			var freshDisplayRows = new List<object>(result.Rows);
+			bool bulkRebuild = ResultsRowReconciler.RequiresBulkRebuild(ResultsRows, freshDisplayRows);
+			if (!bulkRebuild)
+				ResultsRowReconciler.ReuseItemRows(ResultsRows, result, expandedResultsDetails);
+
+			var displayRows = bulkRebuild ? freshDisplayRows : new List<object>(result.Rows);
+			bool sameStructure = !bulkRebuild && ResultsRowReconciler.HasSameStructure(ResultsRows, displayRows);
+			List<Guid>? oldGroupOrder = sameStructure ? null : resultsGroups.ConvertAll(group => group.GroupId);
+			ResultsScrollAnchor.Capture? anchor = sameStructure ? null : ResultsAnchorProvider?.Invoke();
+
 			resultsGroups = result.Groups;
 			resultsHavePartialClips = result.HasPartialClips;
 			foreach (ResultsGroupHeader group in resultsGroups) {
@@ -162,12 +174,10 @@ namespace VDF.GUI.ViewModels {
 					group.Summary += " · " + warning;
 			}
 
-			var displayRows = new List<object>(result.Rows);
-			bool sameStructure = ResultsRowReconciler.HasSameStructure(ResultsRows, displayRows);
-			ResultsScrollAnchor.Capture? anchor = sameStructure ? null : ResultsAnchorProvider?.Invoke();
 			ResultsRowReconciler.Apply(ResultsRows, displayRows);
 			this.RaisePropertyChanged(nameof(ResultsShowClipOffsetColumn));
-			if (anchor is { } a && ResultsScrollAnchor.FindRestoreTarget(a.Row, oldGroupOrder, displayRows) is { } target)
+			if (anchor is { } a && oldGroupOrder != null &&
+				ResultsScrollAnchor.FindRestoreTarget(a.Row, oldGroupOrder, displayRows) is { } target)
 				ResultsScrollToRow?.Invoke(target, a.ViewportOffsetY);
 			AfterFullResultsRebuild();
 		}
