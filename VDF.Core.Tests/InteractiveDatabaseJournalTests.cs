@@ -46,4 +46,37 @@ public class InteractiveDatabaseJournalTests {
     public void TornOrInvalidRecord_IsIgnored(string line) {
         Assert.False(ScanEngine.TryParseInteractiveJournalLine(line, out _, out _, out _));
     }
+
+    [Fact]
+    public void LookupEntry_ForDeletedPath_DoesNotStatTheMissingFile() {
+        string path = Path.Combine(Path.GetTempPath(), "vdf-journal-missing", Guid.NewGuid().ToString("N"), "gone.mkv");
+        Assert.False(File.Exists(path));
+
+        FileEntry entry = ScanEngine.CreateInteractiveLookupEntry(path);
+
+        Assert.Equal(Path.GetFullPath(path), entry.Path);
+        Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public void CompactRewrite_ReplacesJournalCompletely_AndLeavesNoTempFile() {
+        string dir = Path.Combine(Path.GetTempPath(), "vdf-journal-compact", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        string journal = Path.Combine(dir, "ScannedFiles.interactive.log");
+        try {
+            File.WriteAllText(journal, "old-record\n", Encoding.UTF8);
+            string[] required = {
+                $"D\t{B64(Path.Combine(dir, "gone.mkv"))}",
+                $"M\t{B64(Path.Combine(dir, "old.mkv"))}\t{B64(Path.Combine(dir, "new.mkv"))}",
+            };
+
+            ScanEngine.RewriteInteractiveJournalSafely(journal, required);
+
+            Assert.Equal(required, File.ReadAllLines(journal, Encoding.UTF8));
+            Assert.False(File.Exists(journal + ".compact.tmp"));
+        }
+        finally {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
 }
