@@ -15,7 +15,8 @@ namespace VDF.Core {
 		/// <summary>
 		/// Validates the database side of a single-resource consolidation before the GUI
 		/// touches files. HashSet lookup is path-based, so this stays O(group size) even when
-		/// ScannedFiles.db contains millions of entries.
+		/// ScannedFiles.db contains millions of entries. Lookup keys are identity-only and never
+		/// stat the destination/duplicate files.
 		/// </summary>
 		public static bool ValidateConsolidationDatabaseChange(
 			string keeperOriginalPath,
@@ -29,12 +30,12 @@ namespace VDF.Core {
 				var known = new HashSet<string>(knownDuplicatePaths.Select(NormalizeConsolidationPath), comparer);
 				known.Add(keeperPath);
 
-				if (!DatabaseUtils.Database.TryGetValue(new FileEntry(keeperPath), out _)) {
+				if (!DatabaseUtils.Database.TryGetValue(CreateInteractiveLookupEntry(keeperPath), out _)) {
 					error = "BEST file is not present in the active VDF database.";
 					return false;
 				}
 
-				if (DatabaseUtils.Database.TryGetValue(new FileEntry(destination), out FileEntry? occupant) &&
+				if (DatabaseUtils.Database.TryGetValue(CreateInteractiveLookupEntry(destination), out FileEntry? occupant) &&
 					occupant != null && !known.Contains(NormalizeConsolidationPath(occupant.Path))) {
 					error = "The destination is occupied by a VDF database entry outside this duplicate group.";
 					return false;
@@ -80,12 +81,12 @@ namespace VDF.Core {
 			string oldKeeperPath = string.Empty;
 			lock (DatabaseUtils.Database) {
 				try {
-					if (!DatabaseUtils.Database.TryGetValue(new FileEntry(keeperPath), out keeper) || keeper == null) {
+					if (!DatabaseUtils.Database.TryGetValue(CreateInteractiveLookupEntry(keeperPath), out keeper) || keeper == null) {
 						error = "BEST file disappeared from the active VDF database before consolidation could be committed.";
 						return false;
 					}
 
-					if (DatabaseUtils.Database.TryGetValue(new FileEntry(destination), out FileEntry? occupant) &&
+					if (DatabaseUtils.Database.TryGetValue(CreateInteractiveLookupEntry(destination), out FileEntry? occupant) &&
 						occupant != null && !ReferenceEquals(occupant, keeper) &&
 						!removed.Contains(NormalizeConsolidationPath(occupant.Path))) {
 						error = "The final destination is occupied by a database entry that was not removed by this consolidation.";
@@ -94,7 +95,7 @@ namespace VDF.Core {
 
 					oldKeeperPath = keeper.Path;
 					foreach (string path in removed) {
-						if (DatabaseUtils.Database.TryGetValue(new FileEntry(path), out FileEntry? entry) &&
+						if (DatabaseUtils.Database.TryGetValue(CreateInteractiveLookupEntry(path), out FileEntry? entry) &&
 							entry != null && !ReferenceEquals(entry, keeper))
 							removedEntries.Add(entry);
 					}
