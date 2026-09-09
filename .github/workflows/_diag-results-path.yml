@@ -1,0 +1,44 @@
+name: Diagnose result path CI
+
+on:
+  push:
+    branches:
+      - feat/results-full-path-wrap
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/results-full-path-wrap
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - name: Capture failures
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          dotnet restore .\VideoDuplicateFinder.sln *> restore.log
+          dotnet test .\VDF.GUI.Tests\VDF.GUI.Tests.csproj -c Release --no-restore --verbosity normal *> gui.log
+          $guiExit = $LASTEXITCODE
+          dotnet publish .\VDF.GUI\VDF.GUI.csproj -c Release -v normal -p:PublishAot=true -r win-x64 -o .\artifacts\GUI-aot *> aot.log
+          $aotExit = $LASTEXITCODE
+          $lines = @()
+          $lines += "GUI_EXIT=$guiExit"
+          $lines += "AOT_EXIT=$aotExit"
+          $lines += "=== GUI LAST 250 ==="
+          $lines += Get-Content gui.log -Tail 250
+          $lines += "=== AOT LAST 350 ==="
+          $lines += Get-Content aot.log -Tail 350
+          [IO.File]::WriteAllLines('.github/_diag-results-path-output.txt', $lines, [Text.UTF8Encoding]::new($false))
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/_diag-results-path-output.txt
+          git commit -m 'diagnostic output [skip ci]'
+          git push origin HEAD:feat/results-full-path-wrap
