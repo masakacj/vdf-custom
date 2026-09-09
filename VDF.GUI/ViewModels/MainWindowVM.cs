@@ -500,10 +500,10 @@ namespace VDF.GUI.ViewModels {
 			Duplicates.CollectionChanged -= Duplicates_CollectionChanged;
 			int addedChecked = 0;
 			long addedCheckedSize = 0;
+			var batch = items as IReadOnlyCollection<DuplicateItemVM> ?? items.ToList();
 			try {
-				foreach (var item in items) {
+				foreach (var item in batch) {
 					item.PropertyChanged += DuplicateItemVM_PropertyChanged;
-					Duplicates.Add(item);
 					// Items can arrive already checked (restored backups); count them
 					// so the counters and the per-group index stay accurate.
 					if (item.Checked) {
@@ -513,6 +513,12 @@ namespace VDF.GUI.ViewModels {
 						checkedCountByGroup[item.ItemInfo.GroupId] = count + 1;
 					}
 				}
+
+				// AvaloniaList.AddRange emits one bulk collection change instead of one event
+				// per result. Incremental/stat/filter-version observers therefore see one
+				// restore event even when the backup contains hundreds of thousands of rows.
+				if (batch.Count > 0)
+					Duplicates.AddRange(batch);
 			}
 			finally {
 				Duplicates.CollectionChanged += Duplicates_CollectionChanged;
