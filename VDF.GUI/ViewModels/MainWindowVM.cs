@@ -632,7 +632,7 @@ namespace VDF.GUI.ViewModels {
 		/// </summary>
 		public async Task RestoreBackupScanResultsAsync() {
 			if (File.Exists(BackupScanResultsFile))
-				await ImportScanResultsIncludingThumbnails(BackupScanResultsFile);
+				await ImportScanResultsIncludingThumbnails(BackupScanResultsFile, reconcileWithLoadedDatabase: true);
 		}
 
 		/// <summary>
@@ -1114,7 +1114,7 @@ namespace VDF.GUI.ViewModels {
 			await ImportScanResultsIncludingThumbnails(result);
 		});
 
-		async Task ImportScanResultsIncludingThumbnails(string? path = null) {
+		async Task ImportScanResultsIncludingThumbnails(string? path = null, bool reconcileWithLoadedDatabase = false) {
 			if (Duplicates.Count > 0) {
 				MessageBoxButtons? result = await MessageBoxService.Show(App.Lang["Message.ImportScanResultsClearConfirm"], MessageBoxButtons.Yes | MessageBoxButtons.No);
 				if (result != MessageBoxButtons.Yes) return;
@@ -1147,6 +1147,18 @@ namespace VDF.GUI.ViewModels {
 					Logger.Instance.Warn($"Skipped {skipped} corrupt scan result entries (missing ItemInfo)");
 				if (items.Count == 0)
 					throw new JsonException("All scan result entries were corrupt");
+
+				if (reconcileWithLoadedDatabase) {
+					// The DB has already loaded and the interactive mutation journal has already
+					// replayed. Treat that durable state as truth: a coalesced automatic backup can
+					// legitimately lag a delete/rename by a fraction of a second if the process dies.
+					int reconciled = await Task.Run(() => ReconcileStartupBackupItems(
+						items,
+						ScanEngine.GetLoadedDatabasePathsSnapshot(),
+						ScanEngine.GetPendingInteractiveDatabaseMovesSnapshot()));
+					if (reconciled > 0)
+						Logger.Instance.Info($"Removed {reconciled:N0} stale startup-backup result item(s) after database/journal reconciliation.");
+				}
 
 				// Apply not-a-match blacklist; saved results may pre-date marks made just before a crash.
 				var importBlacklistedGids = ComputeBlacklistedGroupIds(
