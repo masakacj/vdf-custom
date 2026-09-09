@@ -22,6 +22,7 @@ using Avalonia.Markup.Xaml;
 using Avalonia.Platform;
 using Avalonia.Threading;
 using VDF.GUI.Data;
+using VDF.GUI.Utils;
 using VDF.GUI.ViewModels;
 using VDF.GUI.Views;
 
@@ -97,8 +98,40 @@ namespace VDF.GUI {
 				TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 				TraceStartup("Crash handlers installed");
 
+				// Subscribe BEFORE constructing MainWindow. Its constructor subscribes the
+				// database-restoration Startup handler, so registration order guarantees the
+				// native shell is shown first on a cold launch. The previous pre-lifetime
+				// window.Show() ran before Avalonia's desktop lifetime entered Startup and was
+				// not reliably painted on Windows until a second process was launched.
+				MainWindow? startupWindow = null;
+				desktop.Startup += (_, _) => {
+					var windowToShow = startupWindow;
+					if (windowToShow == null) return;
+					try {
+						windowToShow.Show();
+						TraceStartup("MainWindow shown at lifetime Startup before database load");
+						// The dispatcher starts pumping after Startup returns. Post one activation
+						// so the first native frame is brought forward once that loop is live.
+						Dispatcher.UIThread.Post(() => {
+							try {
+								if (windowToShow.WindowState == Avalonia.Controls.WindowState.Minimized)
+									windowToShow.WindowState = Avalonia.Controls.WindowState.Normal;
+								windowToShow.Activate();
+								TraceStartup("MainWindow activation posted after Startup");
+							}
+							catch (Exception ex) {
+								TraceStartup($"Post-Startup MainWindow activation failed: {ex.GetType().Name}: {ex.Message}");
+							}
+						});
+					}
+					catch (Exception ex) {
+						TraceStartup($"Lifetime Startup MainWindow show failed: {ex.GetType().Name}: {ex.Message}");
+					}
+				};
+
 				TraceStartup("Constructing MainWindow");
 				var window = new MainWindow();
+				startupWindow = window;
 				TraceStartup("MainWindow constructed");
 				var viewModel = new MainWindowVM();
 				TraceStartup("MainWindowVM constructed");
@@ -131,22 +164,21 @@ namespace VDF.GUI {
 
 				window.DataContext = viewModel;
 				desktop.MainWindow = window;
+				SingleInstanceCoordinator.NotifyMainWindowReady(window);
 				TraceStartup("MainWindow assigned to desktop lifetime");
 				window.Opened += (_, _) => TraceStartup("MainWindow Opened");
 
-				// ClassicDesktopLifetime raises Startup before its normal automatic MainWindow
-				// show. A multi-GB ScannedFiles.db load therefore used to leave a perfectly alive
-				// process with no visible window for many minutes. Show the shell synchronously
-				// before base.OnFrameworkInitializationCompleted() can enter that Startup path.
+				// Prepare the loading shell before desktop.Startup is raised. The first Startup
+				// handler above performs the actual Show(), then MainWindow's later Startup
+				// handler begins the background database load.
 				try {
 					viewModel.IsBusy = true;
 					viewModel.IsBusyOverlayText = GetDatabaseLoadingText(TimeSpan.Zero);
-					window.Show();
 					StartDatabaseLoadingStatus(viewModel);
-					TraceStartup("MainWindow shown synchronously before Startup database load");
+					TraceStartup("MainWindow prepared for lifetime Startup visibility");
 				}
 				catch (Exception ex) {
-					TraceStartup($"Synchronous MainWindow show failed: {ex.GetType().Name}: {ex.Message}");
+					TraceStartup($"Preparing startup loading shell failed: {ex.GetType().Name}: {ex.Message}");
 				}
 
 				desktop.ShutdownRequested += OnShutdownRequested;
