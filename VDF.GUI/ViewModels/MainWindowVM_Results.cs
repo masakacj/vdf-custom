@@ -328,13 +328,9 @@ namespace VDF.GUI.ViewModels {
 					item.Checked = !ReferenceEquals(item, recommendation.Winner);
 			}
 			// Checked is a live property on DuplicateItemVM; counters/action bar update from
-			// PropertyChanged. Rebuilding every result group here made a two-file click scan
-			// the entire result set and folder relations, causing the visible pause reported
-			// on large databases. Only the special checked-group sort needs a structural refresh.
-			if (SettingsFile.Instance.ResultsSortMode == ResultsSortMode.GroupsWithCheckedItems) {
-				RequestFilterResultsRefresh();
-				RefreshResultsView();
-			}
+			// PropertyChanged. If the active filter/sort depends on checked groups, the central
+			// checkbox handler coalesces the whole gesture into one background structural refresh.
+			ScheduleCheckedStructureRefresh();
 		});
 
 		public ReactiveCommand<ResultsGroupHeader, Unit> MarkGroupHeaderNotAMatchCommand => ReactiveCommand.CreateFromTask<ResultsGroupHeader>(async header => {

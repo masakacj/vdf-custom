@@ -57,10 +57,14 @@ namespace VDF.GUI.ViewModels {
 			if (result == null || result.Count == 0) return;
 			QualityCriteriaOrder = result;
 			SettingsFile.SaveSettings();
-			RebuildResultsList();
+			RequestFilterResultsRefresh();
+			RefreshResultsView();
 		});
 
-		public ReactiveCommand<Unit, Unit> ReapplyBestCriteriaCommand => ReactiveCommand.Create(() => RebuildResultsList());
+		public ReactiveCommand<Unit, Unit> ReapplyBestCriteriaCommand => ReactiveCommand.Create(() => {
+			RequestFilterResultsRefresh();
+			RefreshResultsView();
+		});
 
 		public ReactiveCommand<Unit, Unit> CheckCustomCommand => ReactiveCommand.CreateFromTask(async () => {
 			ExpressionBuilder dlg = new();
@@ -228,7 +232,7 @@ namespace VDF.GUI.ViewModels {
 			if (item == null) return;
 			Duplicates.Remove(item);
 			RefreshResultsView();
-			RefreshGroupStats();
+			RefreshGroupStatsFast();
 		});
 
 		public ReactiveCommand<Unit, Unit> ClearCheckedItemsCommand => ReactiveCommand.Create(() => {
@@ -248,7 +252,7 @@ namespace VDF.GUI.ViewModels {
 			if (selected.Count == 0) return;
 			foreach (var item in selected)
 				Duplicates.Remove(item);
-			RefreshGroupStats();
+			RefreshGroupStatsFast();
 			RefreshResultsView();
 		});
 

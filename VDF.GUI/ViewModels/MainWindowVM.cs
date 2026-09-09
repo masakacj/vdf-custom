@@ -537,6 +537,7 @@ namespace VDF.GUI.ViewModels {
 				DuplicatesCheckedSizeInternal -= CheckedSizeOf((DuplicateItemVM)sender);
 				AdjustCheckedGroupIndex((DuplicateItemVM)sender, -1);
 			}
+			ScheduleCheckedStructureRefresh();
 		}
 
 		public async void Thumbnails_ValueChanged(object? sender, NumericUpDownValueChangedEventArgs e) {
