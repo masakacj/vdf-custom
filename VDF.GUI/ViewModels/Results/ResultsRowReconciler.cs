@@ -38,6 +38,7 @@ namespace VDF.GUI.ViewModels {
 						fresh.Group = header;
 						stableRows.Add(fresh);
 					}
+				}
 				header.RebindRows(stableRows);
 			}
 
