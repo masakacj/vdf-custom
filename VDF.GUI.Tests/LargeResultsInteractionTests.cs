@@ -143,7 +143,9 @@ public class LargeResultsInteractionTests {
         Guid group = Guid.NewGuid();
         var item = Video(@"D:\Shows\Season 01\Episode.07.1080p.mkv", group);
 
-        HashSet<Guid> hits = MainWindowVM.BuildPathHitGroups(new[] { item }, @"Season ?\Episode.*1080p");
+        // '?' matches exactly one character. Season "01" therefore needs two wildcards;
+        // this keeps the production filter's established FileSystemName semantics intact.
+        HashSet<Guid> hits = MainWindowVM.BuildPathHitGroups(new[] { item }, @"Season ??\Episode.*1080p");
 
         Assert.Contains(group, hits);
     }
