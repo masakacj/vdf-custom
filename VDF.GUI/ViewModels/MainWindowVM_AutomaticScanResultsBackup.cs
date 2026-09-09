@@ -11,19 +11,15 @@ using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
 	public partial class MainWindowVM {
-		sealed record AutomaticBackupWaiter(long Version, TaskCompletionSource<bool> Completion);
-
 		readonly object automaticScanResultsBackupLock = new();
-		readonly List<AutomaticBackupWaiter> automaticScanResultsBackupWaiters = new();
-		long automaticScanResultsBackupRequestedVersion;
-		long automaticScanResultsBackupCompletedVersion;
+		bool automaticScanResultsBackupRequested;
 		bool automaticScanResultsBackupWorkerRunning;
 
 		/// <summary>
-		/// Existing one-string calls all target backup.scanresults. Make that path a coalesced,
-		/// non-blocking-background export while still returning a Task for callers that explicitly
-		/// await durability (notably SaveScanResults during shutdown). The expensive ZIP/pack write
-		/// never owns the busy overlay, so ordinary delete/mark interactions remain usable.
+		/// One-string calls are the automatic backup.scanresults path. Queue/coalesce the work
+		/// and return immediately so a 1+ GB recovery bundle never extends a delete/mark action.
+		/// Explicit exit/update saves call the overload with includeThumbnails:true directly and
+		/// therefore retain the original synchronous saving overlay + error reporting contract.
 		/// </summary>
 		Task ExportScanResults(string path) {
 			StringComparison comparison = CoreUtils.IsWindows
@@ -32,20 +28,18 @@ namespace VDF.GUI.ViewModels {
 			if (!string.Equals(path, BackupScanResultsFile, comparison))
 				return ExportScanResults(path, includeThumbnails: true, thumbMaxEdge: 160, envelopeTypeInfo: null);
 
-			return RequestAutomaticScanResultsBackupAsync();
+			QueueAutomaticScanResultsBackup();
+			return Task.CompletedTask;
 		}
 
-		Task RequestAutomaticScanResultsBackupAsync() {
-			TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+		void QueueAutomaticScanResultsBackup() {
 			lock (automaticScanResultsBackupLock) {
-				long version = ++automaticScanResultsBackupRequestedVersion;
-				automaticScanResultsBackupWaiters.Add(new AutomaticBackupWaiter(version, completion));
-				if (!automaticScanResultsBackupWorkerRunning) {
-					automaticScanResultsBackupWorkerRunning = true;
-					_ = RunAutomaticScanResultsBackupWorkerAsync();
-				}
+				automaticScanResultsBackupRequested = true;
+				if (automaticScanResultsBackupWorkerRunning)
+					return;
+				automaticScanResultsBackupWorkerRunning = true;
 			}
-			return completion.Task;
+			_ = RunAutomaticScanResultsBackupWorkerAsync();
 		}
 
 		async Task RunAutomaticScanResultsBackupWorkerAsync() {
@@ -55,52 +49,34 @@ namespace VDF.GUI.ViewModels {
 					// arriving during the write collapse into exactly one follow-up snapshot.
 					await Task.Delay(750).ConfigureAwait(false);
 
-					long targetVersion;
-					lock (automaticScanResultsBackupLock)
-						targetVersion = automaticScanResultsBackupRequestedVersion;
+					lock (automaticScanResultsBackupLock) {
+						if (!automaticScanResultsBackupRequested) {
+							automaticScanResultsBackupWorkerRunning = false;
+							return;
+						}
+						automaticScanResultsBackupRequested = false;
+					}
 
 					try {
 						await WriteAutomaticScanResultsBackupAsync().ConfigureAwait(false);
 					}
 					catch (Exception ex) {
-						// Preserve the old export contract: a secondary backup failure is reported,
-						// but does not tear down the app. The primary database/journal has its own
-						// durability path and remains authoritative.
+						// This is the secondary crash-recovery bundle. Primary DB changes are already
+						// durable through ScannedFiles.db or the write-through interactive journal.
 						Logger.Instance.Warn($"Automatic scan-results backup failed; the primary database/journal remains intact: {ex.Message}");
 					}
 
-					List<TaskCompletionSource<bool>> completed = new();
-					bool done;
 					lock (automaticScanResultsBackupLock) {
-						automaticScanResultsBackupCompletedVersion = Math.Max(
-							automaticScanResultsBackupCompletedVersion, targetVersion);
-						for (int i = automaticScanResultsBackupWaiters.Count - 1; i >= 0; i--) {
-							if (automaticScanResultsBackupWaiters[i].Version > automaticScanResultsBackupCompletedVersion)
-								continue;
-							completed.Add(automaticScanResultsBackupWaiters[i].Completion);
-							automaticScanResultsBackupWaiters.RemoveAt(i);
-						}
-						done = automaticScanResultsBackupRequestedVersion <= automaticScanResultsBackupCompletedVersion;
-						if (done)
+						if (!automaticScanResultsBackupRequested) {
 							automaticScanResultsBackupWorkerRunning = false;
+							return;
+						}
 					}
-					foreach (TaskCompletionSource<bool> waiter in completed)
-						waiter.TrySetResult(true);
-
-					if (done)
-						return;
-				}
 			}
 			catch (Exception ex) {
-				List<TaskCompletionSource<bool>> waiters;
-				lock (automaticScanResultsBackupLock) {
+				lock (automaticScanResultsBackupLock)
 					automaticScanResultsBackupWorkerRunning = false;
-					waiters = automaticScanResultsBackupWaiters.Select(w => w.Completion).ToList();
-					automaticScanResultsBackupWaiters.Clear();
-				}
 				Logger.Instance.Warn($"Automatic scan-results backup worker stopped unexpectedly: {ex.Message}");
-				foreach (TaskCompletionSource<bool> waiter in waiters)
-					waiter.TrySetResult(false);
 			}
 		}
 
