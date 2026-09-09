@@ -1,0 +1,21 @@
+name: Patch result path span
+
+on:
+  push:
+    branches:
+      - feat/results-full-path-wrap
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: feat/results-full-path-wrap
+          fetch-depth: 0
+      - name: Apply protected patch
+        shell: pwsh
+        run: ./.github/_patch-results-path-span.ps1
