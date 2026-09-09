@@ -2256,9 +2256,11 @@ Non-Windows setup:
 
 			if (singletonGroups.Count == 0) return;
 
-			for (int i = Duplicates.Count - 1; i >= 0; i--)
-				if (singletonGroups.Contains(Duplicates[i].ItemInfo.GroupId))
-					Duplicates.RemoveAt(i);
+			var singletonItems = Duplicates
+				.Where(item => singletonGroups.Contains(item.ItemInfo.GroupId))
+				.ToList();
+			if (singletonItems.Count > 0)
+				Duplicates.RemoveAll(singletonItems);
 		}
 
 		/// <summary>
@@ -2291,20 +2293,21 @@ Non-Windows setup:
 				}
 			}
 
-			foreach (var item in toRemove)
-				for (int i = Duplicates.Count - 1; i >= 0; i--)
-					if (ReferenceEquals(Duplicates[i], item)) { Duplicates.RemoveAt(i); break; }
+			if (toRemove.Count > 0)
+				Duplicates.RemoveAll(toRemove);
 		}
 
 		public ReactiveCommand<Unit, Unit> ExpandAllGroupsCommand => ReactiveCommand.Create(() => {
 			collapsedResultsGroups.Clear();
-			RebuildResultsList();
+			RequestFilterResultsRefresh();
+			RefreshResultsView();
 		});
 
 		public ReactiveCommand<Unit, Unit> CollapseAllGroupsCommand => ReactiveCommand.Create(() => {
 			foreach (var group in resultsGroups)
 				collapsedResultsGroups.Add(group.GroupId);
-			RebuildResultsList();
+			RequestFilterResultsRefresh();
+			RefreshResultsView();
 		});
 
 		public ReactiveCommand<Unit, Unit> NavigateNextGroupCommand => ReactiveCommand.Create(() => {
