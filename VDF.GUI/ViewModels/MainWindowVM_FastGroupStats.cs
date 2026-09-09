@@ -110,6 +110,13 @@ namespace VDF.GUI.ViewModels {
 			PublishFastGroupStats();
 		}
 
+		internal int GetFastGroupItemCount(Guid groupId) {
+			EnsureFastGroupStatsTracking();
+			return fastGroupStats.TryGetValue(groupId, out FastGroupStat? state)
+				? state.Sizes.Count
+				: 0;
+		}
+
 		/// <summary>
 		/// Returns only candidate groups that currently contain at most one result item.
 		/// Used after an interactive delete so the GUI doesn't regroup every result solely
