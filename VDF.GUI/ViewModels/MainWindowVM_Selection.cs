@@ -250,8 +250,7 @@ namespace VDF.GUI.ViewModels {
 		public ReactiveCommand<Unit, Unit> DeleteHighlightedCommand => ReactiveCommand.Create(() => {
 			var selected = GetSelectedDuplicates();
 			if (selected.Count == 0) return;
-			foreach (var item in selected)
-				Duplicates.Remove(item);
+			Duplicates.RemoveAll(selected);
 			RefreshGroupStatsFast();
 			RefreshResultsView();
 		});

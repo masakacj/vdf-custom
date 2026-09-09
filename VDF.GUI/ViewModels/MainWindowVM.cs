@@ -2221,11 +2221,10 @@ Non-Windows setup:
 				return;
 
 			try {
-				// Remove deleted items from flat list (single pass; searching the list
-				// per deleted item was O(deleted x list) and stalled on big batches)
-				for (int i = Duplicates.Count - 1; i >= 0; i--)
-					if (actuallyDeleted.Contains(Duplicates[i]))
-						Duplicates.RemoveAt(i);
+				// AvaloniaList.RemoveAll emits one bulk removal instead of one collection
+				// event per deleted result. The collection observers already understand OldItems,
+				// so counters, dirty-group tracking and fast stats are updated in one batch.
+				Duplicates.RemoveAll(actuallyDeleted);
 
 				// Deletion can only change the groups that contained a selected item.
 				// Keep hard-link probes and singleton detection scoped to those groups.
