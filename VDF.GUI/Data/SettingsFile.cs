@@ -695,6 +695,13 @@ namespace VDF.GUI.Data {
 			get => _ResultsCompactRows;
 			set => this.RaiseAndSetIfChanged(ref _ResultsCompactRows, value);
 		}
+		bool _ResultsWrapFullPath = true;
+		/// <summary>Show the complete result-file path on multiple lines in comfortable rows.</summary>
+		[JsonPropertyName("ResultsWrapFullPath")]
+		public bool ResultsWrapFullPath {
+			get => _ResultsWrapFullPath;
+			set => this.RaiseAndSetIfChanged(ref _ResultsWrapFullPath, value);
+		}
 		ThumbnailDoubleClickAction _ThumbnailDoubleClickAction = ThumbnailDoubleClickAction.OpenFile;
 		[JsonPropertyName("ThumbnailDoubleClickAction")]
 		public ThumbnailDoubleClickAction ThumbnailDoubleClickAction {

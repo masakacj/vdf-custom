@@ -136,12 +136,18 @@ namespace VDF.GUI.Mvvm {
 		public object? Convert(IList<object?> values, Type targetType, object? parameter, CultureInfo culture) {
 			double width = values.Count > 0 && values[0] is double d ? d : 160;
 			bool compact = values.Count > 1 && values[1] is true;
+			bool rowMode = string.Equals(parameter as string, "row", StringComparison.OrdinalIgnoreCase);
+			// The result-row binding appends ResultsWrapFullPath as its eighth value.
+			// Keep it out of the generic bool scan below (where bool means preview visibility).
+			bool hasPathWrapValue = rowMode && values.Count >= 8 && values[^1] is bool;
+			bool wrapFullPath = hasPathWrapValue && values[^1] is true;
+			int valueCount = hasPathWrapValue ? values.Count - 1 : values.Count;
 			bool previewVisible = true;
 			double thumbWidth = 0, thumbHeight = 0;
 			int frameCount = 0, gridColumns = 0;
 			bool haveFrameCount = false;
 			Utils.ThumbnailSizePrediction? prediction = null;
-			for (int i = 2; i < values.Count; i++) {
+			for (int i = 2; i < valueCount; i++) {
 				switch (values[i]) {
 					case bool visible:
 						previewVisible = visible;
@@ -168,7 +174,11 @@ namespace VDF.GUI.Mvvm {
 				frameCount = prediction.FrameCount;
 				gridColumns = prediction.GridColumns;
 			}
-			return string.Equals(parameter as string, "row", StringComparison.OrdinalIgnoreCase)
+			// Wrapped full paths need a content-driven row height. Only comfortable rows
+			// opt into variable height; compact rows keep the fixed fast-path geometry.
+			if (rowMode && wrapFullPath && !compact)
+				return double.NaN;
+			return rowMode
 				? Utils.ResultsRowSizing.RowHeight(width, compact, previewVisible, thumbWidth, thumbHeight, frameCount, gridColumns)
 				: Utils.ResultsRowSizing.ImageHeight(width, compact, thumbWidth, thumbHeight, frameCount, gridColumns);
 		}
