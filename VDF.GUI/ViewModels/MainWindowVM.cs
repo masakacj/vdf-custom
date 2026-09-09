@@ -608,7 +608,11 @@ namespace VDF.GUI.ViewModels {
 			if (result != MessageBoxButtons.Yes) {
 				return true;
 			}
-			await ExportScanResults(BackupScanResultsFile);
+			// Explicit exit/update save keeps the original synchronous path: show the
+			// saving overlay, report errors to the user, and do not exit before the file
+			// replacement completes. Automatic list-change backups use the one-string
+			// overload and remain coalesced/background.
+			await ExportScanResults(BackupScanResultsFile, includeThumbnails: true);
 			return true;
 		}
 
