@@ -52,6 +52,12 @@ namespace VDF.GUI {
 					}
 				}
 
+				// A second Windows launch must not start another 3+ GB database load or race
+				// state writes. It signals the already-running GUI to show/activate and exits.
+				using var singleInstance = SingleInstanceCoordinator.TryAcquirePrimary();
+				if (singleInstance == null)
+					return;
+
 				try {
 					BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
 				}
