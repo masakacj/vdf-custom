@@ -6,7 +6,6 @@
 using System.Reactive;
 using ReactiveUI;
 using VDF.Core.Utils;
-using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
 	public partial class MainWindowVM {
@@ -29,7 +28,7 @@ namespace VDF.GUI.ViewModels {
 					foreach (DuplicateItemVM item in matches)
 						item.Checked = true;
 				}
-				RefreshAfterContextBulkCheck();
+				ScheduleCheckedStructureRefresh();
 			});
 
 		public ReactiveCommand<DuplicateItemVM, Unit> CheckOtherFolderGroupHitsCommand =>
@@ -43,18 +42,8 @@ namespace VDF.GUI.ViewModels {
 					foreach (DuplicateItemVM item in matches)
 						item.Checked = true;
 				}
-				RefreshAfterContextBulkCheck();
+				ScheduleCheckedStructureRefresh();
 			});
-
-		void RefreshAfterContextBulkCheck() {
-			// Normal result rows bind Checked live. Only the checked-groups filter/sort changes
-			// list structure. Route both through the same cancellable background builder for large
-			// result sets instead of falling back to a synchronous 200k-group rebuild.
-			if (FilterGroupsWithCheckedItems || SettingsFile.Instance.ResultsSortMode == ResultsSortMode.GroupsWithCheckedItems) {
-				RequestFilterResultsRefresh();
-				RefreshResultsView();
-			}
-		}
 
 		internal static IReadOnlyList<DuplicateItemVM> ComputeFolderResultHits(
 			IEnumerable<DuplicateItemVM> visibleItems, DuplicateItemVM anchor) {
