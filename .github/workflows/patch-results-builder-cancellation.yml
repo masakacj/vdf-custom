@@ -1,0 +1,73 @@
+name: Add results-builder cancellation
+
+on:
+  push:
+    branches:
+      - perf/large-results-interactions-filter-db
+    paths:
+      - .github/workflows/patch-results-builder-cancellation.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: perf/large-results-interactions-filter-db
+          fetch-depth: 0
+      - name: Guarded patch
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('VDF.GUI/ViewModels/Results/ResultsListBuilder.cs')
+          s = p.read_text(encoding='utf-8')
+          reps = [
+            ('request token',
+             '''\t\tpublic required IReadOnlyList<DuplicateItemVM> Items { get; init; }\n\t\t/// <summary>Per-item visibility (the results filter). Null shows everything.</summary>\n''',
+             '''\t\tpublic required IReadOnlyList<DuplicateItemVM> Items { get; init; }\n\t\t/// <summary>Optional cancellation for large background result builds.</summary>\n\t\tpublic CancellationToken CancellationToken { get; init; }\n\t\t/// <summary>Per-item visibility (the results filter). Null shows everything.</summary>\n'''),
+            ('build token init',
+             '''\t\tpublic static ResultsBuildResult Build(ResultsBuildRequest request) {\n\t\t\tFunc<DuplicateItemVM, bool> filter = request.Filter ?? (_ => true);\n''',
+             '''\t\tpublic static ResultsBuildResult Build(ResultsBuildRequest request) {\n\t\t\tCancellationToken cancellationToken = request.CancellationToken;\n\t\t\tcancellationToken.ThrowIfCancellationRequested();\n\t\t\tFunc<DuplicateItemVM, bool> filter = request.Filter ?? (_ => true);\n'''),
+            ('item loop cancellation',
+             '''\t\t\tvar groupsById = new Dictionary<Guid, List<DuplicateItemVM>>();\n\t\t\tvar groupOrder = new List<Guid>();\n\t\t\tforeach (var item in request.Items) {\n\t\t\t\tif (!filter(item)) continue;\n''',
+             '''\t\t\tvar groupsById = new Dictionary<Guid, List<DuplicateItemVM>>();\n\t\t\tvar groupOrder = new List<Guid>();\n\t\t\tint itemCancellationCounter = 0;\n\t\t\tforeach (var item in request.Items) {\n\t\t\t\tif ((itemCancellationCounter++ & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();\n\t\t\t\tif (!filter(item)) continue;\n'''),
+            ('group loop cancellation',
+             '''\t\t\tvar headers = new List<ResultsGroupHeader>(groupOrder.Count);\n\t\t\tforeach (var gid in groupOrder) {\n\t\t\t\tvar members = groupsById[gid];\n''',
+             '''\t\t\tvar headers = new List<ResultsGroupHeader>(groupOrder.Count);\n\t\t\tint groupCancellationCounter = 0;\n\t\t\tforeach (var gid in groupOrder) {\n\t\t\t\tif ((groupCancellationCounter++ & 255) == 0) cancellationToken.ThrowIfCancellationRequested();\n\t\t\t\tvar members = groupsById[gid];\n'''),
+            ('before group sort cancellation',
+             '''\t\t\tSortGroups(headers, request.SortMode, request.SortDescending);\n\n\t\t\tbool hasPartialClips = false;\n''',
+             '''\t\t\tcancellationToken.ThrowIfCancellationRequested();\n\t\t\tSortGroups(headers, request.SortMode, request.SortDescending);\n\t\t\tcancellationToken.ThrowIfCancellationRequested();\n\n\t\t\tbool hasPartialClips = false;\n'''),
+            ('flat loop cancellation',
+             '''\t\t\tvar flat = new List<object>();\n\t\t\tfor (int i = 0; i < headers.Count; i++) {\n\t\t\t\tvar header = headers[i];\n''',
+             '''\t\t\tvar flat = new List<object>();\n\t\t\tfor (int i = 0; i < headers.Count; i++) {\n\t\t\t\tif ((i & 255) == 0) cancellationToken.ThrowIfCancellationRequested();\n\t\t\t\tvar header = headers[i];\n''')
+          ]
+          for label, old, new in reps:
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {n}')
+              s = s.replace(old, new, 1)
+              print('patched', label)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('VDF.GUI/ViewModels/MainWindowVM_FilterAsync.cs')
+          s = p.read_text(encoding='utf-8')
+          old = '''\t\t\t\t\tResultsBuildResult result = ResultsListBuilder.Build(new ResultsBuildRequest {\n\t\t\t\t\t\tItems = visibleItems,\n\t\t\t\t\t\tFilter = _ => true,\n'''
+          new = '''\t\t\t\t\tResultsBuildResult result = ResultsListBuilder.Build(new ResultsBuildRequest {\n\t\t\t\t\t\tItems = visibleItems,\n\t\t\t\t\t\tCancellationToken = token,\n\t\t\t\t\t\tFilter = _ => true,\n'''
+          n = s.count(old)
+          if n != 1:
+              raise SystemExit(f'FilterAsync token: expected 1 match, found {n}')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "vdf-performance-bot"
+          git config user.email "vdf-performance-bot@users.noreply.github.com"
+          git add VDF.GUI/ViewModels/Results/ResultsListBuilder.cs VDF.GUI/ViewModels/MainWindowVM_FilterAsync.cs
+          git diff --cached --check
+          git commit -m "Cancel stale large result builds promptly"
+          git push origin HEAD:perf/large-results-interactions-filter-db
