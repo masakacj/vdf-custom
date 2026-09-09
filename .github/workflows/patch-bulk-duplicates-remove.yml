@@ -1,0 +1,56 @@
+name: Patch bulk duplicate removal
+
+on:
+  push:
+    branches:
+      - perf/large-results-interactions-filter-db
+    paths:
+      - .github/workflows/patch-bulk-duplicates-remove.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: perf/large-results-interactions-filter-db
+          fetch-depth: 0
+      - name: Apply guarded bulk-removal replacements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def patch(path_s, old, new, label):
+              p = Path(path_s)
+              s = p.read_text(encoding='utf-8')
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {n}')
+              p.write_text(s.replace(old, new, 1), encoding='utf-8')
+              print('patched', label)
+
+          patch(
+              'VDF.GUI/ViewModels/MainWindowVM.cs',
+              '''\t\t\t\t// Remove deleted items from flat list (single pass; searching the list\n\t\t\t\t// per deleted item was O(deleted x list) and stalled on big batches)\n\t\t\t\tfor (int i = Duplicates.Count - 1; i >= 0; i--)\n\t\t\t\t\tif (actuallyDeleted.Contains(Duplicates[i]))\n\t\t\t\t\t\tDuplicates.RemoveAt(i);\n''',
+              '''\t\t\t\t// AvaloniaList.RemoveAll emits one bulk removal instead of one collection\n\t\t\t\t// event per deleted result. The collection observers already understand OldItems,\n\t\t\t\t// so counters, dirty-group tracking and fast stats are updated in one batch.\n\t\t\t\tDuplicates.RemoveAll(actuallyDeleted);\n''',
+              'interactive delete bulk remove')
+
+          patch(
+              'VDF.GUI/ViewModels/MainWindowVM_Selection.cs',
+              '''\t\t\tforeach (var item in selected)\n\t\t\t\tDuplicates.Remove(item);\n\t\t\tRefreshGroupStatsFast();\n''',
+              '''\t\t\tDuplicates.RemoveAll(selected);\n\t\t\tRefreshGroupStatsFast();\n''',
+              'highlighted items bulk remove')
+          PY
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "vdf-performance-bot"
+          git config user.email "vdf-performance-bot@users.noreply.github.com"
+          git add VDF.GUI/ViewModels/MainWindowVM.cs VDF.GUI/ViewModels/MainWindowVM_Selection.cs
+          git diff --cached --check
+          git commit -m "Bulk-remove deleted duplicate results"
+          git push origin HEAD:perf/large-results-interactions-filter-db
