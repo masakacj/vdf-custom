@@ -1514,14 +1514,18 @@ namespace VDF.GUI.ViewModels {
 			}
 			try {
 				string oldPath = currentItem.ItemInfo.Path;
-				ScanEngine.GetFromDatabase(oldPath, out var dbEntry);
+				bool hasDatabaseEntry = ScanEngine.GetFromDatabase(oldPath, out var dbEntry);
 				fi.MoveTo(newName, true);
-				ScanEngine.UpdateFilePathInDatabase(newName, dbEntry!);
-				currentItem.ItemInfo.Path = newName;
-				if (!ScanEngine.PersistInteractiveDatabaseMove(oldPath, newName, out string journalError)) {
-					Logger.Instance.Warn($"Interactive rename journal failed; falling back to a full database checkpoint: {journalError}");
-					ScanEngine.SaveDatabase();
+				if (hasDatabaseEntry && dbEntry != null) {
+					ScanEngine.UpdateFilePathInDatabase(newName, dbEntry);
+					if (!ScanEngine.PersistInteractiveDatabaseMove(oldPath, newName, out string journalError)) {
+						Logger.Instance.Warn($"Interactive rename journal failed; falling back to a full database checkpoint: {journalError}");
+						ScanEngine.SaveDatabase();
+					}
 				}
+				currentItem.ItemInfo.Path = newName;
+				MarkResultItemMutation(currentItem.ItemInfo.GroupId);
+				RefreshResultsView();
 			}
 			catch (Exception e) {
 				await MessageBoxService.Show(e.Message);
