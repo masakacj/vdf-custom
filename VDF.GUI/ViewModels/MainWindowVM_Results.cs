@@ -107,7 +107,8 @@ namespace VDF.GUI.ViewModels {
 				if (value == null || value.Mode == SettingsFile.Instance.ResultsSortMode) return;
 				SettingsFile.Instance.ResultsSortMode = value.Mode;
 				this.RaisePropertyChanged(nameof(SelectedResultsSort));
-				RebuildResultsList();
+				RequestFilterResultsRefresh();
+				RefreshResultsView();
 			}
 		}
 
@@ -117,7 +118,8 @@ namespace VDF.GUI.ViewModels {
 				if (value == SettingsFile.Instance.ResultsSortDescending) return;
 				SettingsFile.Instance.ResultsSortDescending = value;
 				this.RaisePropertyChanged(nameof(ResultsSortDescending));
-				RebuildResultsList();
+				RequestFilterResultsRefresh();
+				RefreshResultsView();
 			}
 		}
 
@@ -127,7 +129,8 @@ namespace VDF.GUI.ViewModels {
 				if (value == SettingsFile.Instance.ResultsBestFirst) return;
 				SettingsFile.Instance.ResultsBestFirst = value;
 				this.RaisePropertyChanged(nameof(ResultsBestFirst));
-				RebuildResultsList();
+				RequestFilterResultsRefresh();
+				RefreshResultsView();
 			}
 		}
 
@@ -281,14 +284,16 @@ namespace VDF.GUI.ViewModels {
 			if (header == null) return;
 			if (!collapsedResultsGroups.Remove(header.GroupId))
 				collapsedResultsGroups.Add(header.GroupId);
-			RebuildResultsList();
+			if (!TryRefreshSingleGroupPresentation(header.GroupId))
+				RebuildResultsList();
 		});
 
 		public ReactiveCommand<DuplicateItemVM, Unit> ToggleItemDetailsCommand => ReactiveCommand.Create<DuplicateItemVM>(item => {
 			if (item == null) return;
 			if (!expandedResultsDetails.Remove(item))
 				expandedResultsDetails.Add(item);
-			RebuildResultsList();
+			if (!TryRefreshItemDetailsPresentation(item))
+				RebuildResultsList();
 		});
 
 		public ReactiveCommand<DuplicateItemVM, Unit> CopyItemDetailsCommand => ReactiveCommand.CreateFromTask<DuplicateItemVM>(async item => {
@@ -326,8 +331,10 @@ namespace VDF.GUI.ViewModels {
 			// PropertyChanged. Rebuilding every result group here made a two-file click scan
 			// the entire result set and folder relations, causing the visible pause reported
 			// on large databases. Only the special checked-group sort needs a structural refresh.
-			if (SettingsFile.Instance.ResultsSortMode == ResultsSortMode.GroupsWithCheckedItems)
-				RebuildResultsList();
+			if (SettingsFile.Instance.ResultsSortMode == ResultsSortMode.GroupsWithCheckedItems) {
+				RequestFilterResultsRefresh();
+				RefreshResultsView();
+			}
 		});
 
 		public ReactiveCommand<ResultsGroupHeader, Unit> MarkGroupHeaderNotAMatchCommand => ReactiveCommand.CreateFromTask<ResultsGroupHeader>(async header => {
@@ -361,7 +368,8 @@ namespace VDF.GUI.ViewModels {
 			var target = resultsGroups[targetIndex];
 			if (target.IsCollapsed) {
 				collapsedResultsGroups.Remove(target.GroupId);
-				RebuildResultsList();
+				if (!TryRefreshSingleGroupPresentation(target.GroupId))
+					RebuildResultsList();
 				target = resultsGroups.FirstOrDefault(g => g.GroupId == target.GroupId) ?? target;
 			}
 			var firstRow = target.Rows.FirstOrDefault();
