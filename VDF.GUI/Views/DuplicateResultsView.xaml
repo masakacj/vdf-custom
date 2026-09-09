@@ -403,6 +403,13 @@
             Margin="10,0,0,0"
             IsChecked="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=ResultsCompactRows}"
             Content="{Binding Source={x:Static local:App.Lang}, Path=[Results.Toolbar.CompactRows]}" />
+        <ToggleButton
+            Classes="chip"
+            Margin="4,0,0,0"
+            IsEnabled="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=!ResultsCompactRows}"
+            IsChecked="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=ResultsWrapFullPath}"
+            Content="路径换行"
+            ToolTip.Tip="完整显示文件路径；长路径自动换行并按内容增高当前行。紧凑行模式下保持关闭。" />
         </WrapPanel>
       </StackPanel>
     </Border>
@@ -449,6 +456,11 @@
               Header="{Binding Source={x:Static local:App.Lang}, Path=[Results.Toolbar.CompactRows]}"
               ToggleType="CheckBox"
               IsChecked="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=ResultsCompactRows}" />
+          <MenuItem
+              Header="路径自动换行"
+              ToggleType="CheckBox"
+              IsEnabled="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=!ResultsCompactRows}"
+              IsChecked="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=ResultsWrapFullPath}" />
         </ContextMenu>
       </Border.ContextMenu>
       <DockPanel x:Name="HeaderColumns" LastChildFill="True">
@@ -618,6 +630,7 @@
                 <Binding Path="Item.ThumbnailFrameCount" />
                 <Binding Path="Item.ThumbnailGridColumns" />
                 <Binding Path="Item.ThumbnailPrediction" />
+                <Binding Source="{x:Static Settings:SettingsFile.Instance}" Path="ResultsWrapFullPath" />
               </MultiBinding>
             </Border.Height>
             <Border.ContextMenu>
@@ -716,6 +729,11 @@
                     DoubleTapped="OnThumbnailDoubleTapped"
                     ToolTip.Tip="{Binding Item.ItemInfo.Path}" />
               </Grid>
+              <!-- Metadata/name occupy the upper band. The full-path row below spans
+                   the entire remaining width after checkbox + preview, including the
+                   otherwise-empty area underneath the right-side metric columns. -->
+              <Grid RowDefinitions="*,Auto">
+                <DockPanel Grid.Row="0" LastChildFill="True">
               <!-- similarity chip -->
               <Border
                   Classes="simchip"
@@ -951,15 +969,19 @@
                       Text="{Binding Item.ItemInfo.Path, Converter={StaticResource FileNameConverter}}"
                       ToolTip.Tip="{Binding Item.ItemInfo.Path, Converter={StaticResource FileNameConverter}}" />
                 </DockPanel>
-                <!-- Directory is a real action now: click the displayed folder path to open it.
-                     Full-file-path copy remains available from the row context menu. -->
+              </StackPanel>
+                </DockPanel>
+                <!-- Full path spans the complete lower band of the content region,
+                     including underneath Duration/Size/Bitrate/Format/Similarity. -->
                 <Border
+                    Grid.Row="1"
+                    Margin="6,0,0,2"
                     Background="Transparent"
                     IsVisible="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=!ResultsCompactRows}">
-                  <DockPanel>
+                  <DockPanel LastChildFill="True">
                     <TextBlock
                         DockPanel.Dock="Right"
-                        Margin="10,0,0,0"
+                        Margin="10,0,6,0"
                         FontSize="10.8"
                         Opacity="0.52"
                         VerticalAlignment="Center"
@@ -967,18 +989,30 @@
                         Text="{Binding FolderStatsText}"
                         ToolTip.Tip="当前文件所在文件夹中的已索引媒体文件数量和总大小" />
                     <Button Classes="folder-link"
+                            VerticalContentAlignment="Stretch"
                             Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).OpenContainingFolderCommand}"
                             CommandParameter="{Binding Item}"
-                            ToolTip.Tip="点击打开文件所在文件夹">
-                      <ctl:MiddleEllipsisTextBlock
-                          FontFamily="Microsoft YaHei UI"
-                          FontSize="11.5"
-                          Foreground="{DynamicResource VdfPrimaryBrush}"
-                          Text="{Binding Item.ItemInfo.Path, Converter={StaticResource DirectoryPathConverter}}" />
+                            ToolTip.Tip="{Binding Item.ItemInfo.Path}">
+                      <Grid HorizontalAlignment="Stretch">
+                        <ctl:MiddleEllipsisTextBlock
+                            IsVisible="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=!ResultsWrapFullPath}"
+                            FontFamily="Microsoft YaHei UI"
+                            FontSize="11.5"
+                            Foreground="{DynamicResource VdfPrimaryBrush}"
+                            Text="{Binding Item.ItemInfo.Path}" />
+                        <TextBlock
+                            IsVisible="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=ResultsWrapFullPath}"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Center"
+                            FontSize="11.5"
+                            Foreground="{DynamicResource VdfPrimaryBrush}"
+                            TextWrapping="Wrap"
+                            Text="{Binding Item.ItemInfo.Path}" />
+                      </Grid>
                     </Button>
                   </DockPanel>
                 </Border>
-              </StackPanel>
+              </Grid>
             </DockPanel>
           </Border>
         </DataTemplate>
