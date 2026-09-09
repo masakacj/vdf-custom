@@ -1,0 +1,52 @@
+name: Patch duplicate startup stats pass
+
+on:
+  push:
+    branches:
+      - perf/large-results-interactions-filter-db
+    paths:
+      - .github/workflows/patch-startup-stats.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: perf/large-results-interactions-filter-db
+          fetch-depth: 0
+      - name: Guarded replacements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('VDF.GUI/ViewModels/MainWindowVM.cs')
+          s = p.read_text(encoding='utf-8')
+          reps = [
+            ('scan completion stats',
+             '''\t\t\t\tBuildActiveResultsView();\n\t\t\t\tRebuildSearchPathIndex();\n\t\t\t\tRefreshGroupStats();\n''',
+             '''\t\t\t\tBuildActiveResultsView();\n\t\t\t\tRebuildSearchPathIndex();\n\t\t\t\tRefreshGroupStatsFast();\n'''),
+            ('backup restore stats',
+             '''\t\t\t\tBuildActiveResultsView();\n\t\t\t\tRefreshGroupStats();\n\t\t\t\tIsBusy = false;\n''',
+             '''\t\t\t\tBuildActiveResultsView();\n\t\t\t\tRefreshGroupStatsFast();\n\t\t\t\tIsBusy = false;\n''')
+          ]
+          for label, old, new in reps:
+              n = s.count(old)
+              if n != 1:
+                  raise SystemExit(f'{label}: expected 1 match, found {n}')
+              s = s.replace(old, new, 1)
+              print('patched', label)
+          p.write_text(s, encoding='utf-8')
+          PY
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "vdf-performance-bot"
+          git config user.email "vdf-performance-bot@users.noreply.github.com"
+          git add VDF.GUI/ViewModels/MainWindowVM.cs
+          git diff --cached --check
+          git commit -m "Avoid duplicate full stats scans on result restore"
+          git push origin HEAD:perf/large-results-interactions-filter-db
