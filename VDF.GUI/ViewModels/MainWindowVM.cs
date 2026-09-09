@@ -2320,8 +2320,25 @@ Non-Windows setup:
 			if (GetSelectedDuplicateItem() is DuplicateItemVM keeper) {
 				using var _ = BeginSelectionUndoBatch();
 				keeper.Checked = false;
-				foreach (var item in Duplicates)
-					if (item.ItemInfo.GroupId == keeper.ItemInfo.GroupId && !ReferenceEquals(item, keeper))
+
+				Guid groupId = keeper.ItemInfo.GroupId;
+				int groupIndex = FindResultsGroupIndex(groupId);
+				ResultsGroupHeader? visibleGroup = groupIndex >= 0 && groupIndex < resultsGroups.Count
+					? resultsGroups[groupIndex]
+					: null;
+				IEnumerable<DuplicateItemVM> members;
+				if (visibleGroup != null && visibleGroup.Rows.Count == GetFastGroupItemCount(groupId)) {
+					// Normal unfiltered keyboard triage: the visible canonical group is complete,
+					// so touch only its handful of rows instead of scanning every result.
+					members = visibleGroup.Rows.Select(row => row.Item);
+				}
+				else {
+					// A filter may hide members. Preserve the old all-group semantics in that
+					// uncommon case by falling back to the complete duplicate collection.
+					members = Duplicates.Where(item => item.ItemInfo.GroupId == groupId);
+				}
+				foreach (DuplicateItemVM item in members)
+					if (!ReferenceEquals(item, keeper))
 						item.Checked = true;
 			}
 			NavigateGroup(forward: true);
