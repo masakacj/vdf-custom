@@ -4,7 +4,6 @@
 // */
 
 using System.IO.Compression;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Avalonia.Threading;
 using VDF.Core.Utils;
@@ -12,75 +11,96 @@ using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
 	public partial class MainWindowVM {
+		sealed record AutomaticBackupWaiter(long Version, TaskCompletionSource<bool> Completion);
+
 		readonly object automaticScanResultsBackupLock = new();
-		bool automaticScanResultsBackupRequested;
+		readonly List<AutomaticBackupWaiter> automaticScanResultsBackupWaiters = new();
+		long automaticScanResultsBackupRequestedVersion;
+		long automaticScanResultsBackupCompletedVersion;
 		bool automaticScanResultsBackupWorkerRunning;
 
 		/// <summary>
-		/// One-string backup calls are the automatic "list changed" path in the existing VM,
-		/// except SaveScanResults which is the user's explicit exit-save. Keep the explicit save
-		/// synchronous/durable, while automatic calls become coalesced background work.
-		///
-		/// This overload is intentionally more specific than the legacy optional-argument export
-		/// method, so existing call sites do not need to be duplicated across the large main VM.
+		/// Existing one-string calls all target backup.scanresults. Make that path a coalesced,
+		/// non-blocking-background export while still returning a Task for callers that explicitly
+		/// await durability (notably SaveScanResults during shutdown). The expensive ZIP/pack write
+		/// never owns the busy overlay, so ordinary delete/mark interactions remain usable.
 		/// </summary>
-		Task ExportScanResults(string path, [CallerMemberName] string caller = "") {
+		Task ExportScanResults(string path) {
 			StringComparison comparison = CoreUtils.IsWindows
 				? StringComparison.OrdinalIgnoreCase
 				: StringComparison.Ordinal;
 			if (!string.Equals(path, BackupScanResultsFile, comparison))
 				return ExportScanResults(path, includeThumbnails: true, thumbMaxEdge: 160, envelopeTypeInfo: null);
 
-			// Closing/updating explicitly asked to save the current result state. Never turn that
-			// contract into fire-and-forget: the process must not exit before this export completes.
-			if (caller == nameof(SaveScanResults))
-				return ExportScanResults(path, includeThumbnails: true, thumbMaxEdge: 160, envelopeTypeInfo: null);
-
-			QueueAutomaticScanResultsBackup();
-			return Task.CompletedTask;
+			return RequestAutomaticScanResultsBackupAsync();
 		}
 
-		void QueueAutomaticScanResultsBackup() {
+		Task RequestAutomaticScanResultsBackupAsync() {
+			TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 			lock (automaticScanResultsBackupLock) {
-				automaticScanResultsBackupRequested = true;
-				if (automaticScanResultsBackupWorkerRunning)
-					return;
-				automaticScanResultsBackupWorkerRunning = true;
+				long version = ++automaticScanResultsBackupRequestedVersion;
+				automaticScanResultsBackupWaiters.Add(new AutomaticBackupWaiter(version, completion));
+				if (!automaticScanResultsBackupWorkerRunning) {
+					automaticScanResultsBackupWorkerRunning = true;
+					_ = RunAutomaticScanResultsBackupWorkerAsync();
+				}
 			}
-
-			_ = RunAutomaticScanResultsBackupWorkerAsync();
+			return completion.Task;
 		}
 
 		async Task RunAutomaticScanResultsBackupWorkerAsync() {
 			try {
 				while (true) {
-					// Short debounce absorbs a delete/mark burst before starting a 1+ GB write.
-					await Task.Delay(1500).ConfigureAwait(false);
+					// Absorb a burst of list mutations before starting a 1+ GB write. Requests
+					// arriving during the write collapse into exactly one follow-up snapshot.
+					await Task.Delay(750).ConfigureAwait(false);
 
-					lock (automaticScanResultsBackupLock) {
-						if (!automaticScanResultsBackupRequested) {
-							automaticScanResultsBackupWorkerRunning = false;
-							return;
-						}
-						automaticScanResultsBackupRequested = false;
+					long targetVersion;
+					lock (automaticScanResultsBackupLock)
+						targetVersion = automaticScanResultsBackupRequestedVersion;
+
+					try {
+						await WriteAutomaticScanResultsBackupAsync().ConfigureAwait(false);
+					}
+					catch (Exception ex) {
+						// Preserve the old export contract: a secondary backup failure is reported,
+						// but does not tear down the app. The primary database/journal has its own
+						// durability path and remains authoritative.
+						Logger.Instance.Warn($"Automatic scan-results backup failed; the primary database/journal remains intact: {ex.Message}");
 					}
 
-					await WriteAutomaticScanResultsBackupAsync().ConfigureAwait(false);
-
+					List<TaskCompletionSource<bool>> completed = new();
+					bool done;
 					lock (automaticScanResultsBackupLock) {
-						if (!automaticScanResultsBackupRequested) {
-							automaticScanResultsBackupWorkerRunning = false;
-							return;
+						automaticScanResultsBackupCompletedVersion = Math.Max(
+							automaticScanResultsBackupCompletedVersion, targetVersion);
+						for (int i = automaticScanResultsBackupWaiters.Count - 1; i >= 0; i--) {
+							if (automaticScanResultsBackupWaiters[i].Version > automaticScanResultsBackupCompletedVersion)
+								continue;
+							completed.Add(automaticScanResultsBackupWaiters[i].Completion);
+							automaticScanResultsBackupWaiters.RemoveAt(i);
 						}
-						// A request arrived while the export was running. Loop once more; any
-						// number of requests during the next write collapse into one newest copy.
+						done = automaticScanResultsBackupRequestedVersion <= automaticScanResultsBackupCompletedVersion;
+						if (done)
+							automaticScanResultsBackupWorkerRunning = false;
 					}
+					foreach (TaskCompletionSource<bool> waiter in completed)
+						waiter.TrySetResult(true);
+
+					if (done)
+						return;
 				}
 			}
 			catch (Exception ex) {
-				lock (automaticScanResultsBackupLock)
+				List<TaskCompletionSource<bool>> waiters;
+				lock (automaticScanResultsBackupLock) {
 					automaticScanResultsBackupWorkerRunning = false;
-				Logger.Instance.Warn($"Automatic scan-results backup failed; the primary database/journal remains intact: {ex.Message}");
+					waiters = automaticScanResultsBackupWaiters.Select(w => w.Completion).ToList();
+					automaticScanResultsBackupWaiters.Clear();
+				}
+				Logger.Instance.Warn($"Automatic scan-results backup worker stopped unexpectedly: {ex.Message}");
+				foreach (TaskCompletionSource<bool> waiter in waiters)
+					waiter.TrySetResult(false);
 			}
 		}
 
