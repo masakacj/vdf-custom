@@ -353,9 +353,9 @@ namespace VDF.GUI.ViewModels {
 			if (resultsGroups.Count == 0) return null;
 
 			Guid? referenceGroupId = fromGroupId ?? GetSelectedDuplicateItem()?.ItemInfo.GroupId;
-			int currentIndex = -1;
-			if (referenceGroupId.HasValue)
-				currentIndex = resultsGroups.FindIndex(g => g.GroupId == referenceGroupId.Value);
+			int currentIndex = referenceGroupId.HasValue
+				? FindResultsGroupIndex(referenceGroupId.Value)
+				: -1;
 
 			int targetIndex = forward
 				? (currentIndex + 1 < resultsGroups.Count ? currentIndex + 1 : 0)
@@ -366,10 +366,12 @@ namespace VDF.GUI.ViewModels {
 				collapsedResultsGroups.Remove(target.GroupId);
 				if (!TryRefreshSingleGroupPresentation(target.GroupId))
 					RebuildResultsList();
-				target = resultsGroups.FirstOrDefault(g => g.GroupId == target.GroupId) ?? target;
+				if (targetIndex >= 0 && targetIndex < resultsGroups.Count)
+					target = resultsGroups[targetIndex];
 			}
 			var firstRow = target.Rows.FirstOrDefault();
 			if (firstRow == null) return null;
+			RememberResultNavigationIndex(targetIndex);
 			NewResultsSelectAndScrollTo?.Invoke(firstRow);
 			return target.GroupId;
 		}

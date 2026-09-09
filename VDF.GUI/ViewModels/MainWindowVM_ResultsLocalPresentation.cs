@@ -18,7 +18,7 @@ namespace VDF.GUI.ViewModels {
 			if (ActiveResultsDisplayMode != ResultsDisplayMode.SimilarityGroups)
 				return false;
 
-			int groupIndex = resultsGroups.FindIndex(group => group.GroupId == groupId);
+			int groupIndex = FindResultsGroupIndex(groupId);
 			if (groupIndex < 0)
 				return false;
 
