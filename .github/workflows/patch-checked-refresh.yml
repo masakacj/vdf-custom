@@ -1,0 +1,70 @@
+name: Apply checked-refresh performance patch
+
+on:
+  push:
+    branches:
+      - perf/large-results-interactions-filter-db
+    paths:
+      - .github/workflows/patch-checked-refresh.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: perf/large-results-interactions-filter-db
+          fetch-depth: 0
+      - name: Apply guarded replacements
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          def patch(path_s, replacements):
+              p = Path(path_s)
+              s = p.read_text(encoding='utf-8')
+              for label, old, new in replacements:
+                  n = s.count(old)
+                  if n != 1:
+                      raise SystemExit(f'{path_s}: {label}: expected 1 match, found {n}')
+                  s = s.replace(old, new, 1)
+                  print('patched', label)
+              p.write_text(s, encoding='utf-8')
+
+          patch('VDF.GUI/ViewModels/MainWindowVM.cs', [
+              ('checkbox structural refresh',
+               '''\t\t\telse {\n\t\t\t\tDuplicatesCheckedCounter--;\n\t\t\t\tDuplicatesCheckedSizeInternal -= CheckedSizeOf((DuplicateItemVM)sender);\n\t\t\t\tAdjustCheckedGroupIndex((DuplicateItemVM)sender, -1);\n\t\t\t}\n\t\t}\n''',
+               '''\t\t\telse {\n\t\t\t\tDuplicatesCheckedCounter--;\n\t\t\t\tDuplicatesCheckedSizeInternal -= CheckedSizeOf((DuplicateItemVM)sender);\n\t\t\t\tAdjustCheckedGroupIndex((DuplicateItemVM)sender, -1);\n\t\t\t}\n\t\t\tScheduleCheckedStructureRefresh();\n\t\t}\n''')
+          ])
+
+          patch('VDF.GUI/ViewModels/MainWindowVM_Selection.cs', [
+              ('BEST editor background refresh',
+               '''\t\t\tQualityCriteriaOrder = result;\n\t\t\tSettingsFile.SaveSettings();\n\t\t\tRebuildResultsList();\n\t\t});\n\n\t\tpublic ReactiveCommand<Unit, Unit> ReapplyBestCriteriaCommand => ReactiveCommand.Create(() => RebuildResultsList());\n''',
+               '''\t\t\tQualityCriteriaOrder = result;\n\t\t\tSettingsFile.SaveSettings();\n\t\t\tRequestFilterResultsRefresh();\n\t\t\tRefreshResultsView();\n\t\t});\n\n\t\tpublic ReactiveCommand<Unit, Unit> ReapplyBestCriteriaCommand => ReactiveCommand.Create(() => {\n\t\t\tRequestFilterResultsRefresh();\n\t\t\tRefreshResultsView();\n\t\t});\n'''),
+              ('single-item fast stats',
+               '''\t\t\tDuplicates.Remove(item);\n\t\t\tRefreshResultsView();\n\t\t\tRefreshGroupStats();\n''',
+               '''\t\t\tDuplicates.Remove(item);\n\t\t\tRefreshResultsView();\n\t\t\tRefreshGroupStatsFast();\n'''),
+              ('highlighted fast stats',
+               '''\t\t\tforeach (var item in selected)\n\t\t\t\tDuplicates.Remove(item);\n\t\t\tRefreshGroupStats();\n\t\t\tRefreshResultsView();\n''',
+               '''\t\t\tforeach (var item in selected)\n\t\t\t\tDuplicates.Remove(item);\n\t\t\tRefreshGroupStatsFast();\n\t\t\tRefreshResultsView();\n''')
+          ])
+
+          patch('VDF.GUI/ViewModels/MainWindowVM_Results.cs', [
+              ('keep-best coalesced checked refresh',
+               '''\t\t\t// Checked is a live property on DuplicateItemVM; counters/action bar update from\n\t\t\t// PropertyChanged. Rebuilding every result group here made a two-file click scan\n\t\t\t// the entire result set and folder relations, causing the visible pause reported\n\t\t\t// on large databases. Only the special checked-group sort needs a structural refresh.\n\t\t\tif (SettingsFile.Instance.ResultsSortMode == ResultsSortMode.GroupsWithCheckedItems) {\n\t\t\t\tRequestFilterResultsRefresh();\n\t\t\t\tRefreshResultsView();\n\t\t\t}\n''',
+               '''\t\t\t// Checked is a live property on DuplicateItemVM; counters/action bar update from\n\t\t\t// PropertyChanged. If the active filter/sort depends on checked groups, the central\n\t\t\t// checkbox handler coalesces the whole gesture into one background structural refresh.\n\t\t\tScheduleCheckedStructureRefresh();\n''')
+          ])
+          PY
+      - name: Commit and push
+        shell: bash
+        run: |
+          git config user.name "vdf-performance-bot"
+          git config user.email "vdf-performance-bot@users.noreply.github.com"
+          git add VDF.GUI/ViewModels/MainWindowVM.cs VDF.GUI/ViewModels/MainWindowVM_Selection.cs VDF.GUI/ViewModels/MainWindowVM_Results.cs
+          git diff --cached --check
+          git commit -m "Coalesce checked-state structural refreshes"
+          git push origin HEAD:perf/large-results-interactions-filter-db
