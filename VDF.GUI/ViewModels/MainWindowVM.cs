@@ -1508,11 +1508,15 @@ namespace VDF.GUI.ViewModels {
 				newName = FileUtils.SafePathCombine(fi.DirectoryName!, newName + fi.Extension);
 			}
 			try {
-				ScanEngine.GetFromDatabase(currentItem.ItemInfo.Path, out var dbEntry);
+				string oldPath = currentItem.ItemInfo.Path;
+				ScanEngine.GetFromDatabase(oldPath, out var dbEntry);
 				fi.MoveTo(newName, true);
 				ScanEngine.UpdateFilePathInDatabase(newName, dbEntry!);
 				currentItem.ItemInfo.Path = newName;
-				ScanEngine.SaveDatabase();
+				if (!ScanEngine.PersistInteractiveDatabaseMove(oldPath, newName, out string journalError)) {
+					Logger.Instance.Warn($"Interactive rename journal failed; falling back to a full database checkpoint: {journalError}");
+					ScanEngine.SaveDatabase();
+				}
 			}
 			catch (Exception e) {
 				await MessageBoxService.Show(e.Message);
@@ -1905,9 +1909,10 @@ Non-Windows setup:
 						if (Duplicates[i].ItemInfo.GroupId == gid && Duplicates[i].ItemInfo.Path == path)
 							Duplicates.RemoveAt(i);
 
-				// Drop singleton groups
-				DropSingletonGroups();
-				RefreshGroupStats();
+				// Removing one whole group cannot create a singleton in any other group.
+				// CollectionChanged already updated the incremental counters, so avoid two
+				// all-results GroupBy passes for a local not-a-match action.
+				RefreshGroupStatsFast();
 				RefreshResultsView();
 
 				// Mirror the deletion path: keep backup.scanresults in sync so the mark
@@ -2033,14 +2038,17 @@ Non-Windows setup:
 				MessageBoxButtons.Yes | MessageBoxButtons.No);
 			if (dlgResult != MessageBoxButtons.Yes) return;
 
-			var keepByGroup = Duplicates
-				   .GroupBy(d => d.ItemInfo.GroupId)
-				   .ToDictionary(
-					   g => g.Key,
-					   g => g.FirstOrDefault(x => !x.Checked)
-				   );
+			var affectedGroupIds = toDelete.Select(d => d.ItemInfo.GroupId).ToHashSet();
+			var keepByGroup = new Dictionary<Guid, DuplicateItemVM?>();
+			foreach (DuplicateItemVM item in Duplicates) {
+				Guid groupId = item.ItemInfo.GroupId;
+				if (!affectedGroupIds.Contains(groupId) || item.Checked || keepByGroup.ContainsKey(groupId))
+					continue;
+				keepByGroup[groupId] = item;
+			}
 
 			var actuallyDeleted = new HashSet<DuplicateItemVM>(toDelete.Count, ReferenceEqualityComparer<DuplicateItemVM>.Instance);
+			var databaseDeletedPaths = new List<string>(toDelete.Count);
 			// With RememberDeletedContent on, a disk-delete that removes an ENTIRE group (no
 			// unchecked survivor) is a content rejection, not a duplicate cleanup: exactly one
 			// entry stays in the database as the tombstone so a re-download of this content is
@@ -2141,8 +2149,10 @@ Non-Windows setup:
 									SettingsFile.Instance.RememberDeletedContent &&
 									(!keepByGroup.TryGetValue(dub.ItemInfo.GroupId, out var survivor) || survivor == null) &&
 									tombstonedGroups.Add(dub.ItemInfo.GroupId);
-								if (!keepAsTombstone)
+								if (!keepAsTombstone) {
 									ScanEngine.RemoveFromDatabase(fe);
+									databaseDeletedPaths.Add(dub.ItemInfo.Path);
+								}
 							}
 
 							actuallyDeleted.Add(dub);
@@ -2159,12 +2169,18 @@ Non-Windows setup:
 					if (missingOnDisk > 0)
 						Logger.Instance.Warn($"{missingOnDisk} of {total} selected files were not found on disk; their entries were removed from the results, but no data was deleted for them.");
 
-					// Persist the database changes while still off the UI thread. This used
-					// to run last, after the results refresh, on the UI thread - where an
-					// exception in the refresh (dispatcher exceptions are swallowed to keep
-					// the app alive) could silently skip the save.
-					if (actuallyDeleted.Count > 0)
-						ScanEngine.SaveDatabase();
+					// Persist normal interactive removals as one tiny durable journal append.
+					// A blacklist mutation changes FileEntry flags and is not representable by the
+					// delete/move journal, so that exceptional path keeps the legacy full checkpoint.
+					if (actuallyDeleted.Count > 0) {
+						if (blackList) {
+							ScanEngine.SaveDatabase();
+						}
+						else if (!ScanEngine.PersistInteractiveDatabaseDeletes(databaseDeletedPaths, out string journalError)) {
+							Logger.Instance.Warn($"Interactive delete journal failed; falling back to a full database checkpoint: {journalError}");
+							ScanEngine.SaveDatabase();
+						}
+					}
 				});
 			}
 			finally {
@@ -2196,15 +2212,13 @@ Non-Windows setup:
 					if (actuallyDeleted.Contains(Duplicates[i]))
 						Duplicates.RemoveAt(i);
 
-				// When ExcludeHardLinks is enabled, remove items within each group
-				// that are hardlinks of another remaining item in the same group.
+				// Deletion can only change the groups that contained a selected item.
+				// Keep hard-link probes and singleton detection scoped to those groups.
 				if (SettingsFile.Instance.ExcludeHardLinks)
-					DropHardLinkDuplicates();
+					DropHardLinkDuplicates(affectedGroupIds);
 
-				// Drop groups that have only one item left (no longer duplicates)
-				DropSingletonGroups();
-
-				RefreshGroupStats();
+				DropSingletonGroups(affectedGroupIds);
+				RefreshGroupStatsFast();
 				RefreshResultsView();
 			}
 			catch (Exception ex) {
@@ -2217,12 +2231,14 @@ Non-Windows setup:
 				await ExportScanResults(BackupScanResultsFile);
 		}
 
-		void DropSingletonGroups() {
-			var singletonGroups = Duplicates
-				.GroupBy(d => d.ItemInfo.GroupId)
-				.Where(g => g.Count() <= 1)
-				.Select(g => g.Key)
-				.ToHashSet();
+		void DropSingletonGroups(IReadOnlySet<Guid>? onlyGroups = null) {
+			HashSet<Guid> singletonGroups = onlyGroups != null
+				? FindSingletonGroupsFast(onlyGroups)
+				: Duplicates
+					.GroupBy(d => d.ItemInfo.GroupId)
+					.Where(g => g.Count() <= 1)
+					.Select(g => g.Key)
+					.ToHashSet();
 
 			if (singletonGroups.Count == 0) return;
 
@@ -2236,9 +2252,12 @@ Non-Windows setup:
 		/// of each other. Within each group, keep only one representative per set
 		/// of hardlinked files.
 		/// </summary>
-		void DropHardLinkDuplicates() {
+		void DropHardLinkDuplicates(IReadOnlySet<Guid>? onlyGroups = null) {
 			var toRemove = new List<DuplicateItemVM>();
-			foreach (var group in Duplicates.GroupBy(d => d.ItemInfo.GroupId)) {
+			IEnumerable<DuplicateItemVM> candidates = onlyGroups == null
+				? Duplicates
+				: Duplicates.Where(d => onlyGroups.Contains(d.ItemInfo.GroupId));
+			foreach (var group in candidates.GroupBy(d => d.ItemInfo.GroupId)) {
 				var items = group.ToList();
 				if (items.Count <= 1) continue;
 				var kept = new List<DuplicateItemVM>();
