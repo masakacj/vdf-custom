@@ -72,9 +72,11 @@ namespace VDF.GUI.ViewModels {
 				try {
 					token.ThrowIfCancellationRequested();
 					HashSet<Guid> pathHitGroups = BuildPathHitGroups(items, pathFilter, token);
-					int predicateCounter = 0;
-					bool Filter(DuplicateItemVM item) {
-						if ((predicateCounter++ & 4095) == 0) token.ThrowIfCancellationRequested();
+					var visibleItems = new List<DuplicateItemVM>(items.Count);
+					var visibility = new bool[items.Count];
+					for (int i = 0; i < items.Count; i++) {
+						if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
+						DuplicateItemVM item = items[i];
 						bool ok = string.IsNullOrEmpty(pathFilter) || pathHitGroups.Contains(item.ItemInfo.GroupId);
 						if (ok && fileType != FileTypeFilter.All)
 							ok = fileType == FileTypeFilter.Images ? item.ItemInfo.IsImage : !item.ItemInfo.IsImage;
@@ -82,13 +84,13 @@ namespace VDF.GUI.ViewModels {
 							ok = item.ItemInfo.Similarity >= similarityFrom && item.ItemInfo.Similarity <= similarityTo;
 						if (ok && checkedOnly)
 							ok = checkedGroups.Contains(item.ItemInfo.GroupId);
-						item.IsVisibleInFilter = ok;
-						return ok;
+						visibility[i] = ok;
+						if (ok) visibleItems.Add(item);
 					}
 
 					ResultsBuildResult result = ResultsListBuilder.Build(new ResultsBuildRequest {
-						Items = items,
-						Filter = Filter,
+						Items = visibleItems,
+						Filter = _ => true,
 						SortMode = sortMode,
 						SortDescending = sortDescending,
 						BestFirst = bestFirst,
@@ -100,7 +102,7 @@ namespace VDF.GUI.ViewModels {
 					token.ThrowIfCancellationRequested();
 
 					Dispatcher.UIThread.Post(() => ApplyAsyncFilterResult(
-						generation, collectionVersion, pathHitGroups, result, token));
+						generation, collectionVersion, items, visibility, pathHitGroups, result, token));
 				}
 				catch (OperationCanceledException) { }
 				catch (Exception ex) {
@@ -113,6 +115,8 @@ namespace VDF.GUI.ViewModels {
 		void ApplyAsyncFilterResult(
 			int generation,
 			int collectionVersion,
+			IReadOnlyList<DuplicateItemVM> items,
+			IReadOnlyList<bool> visibility,
 			HashSet<Guid> pathHitGroups,
 			ResultsBuildResult result,
 			CancellationToken token) {
@@ -125,6 +129,12 @@ namespace VDF.GUI.ViewModels {
 				RefreshResultsView();
 				return;
 			}
+
+			// Visibility is presentation state shared by selection helpers. A stale/cancelled
+			// worker must never mutate it: commit the snapshot only after the generation and
+			// collection-version guards above have accepted this result.
+			for (int i = 0; i < items.Count; i++)
+				items[i].IsVisibleInFilter = visibility[i];
 
 			_groupsWithPathHit = pathHitGroups;
 			List<Guid> oldGroupOrder = resultsGroups.ConvertAll(group => group.GroupId);
@@ -146,7 +156,6 @@ namespace VDF.GUI.ViewModels {
 			if (anchor is { } a && ResultsScrollAnchor.FindRestoreTarget(a.Row, oldGroupOrder, displayRows) is { } target)
 				ResultsScrollToRow?.Invoke(target, a.ViewportOffsetY);
 			AfterFullResultsRebuild();
-			PrimeFastGroupStats();
 		}
 	}
 }
