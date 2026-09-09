@@ -3,6 +3,8 @@
 //     This file is part of VideoDuplicateFinder
 // */
 
+using System.Threading;
+
 namespace VDF.GUI.ViewModels {
 	public partial class MainWindowVM {
 		/// <summary>
