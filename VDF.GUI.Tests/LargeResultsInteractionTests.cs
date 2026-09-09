@@ -123,6 +123,25 @@ public class LargeResultsInteractionTests {
     }
 
     [Fact]
+    public void AvaloniaList_RemoveAll_UsesOneBulkCollectionNotification() {
+        var target = new AvaloniaList<int>();
+        target.AddRange(Enumerable.Range(0, 20_000));
+        int notifications = 0;
+        int removed = 0;
+        target.CollectionChanged += (_, e) => {
+            notifications++;
+            removed += e.OldItems?.Count ?? 0;
+        };
+
+        int[] toRemove = Enumerable.Range(5_000, 10_000).ToArray();
+        target.RemoveAll(toRemove);
+
+        Assert.Equal(10_000, target.Count);
+        Assert.Equal(10_000, removed);
+        Assert.Equal(1, notifications);
+    }
+
+    [Fact]
     public void PathFilter_BuildsGroupHitSetOnce_AndOneMatchingSiblingExposesWholeGroup() {
         Guid matchingGroup = Guid.NewGuid();
         Guid otherGroup = Guid.NewGuid();
