@@ -117,9 +117,12 @@ namespace VDF.GUI.ViewModels {
 
 			var dirtyIds = resultsDirtyGroupIds.ToHashSet();
 			var oldGroupOrder = resultsGroups.Select(group => group.GroupId).ToList();
-			var oldOrderIndex = oldGroupOrder
-				.Select((groupId, index) => (groupId, index))
-				.ToDictionary(pair => pair.groupId, pair => pair.index);
+			// Keep only the old headers for the handful of groups that are changing. The previous
+			// implementation allocated a 200k-entry GroupId->order dictionary and then indexed the
+			// entire flattened ResultsRows list merely to refresh one or two groups.
+			var oldDirtyGroups = resultsGroups
+				.Where(group => dirtyIds.Contains(group.GroupId))
+				.ToDictionary(group => group.GroupId);
 
 			// Keep startup memory flat. Resolve the handful of dirty groups with one linear pass
 			// only when a local mutation actually occurs instead of maintaining a full duplicate
@@ -140,8 +143,14 @@ namespace VDF.GUI.ViewModels {
 				Formats = BuildGroupSummaryFormats(),
 			});
 			ApplyFolderStats(partial.Groups);
-			ResultsRowReconciler.ReuseItemRows(ResultsRows, partial, expandedResultsDetails);
+			ReuseDirtyGroupItemRows(partial.Groups, oldDirtyGroups);
 			foreach (ResultsGroupHeader group in partial.Groups) {
+				// Preserve the old display position as a zero-allocation stable-sort tiebreaker.
+				// A newly appearing local group has no previous position and therefore sorts last
+				// among otherwise-equal groups until the next canonical rebuild renumbers it.
+				group.GroupNumber = oldDirtyGroups.TryGetValue(group.GroupId, out ResultsGroupHeader? oldGroup)
+					? oldGroup.GroupNumber
+					: int.MaxValue;
 				string warning = BuildLightweightQualityGroupSummary(group);
 				if (warning.Length > 0)
 					group.Summary += " · " + warning;
@@ -149,7 +158,7 @@ namespace VDF.GUI.ViewModels {
 
 			var merged = resultsGroups.Where(group => !dirtyIds.Contains(group.GroupId)).ToList();
 			merged.AddRange(partial.Groups);
-			SortIncrementalResultGroups(merged, oldOrderIndex);
+			SortIncrementalResultGroups(merged);
 
 			GroupSummaryFormats formats = BuildGroupSummaryFormats();
 			var displayRows = new List<object>();
@@ -181,7 +190,32 @@ namespace VDF.GUI.ViewModels {
 			return true;
 		}
 
-		void SortIncrementalResultGroups(List<ResultsGroupHeader> groups, IReadOnlyDictionary<Guid, int> oldOrder) {
+		static void ReuseDirtyGroupItemRows(
+			IReadOnlyList<ResultsGroupHeader> freshGroups,
+			IReadOnlyDictionary<Guid, ResultsGroupHeader> oldGroups) {
+			foreach (ResultsGroupHeader freshGroup in freshGroups) {
+				if (!oldGroups.TryGetValue(freshGroup.GroupId, out ResultsGroupHeader? oldGroup))
+					continue;
+
+				var stableRows = new List<ResultsItemRow>(freshGroup.Rows.Count);
+				foreach (ResultsItemRow freshRow in freshGroup.Rows) {
+					ResultsItemRow? stable = oldGroup.Rows.FirstOrDefault(
+						candidate => ReferenceEquals(candidate.Item, freshRow.Item));
+					if (stable != null) {
+						stable.RefreshPresentationFrom(freshRow);
+						stable.Group = freshGroup;
+						stableRows.Add(stable);
+					}
+					else {
+						freshRow.Group = freshGroup;
+						stableRows.Add(freshRow);
+					}
+				}
+				freshGroup.RebindRows(stableRows);
+			}
+		}
+
+		void SortIncrementalResultGroups(List<ResultsGroupHeader> groups) {
 			Comparison<ResultsGroupHeader> comparison = SettingsFile.Instance.ResultsSortMode switch {
 				ResultsSortMode.WastedSpace => (a, b) => a.WastedBytes.CompareTo(b.WastedBytes),
 				ResultsSortMode.TotalSize => (a, b) => a.TotalBytes.CompareTo(b.TotalBytes),
@@ -202,9 +236,7 @@ namespace VDF.GUI.ViewModels {
 			groups.Sort((a, b) => {
 				int value = comparison(a, b);
 				if (value != 0) return value;
-				int ai = oldOrder.TryGetValue(a.GroupId, out int av) ? av : int.MaxValue;
-				int bi = oldOrder.TryGetValue(b.GroupId, out int bv) ? bv : int.MaxValue;
-				value = ai.CompareTo(bi);
+				value = a.GroupNumber.CompareTo(b.GroupNumber);
 				return value != 0 ? value : a.GroupId.CompareTo(b.GroupId);
 			});
 		}
