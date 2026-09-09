@@ -33,7 +33,6 @@ namespace VDF.Core {
 					return Array.Empty<(string OldPath, string NewPath)>();
 
 				try {
-				{
 					var moves = new List<(string OldPath, string NewPath)>();
 					foreach (string raw in File.ReadLines(journal, Encoding.UTF8)) {
 						if (TryParseInteractiveJournalLine(raw, out char op, out string oldPath, out string? newPath) &&
@@ -43,7 +42,6 @@ namespace VDF.Core {
 					return moves;
 				}
 				catch (Exception ex) {
-				{
 					Logger.Instance.Warn($"Interactive database move snapshot could not be read: {ex.Message}");
 					return Array.Empty<(string OldPath, string NewPath)>();
 				}
