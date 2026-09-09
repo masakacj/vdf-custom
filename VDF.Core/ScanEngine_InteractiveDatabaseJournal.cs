@@ -136,12 +136,11 @@ namespace VDF.Core {
 				}
 
 				try {
-					if (required.Count == 0)
-						File.Delete(journal);
-					else
-						File.WriteAllLines(journal, required, Encoding.UTF8);
+					RewriteInteractiveJournalSafely(journal, required);
 				}
 				catch (Exception ex) {
+					// Keep the original journal whenever compaction fails. Replay is idempotent,
+					// so retaining extra records is safe; losing a required record is not.
 					Logger.Instance.Warn($"Interactive database journal compaction failed: {ex.Message}");
 				}
 
@@ -151,8 +150,45 @@ namespace VDF.Core {
 			}
 		}
 
+		/// <summary>
+		/// Build an identity-only database key. Never use FileEntry(string) here: its constructor
+		/// reads size/timestamps from disk, while a delete journal normally points at a file that
+		/// no longer exists. The Path setter normalizes the name without opening the file.
+		/// </summary>
+		internal static FileEntry CreateInteractiveLookupEntry(string path) => new() { Path = path };
+
 		static bool TryGetInteractiveDatabaseEntry(string path, out FileEntry? entry) =>
-			DatabaseUtils.Database.TryGetValue(new FileEntry(path), out entry);
+			DatabaseUtils.Database.TryGetValue(CreateInteractiveLookupEntry(path), out entry);
+
+		/// <summary>
+		/// Atomically replaces a compacted journal only after the complete new copy reached disk.
+		/// A crash before the move leaves the old journal intact; replaying an old record twice is
+		/// harmless, while losing a still-required delete/move record would not be.
+		/// </summary>
+		internal static void RewriteInteractiveJournalSafely(string journal, IReadOnlyList<string> required) {
+			if (required.Count == 0) {
+				File.Delete(journal);
+				return;
+			}
+
+			string tmp = journal + ".compact.tmp";
+			try {
+			{
+				using var stream = new FileStream(
+					tmp, FileMode.Create, FileAccess.Write, FileShare.None,
+					64 * 1024, FileOptions.WriteThrough);
+				foreach (string line in required) {
+					byte[] bytes = Encoding.UTF8.GetBytes(line + "\n");
+					stream.Write(bytes);
+				}
+				stream.Flush(flushToDisk: true);
+			}
+				File.Move(tmp, journal, overwrite: true);
+			}
+			finally {
+				try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+			}
+		}
 
 		static readonly StringComparer InteractivePathComparer =
 			CoreUtils.IsWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
