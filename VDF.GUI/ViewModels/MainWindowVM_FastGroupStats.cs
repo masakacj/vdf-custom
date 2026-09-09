@@ -110,6 +110,21 @@ namespace VDF.GUI.ViewModels {
 			PublishFastGroupStats();
 		}
 
+		/// <summary>
+		/// Returns only candidate groups that currently contain at most one result item.
+		/// Used after an interactive delete so the GUI doesn't regroup every result solely
+		/// to discover that one of the handful of touched groups became a singleton.
+		/// </summary>
+		internal HashSet<Guid> FindSingletonGroupsFast(IReadOnlySet<Guid> candidates) {
+			EnsureFastGroupStatsTracking();
+			var result = new HashSet<Guid>();
+			foreach (Guid groupId in candidates) {
+				if (!fastGroupStats.TryGetValue(groupId, out FastGroupStat? state) || state.Sizes.Count <= 1)
+					result.Add(groupId);
+			}
+			return result;
+		}
+
 		void PublishFastGroupStats() {
 			if (!fastGroupStatsValid) return;
 			TotalDuplicates = Duplicates.Count;
