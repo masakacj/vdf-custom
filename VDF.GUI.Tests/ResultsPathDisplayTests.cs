@@ -48,5 +48,8 @@ public class ResultsPathDisplayTests {
         Assert.Contains("TextWrapping=\"Wrap\"", xaml, StringComparison.Ordinal);
         Assert.Contains("Text=\"{Binding Item.ItemInfo.Path}\"", xaml, StringComparison.Ordinal);
         Assert.Contains("ToolTip.Tip=\"{Binding Item.ItemInfo.Path}\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("<Grid RowDefinitions=\"*,Auto\">", xaml, StringComparison.Ordinal);
+        Assert.Contains("Grid.Row=\"1\"", xaml, StringComparison.Ordinal);
+        Assert.Contains("including underneath Duration/Size/Bitrate/Format/Similarity", xaml, StringComparison.Ordinal);
     }
 }

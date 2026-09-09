@@ -729,6 +729,11 @@
                     DoubleTapped="OnThumbnailDoubleTapped"
                     ToolTip.Tip="{Binding Item.ItemInfo.Path}" />
               </Grid>
+              <!-- Metadata/name occupy the upper band. The full-path row below spans
+                   the entire remaining width after checkbox + preview, including the
+                   otherwise-empty area underneath the right-side metric columns. -->
+              <Grid RowDefinitions="*,Auto">
+                <DockPanel Grid.Row="0" LastChildFill="True">
               <!-- similarity chip -->
               <Border
                   Classes="simchip"
@@ -964,16 +969,19 @@
                       Text="{Binding Item.ItemInfo.Path, Converter={StaticResource FileNameConverter}}"
                       ToolTip.Tip="{Binding Item.ItemInfo.Path, Converter={StaticResource FileNameConverter}}" />
                 </DockPanel>
-                <!-- Full path uses the otherwise-empty second line across the remaining
-                     File column. Single-line mode keeps the cheap middle ellipsis;
-                     optional wrap mode shows the entire path and lets visible rows grow. -->
+              </StackPanel>
+                </DockPanel>
+                <!-- Full path spans the complete lower band of the content region,
+                     including underneath Duration/Size/Bitrate/Format/Similarity. -->
                 <Border
+                    Grid.Row="1"
+                    Margin="6,0,0,2"
                     Background="Transparent"
                     IsVisible="{Binding Source={x:Static Settings:SettingsFile.Instance}, Path=!ResultsCompactRows}">
                   <DockPanel LastChildFill="True">
                     <TextBlock
                         DockPanel.Dock="Right"
-                        Margin="10,0,0,0"
+                        Margin="10,0,6,0"
                         FontSize="10.8"
                         Opacity="0.52"
                         VerticalAlignment="Center"
@@ -1004,7 +1012,7 @@
                     </Button>
                   </DockPanel>
                 </Border>
-              </StackPanel>
+              </Grid>
             </DockPanel>
           </Border>
         </DataTemplate>
