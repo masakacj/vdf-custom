@@ -5,6 +5,7 @@
 
 using System.Threading;
 using Avalonia.Threading;
+using ReactiveUI;
 using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
