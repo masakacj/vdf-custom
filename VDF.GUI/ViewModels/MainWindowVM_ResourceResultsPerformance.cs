@@ -162,7 +162,6 @@ namespace VDF.GUI.ViewModels {
 
 			_ = Task.Run(() => {
 				try {
-				{
 					IReadOnlyList<PikPakFolderCoverageOption> options =
 						BuildResourceCoverageOptionsSnapshot(items, token);
 					token.ThrowIfCancellationRequested();
