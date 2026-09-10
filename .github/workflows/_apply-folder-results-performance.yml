@@ -1,0 +1,31 @@
+name: Apply folder results performance patch
+
+on:
+  push:
+    branches:
+      - perf/folder-results-switch-expand
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: perf/folder-results-switch-expand
+          fetch-depth: 0
+      - name: Apply guarded patch
+        shell: pwsh
+        run: .github/_patch-folder-results-performance.ps1
+      - name: Commit patch
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add VDF.GUI/ViewModels/MainWindowVM_Results.cs VDF.GUI/ViewModels/MainWindowVM_ResultsLocalPresentation.cs VDF.GUI/ViewModels/Results/ResourceResultsBuilder.cs
+          git diff --cached --quiet && throw 'Patch produced no changes'
+          git commit -m 'Optimize folder result switching and expansion'
+          git push origin HEAD:perf/folder-results-switch-expand
