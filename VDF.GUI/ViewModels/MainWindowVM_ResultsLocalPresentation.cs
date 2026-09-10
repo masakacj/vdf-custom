@@ -111,9 +111,8 @@ namespace VDF.GUI.ViewModels {
 		/// result rebuild, which is especially expensive with hundreds of thousands of groups.
 		/// </summary>
 		bool TryRefreshItemDetailsPresentation(DuplicateItemVM item) {
-			if (ActiveResultsDisplayMode != ResultsDisplayMode.SimilarityGroups)
-				return false;
-
+			// Details are a one-row presentation mutation in either display mode. Resource
+			// mode used to reject this fast path and rebuild every folder relation instead.
 			ResultsItemRow? row = null;
 			foreach (ResultsGroupHeader group in resultsGroups) {
 				row = group.Rows.FirstOrDefault(candidate => ReferenceEquals(candidate.Item, item));

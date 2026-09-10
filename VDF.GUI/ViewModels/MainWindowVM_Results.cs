@@ -73,7 +73,7 @@ namespace VDF.GUI.ViewModels {
 		internal void SetResultsDisplayMode(ResultsDisplayMode mode) {
 			if (mode == ActiveResultsDisplayMode) return;
 			ActiveResultsDisplayMode = mode;
-			RebuildResultsList();
+			RefreshResultsDisplayModePresentation();
 		}
 
 		/// <summary>
@@ -211,30 +211,7 @@ namespace VDF.GUI.ViewModels {
 		IReadOnlyList<PikPakFolderCoverageOption> BuildResourceCoverageOptions(IReadOnlyList<ResultsGroupHeader> canonicalGroups) {
 			if (canonicalGroups.Count == 0)
 				return Array.Empty<PikPakFolderCoverageOption>();
-
-			// Folder identity is a level above the current presentation/filter. Build relation
-			// evidence from the complete in-memory duplicate groups so hiding one item/group,
-			// changing sort order, or collapsing details cannot change whether two directories
-			// are considered the same collection. ResourceResultsBuilder intersects these
-			// stable relations with canonicalGroups when deciding which level-2 details to show.
-			var groups = Duplicates
-				.GroupBy(item => item.ItemInfo.GroupId)
-				.Select(group => group.ToList())
-				.Where(group => group.Count >= 2)
-				.ToList();
-			if (groups.Count == 0)
-				return Array.Empty<PikPakFolderCoverageOption>();
-
-			var folders = groups
-				.SelectMany(group => group)
-				.Select(item => string.IsNullOrWhiteSpace(item.ItemInfo.Folder)
-					? GetPikPakFolder(item.ItemInfo.Path)
-					: item.ItemInfo.Folder)
-				.Where(folder => !string.IsNullOrWhiteSpace(folder))
-				.Distinct(StringComparer.OrdinalIgnoreCase)
-				.ToList();
-			var stats = Scanner.GetDirectFolderMediaStats(folders);
-			return ComputePikPakFolderCoverageOptions(groups, stats);
+			return GetOrBuildResourceCoverageOptions();
 		}
 
 		internal void RefreshResultsView() {
