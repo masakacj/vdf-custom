@@ -48,24 +48,53 @@ public class FolderResultsPerformanceTests {
         try {
             Guid g1 = Guid.NewGuid();
             Guid g2 = Guid.NewGuid();
+            DuplicateItemVM d1 = Item(g1, @"D:\Series A\001.mkv");
+            DuplicateItemVM e1 = Item(g1, @"E:\Series A Copy\001.mkv");
+            DuplicateItemVM d2 = Item(g2, @"D:\Series A\002.mkv");
+            DuplicateItemVM e2 = Item(g2, @"E:\Series A Copy\002.mkv");
             var canonical = Canonical(
-                new List<DuplicateItemVM> {
-                    Item(g1, @"D:\Series A\001.mkv"),
-                    Item(g1, @"E:\Series A Copy\001.mkv"),
+                new List<DuplicateItemVM> { d1, e1 },
+                new List<DuplicateItemVM> { d2, e2 });
+
+            // This test is deliberately about local presentation expansion, not the
+            // folder-coverage confidence heuristic. Construct one known-valid relation
+            // directly so future threshold changes cannot make this fast-path test flaky.
+            var matches = new[] {
+                new PikPakFolderCoverageMatch {
+                    GroupId = g1,
+                    FolderA = @"D:\Series A",
+                    FolderB = @"E:\Series A Copy",
+                    FolderAItems = new[] { d1 },
+                    FolderBItems = new[] { e1 },
+                    ReviewOnly = false,
+                    AutoBestReviewOnly = false,
                 },
-                new List<DuplicateItemVM> {
-                    Item(g2, @"D:\Series A\002.mkv"),
-                    Item(g2, @"E:\Series A Copy\002.mkv"),
-                });
-            var rawGroups = canonical.Groups
-                .Select(group => group.Rows.Select(row => row.Item).ToList())
-                .ToList();
-            var stats = new Dictionary<string, FolderMediaStats>(StringComparer.OrdinalIgnoreCase) {
-                [@"D:\Series A"] = new FolderMediaStats(2, 200),
-                [@"E:\Series A Copy"] = new FolderMediaStats(2, 200),
+                new PikPakFolderCoverageMatch {
+                    GroupId = g2,
+                    FolderA = @"D:\Series A",
+                    FolderB = @"E:\Series A Copy",
+                    FolderAItems = new[] { d2 },
+                    FolderBItems = new[] { e2 },
+                    ReviewOnly = false,
+                    AutoBestReviewOnly = false,
+                },
             };
-            var options = MainWindowVM.ComputePikPakFolderCoverageOptions(rawGroups, stats);
-            var collapsed = ResourceResultsBuilder.Build(canonical.Groups, options);
+            var option = new PikPakFolderCoverageOption(
+                @"D:\Series A",
+                @"E:\Series A Copy",
+                matches,
+                totalFilesA: 2,
+                totalFilesB: 2,
+                totalBytesA: 200,
+                totalBytesB: 200,
+                matchedFilesA: 2,
+                matchedFilesB: 2,
+                suggestAAsTarget: true);
+
+            var collapsed = ResourceResultsBuilder.Build(
+                canonical.Groups,
+                new[] { option },
+                minimumFolderMatchPercent: 0d);
             ResourceRelationHeader header = Assert.Single(collapsed.Rows.OfType<ResourceRelationHeader>());
 
             header.IsExpanded = true;
