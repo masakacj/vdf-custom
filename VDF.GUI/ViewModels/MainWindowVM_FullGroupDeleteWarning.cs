@@ -3,7 +3,11 @@
 //     This file is part of VideoDuplicateFinder
 // */
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using VDF.GUI.Data;
 using VDF.GUI.Views;
 
