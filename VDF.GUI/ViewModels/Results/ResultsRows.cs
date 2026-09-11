@@ -80,6 +80,13 @@ namespace VDF.GUI.ViewModels {
 		public DuplicateItemVM Item { get; }
 		public ResultsGroupHeader Group { get; internal set; } = null!;
 
+		bool isMaxSize;
+		/// <summary>True when this member is tied for the largest file size in its duplicate group.</summary>
+		public bool IsMaxSize {
+			get => isMaxSize;
+			internal set => this.RaiseAndSetIfChanged(ref isMaxSize, value);
+		}
+
 		bool isBest;
 		/// <summary>The system's most-likely keeper. Every non-empty duplicate group gets exactly one.</summary>
 		public bool IsBest {
@@ -147,6 +154,7 @@ namespace VDF.GUI.ViewModels {
 		/// </summary>
 		internal void RefreshPresentationFrom(ResultsItemRow source) {
 			Group = source.Group;
+			IsMaxSize = source.IsMaxSize;
 			IsBest = source.IsBest;
 			IsBestConfirmed = source.IsBestConfirmed;
 			BestReason = source.BestReason;

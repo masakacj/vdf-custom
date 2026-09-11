@@ -146,8 +146,10 @@ namespace VDF.GUI.ViewModels {
 					HasPHashMatches = hasPHash,
 					HasByteIdenticalMatches = hasByteIdentical,
 				};
-				foreach (var row in rows)
+				foreach (var row in rows) {
 					row.Group = header;
+					row.IsMaxSize = Math.Max(0, row.Item.ItemInfo.SizeLong) == largest;
+				}
 
 				if ((request.RecommendBest != null || request.PickBest != null) && members.Count >= 2) {
 					DuplicateItemVM? best;
