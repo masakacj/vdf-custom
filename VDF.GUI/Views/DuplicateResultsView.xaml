@@ -923,6 +923,14 @@
                         HorizontalAlignment="Center"
                         Text="AI" />
                   </Border>
+                  <Border IsVisible="{Binding IsMaxSize}"
+                          Background="{DynamicResource VdfMutedSoftBrush}"
+                          BorderBrush="{DynamicResource VdfMutedBorderBrush}" BorderThickness="1"
+                          CornerRadius="3" Padding="5,0" VerticalAlignment="Center">
+                    <TextBlock Text="MAX SIZE"
+                               FontSize="10" FontWeight="Bold"
+                               Foreground="{DynamicResource VdfMutedBrush}" />
+                  </Border>
                   <Border IsVisible="{Binding IsBest}"
                           Background="{DynamicResource VdfGoodSoftBrush}"
                           BorderBrush="{DynamicResource VdfGoodBorderBrush}" BorderThickness="1"

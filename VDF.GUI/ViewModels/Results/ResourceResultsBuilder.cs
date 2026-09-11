@@ -188,17 +188,19 @@ namespace VDF.GUI.ViewModels {
 
 	public sealed class ResourceRelationHeader : ReactiveObject {
 		readonly IReadOnlyList<ResourceDirectedRelation> sourceRelations;
+		readonly IReadOnlyList<ResultsGroupHeader> displayedGroups;
 		readonly HashSet<Guid> displayedGroupIds;
 		bool _IsSelected;
 		bool _IsExpanded;
 
 		internal ResourceRelationHeader(
 			IReadOnlyList<ResourceDirectedRelation> relations,
-			IReadOnlyCollection<Guid> displayedGroupIds) {
+			IReadOnlyList<ResultsGroupHeader> displayedGroups) {
 			if (relations == null || relations.Count == 0)
 				throw new ArgumentException("At least one folder relation is required.", nameof(relations));
 
-			this.displayedGroupIds = new HashSet<Guid>(displayedGroupIds);
+			this.displayedGroups = displayedGroups;
+			this.displayedGroupIds = displayedGroups.Select(group => group.GroupId).ToHashSet();
 			var targetFolder = relations[0].TargetFolder;
 			if (relations.Any(r => !r.TargetFolder.Equals(targetFolder, StringComparison.OrdinalIgnoreCase)))
 				throw new ArgumentException("All relations in a resource header must share the same target folder.", nameof(relations));
@@ -255,6 +257,7 @@ namespace VDF.GUI.ViewModels {
 		internal PikPakFolderCoverageOption Option => sourceRelations[0].Option;
 		internal IReadOnlyList<ResourceDirectedRelation> SourceRelations => sourceRelations;
 		internal IReadOnlyCollection<Guid> DisplayedGroupIds => displayedGroupIds;
+		internal IReadOnlyList<ResultsGroupHeader> DisplayedGroups => displayedGroups;
 		internal string SelectionKey { get; }
 		public int DisplayedResourceGroups { get; }
 		public int RelationMatchedResourceGroups { get; }
@@ -315,7 +318,9 @@ namespace VDF.GUI.ViewModels {
 		public string ExpandActionText => IsExpanded ? "收起文件夹资源" : "展开文件夹资源";
 		public ReactiveCommand<Unit, Unit> ToggleExpandedCommand => ReactiveCommand.Create(() => {
 			IsExpanded = !IsExpanded;
-			ApplicationHelpers.MainWindowDataContext.RefreshResultsView();
+			MainWindowVM vm = ApplicationHelpers.MainWindowDataContext;
+			if (!vm.TryRefreshResourceRelationPresentation(this))
+				vm.RefreshResultsView();
 		});
 
 		public string TargetRoleLabel => "建议目标";
@@ -454,7 +459,11 @@ namespace VDF.GUI.ViewModels {
 
 					assigned.UnionWith(gids);
 					representedRelations += usedRelations.Count;
-					var header = new ResourceRelationHeader(usedRelations, gids);
+					var displayedGroups = gids
+						.Select(groupId => byId[groupId])
+						.OrderBy(group => group.GroupNumber)
+						.ToList();
+					var header = new ResourceRelationHeader(usedRelations, displayedGroups);
 					ResourceSeriesSelectionSession.Register(header);
 					rows.Add(header);
 
@@ -463,7 +472,7 @@ namespace VDF.GUI.ViewModels {
 					// expanded, every participating ResultsItemRow lives beneath its ACTUAL
 					// containing folder. GroupId remains only as invisible matching/action context.
 					if (header.IsExpanded)
-						AppendFolderGroupedRows(rows, header, gids, byId, expandedDetails);
+						AppendFolderGroupedRows(rows, header, displayedGroups, expandedDetails);
 				}
 			}
 
@@ -487,7 +496,19 @@ namespace VDF.GUI.ViewModels {
 			if (relations.Count <= 1)
 				return new[] { relations };
 
+			// Build an inverted GroupId -> relation index once. The previous implementation
+			// compared every relation with every other relation (O(R^2)) for each target folder;
+			// large folder sets made entering resource mode disproportionately expensive.
 			var ids = relations.Select(relation => relation.GroupIds).ToList();
+			var relationIndexesByGroup = new Dictionary<Guid, List<int>>();
+			for (int relationIndex = 0; relationIndex < ids.Count; relationIndex++) {
+				foreach (Guid groupId in ids[relationIndex]) {
+					if (!relationIndexesByGroup.TryGetValue(groupId, out List<int>? indexes))
+						relationIndexesByGroup[groupId] = indexes = new List<int>(2);
+					indexes.Add(relationIndex);
+				}
+			}
+
 			var visited = new bool[relations.Count];
 			var components = new List<IReadOnlyList<ResourceDirectedRelation>>();
 			for (int seed = 0; seed < relations.Count; seed++) {
@@ -499,11 +520,12 @@ namespace VDF.GUI.ViewModels {
 				while (stack.Count > 0) {
 					int current = stack.Pop();
 					indexes.Add(current);
-					for (int candidate = 0; candidate < relations.Count; candidate++) {
-						if (visited[candidate] || !ids[current].Overlaps(ids[candidate]))
-							continue;
-						visited[candidate] = true;
-						stack.Push(candidate);
+					foreach (Guid groupId in ids[current]) {
+						foreach (int candidate in relationIndexesByGroup[groupId]) {
+							if (visited[candidate]) continue;
+							visited[candidate] = true;
+							stack.Push(candidate);
+						}
 					}
 				}
 				indexes.Sort();
@@ -512,29 +534,44 @@ namespace VDF.GUI.ViewModels {
 			return components;
 		}
 
+		internal static List<object> BuildExpandedRows(
+			ResourceRelationHeader header,
+			IReadOnlySet<DuplicateItemVM>? expandedDetails = null) {
+			var rows = new List<object>();
+			if (header.IsExpanded)
+				AppendFolderGroupedRows(rows, header, header.DisplayedGroups, expandedDetails);
+			return rows;
+		}
+
 		static void AppendFolderGroupedRows(
 			List<object> output,
 			ResourceRelationHeader header,
-			IReadOnlyList<Guid> groupIds,
-			IReadOnlyDictionary<Guid, ResultsGroupHeader> byId,
+			IReadOnlyList<ResultsGroupHeader> displayedGroups,
 			IReadOnlySet<DuplicateItemVM>? expandedDetails) {
+			// Normalize and rank relation roots once per expanded header. The old per-file LINQ
+			// query normalized/depth-sorted every root again for every child row.
 			var roots = header.FolderRows
-				.Select((folder, index) => new { Folder = folder, Index = index })
+				.Select((folder, index) => new {
+					Folder = folder,
+					Index = index,
+					Normalized = MainWindowVM.NormalizePikPakPath(folder.Path),
+					Depth = MainWindowVM.PikPakPathDepth(folder.Path),
+				})
+				.OrderByDescending(candidate => candidate.Depth)
+				.ThenBy(candidate => candidate.Index)
 				.ToList();
 			var buckets = new Dictionary<string, FolderBucket>(StringComparer.OrdinalIgnoreCase);
 
-			foreach (Guid gid in groupIds.OrderBy(gid => byId[gid].GroupNumber)) {
-				foreach (ResultsItemRow row in byId[gid].Rows) {
+			foreach (ResultsGroupHeader group in displayedGroups.OrderBy(group => group.GroupNumber)) {
+				foreach (ResultsItemRow row in group.Rows) {
 					string actualFolder = ItemFolder(row.Item);
-					var root = roots
-						.Where(candidate => MainWindowVM.PikPakPathIsWithin(actualFolder, candidate.Folder.Path))
-						.OrderByDescending(candidate => MainWindowVM.PikPakPathDepth(candidate.Folder.Path))
-						.ThenBy(candidate => candidate.Index)
-						.FirstOrDefault();
+					string normalizedActualFolder = MainWindowVM.NormalizePikPakPath(actualFolder);
+					var root = roots.FirstOrDefault(candidate =>
+						NormalizedPathIsWithin(normalizedActualFolder, candidate.Normalized));
 					string role = root?.Folder.RoleLabel ?? "关联";
 					string relationRoot = root?.Folder.Path ?? actualFolder;
 					int rootOrder = root?.Index ?? int.MaxValue;
-					string key = MainWindowVM.NormalizePikPakPath(actualFolder);
+					string key = normalizedActualFolder;
 					if (!buckets.TryGetValue(key, out FolderBucket? bucket)) {
 						bucket = new FolderBucket {
 							Path = actualFolder,
@@ -555,6 +592,10 @@ namespace VDF.GUI.ViewModels {
 				AppendFolderBucket(output, bucket, expandedDetails);
 			}
 		}
+
+		static bool NormalizedPathIsWithin(string path, string root) =>
+			path.Equals(root, StringComparison.OrdinalIgnoreCase) ||
+			(path.Length > root.Length && path.StartsWith(root, StringComparison.OrdinalIgnoreCase) && path[root.Length] == '/');
 
 		static void AppendUnassignedFolderGroupedRows(
 			List<object> output,
