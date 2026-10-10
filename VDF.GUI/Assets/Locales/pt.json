@@ -218,6 +218,8 @@
 	"MainWindow.Database.RelocateFiles": "Relocalizar arquivos",
 	"MainWindow.EmptyState.Subtitle": "Clique em “Escanear” na barra de ferramentas para começar.",
 	"MainWindow.EmptyState.Title": "Por favor, inicie sua primeira varredura",
+	"MainWindow.Filter.Apply": "Aplicar",
+	"MainWindow.Filter.Clear": "Limpar filtro",
 	"MainWindow.Filter.GroupsWithCheckedItems": "Apenas grupos com itens selecionados",
 	"MainWindow.Filter.Path": "Caminho:",
 	"MainWindow.Filter.PathNote": "Nota: se apenas um item de um grupo corresponder, todos os itens do grupo serão exibidos",

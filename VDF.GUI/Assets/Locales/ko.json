@@ -223,6 +223,8 @@
 	"MainWindow.Database.RelocateFiles": "파일 위치 재지정",
 	"MainWindow.EmptyState.Subtitle": "툴바의 \"스캔\"을 눌러 시작하세요.",
 	"MainWindow.EmptyState.Title": "첫 스캔을 시작하세요",
+	"MainWindow.Filter.Apply": "적용",
+	"MainWindow.Filter.Clear": "필터 해제",
 	"MainWindow.Filter.GroupsWithCheckedItems": "체크된 항목이 있는 그룹만",
 	"MainWindow.Filter.Path": "경로:",
 	"MainWindow.Filter.PathNote": "참고: 그룹의 한 항목만 일치해도 그룹 전체가 표시됩니다",

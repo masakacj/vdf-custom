@@ -223,6 +223,8 @@
 	"MainWindow.Database.RelocateFiles": "Relocate Files",
 	"MainWindow.EmptyState.Subtitle": "Click “Scan” in the toolbar to begin.",
 	"MainWindow.EmptyState.Title": "Please start your first scan",
+	"MainWindow.Filter.Apply": "Apply",
+	"MainWindow.Filter.Clear": "Clear filter",
 	"MainWindow.Filter.GroupsWithCheckedItems": "Only groups with checked items",
 	"MainWindow.Filter.Path": "Path:",
 	"MainWindow.Filter.PathNote": "Note: if only one item of a group is matching, all group items will be shown",
