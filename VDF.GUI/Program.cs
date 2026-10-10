@@ -37,8 +37,16 @@ namespace VDF.GUI {
 			Option<FileInfo> settingsOption = new("--settings", new[] { "-s" }) {
 				Description = "Path to a settings file to load and save."
 			};
+			Option<bool> softwareRenderingOption = new("--software-rendering") {
+				Description = "Force software rendering (for graphics-related startup crashes)."
+			};
+			Option<bool> hardwareRenderingOption = new("--hardware-rendering") {
+				Description = "Temporarily bypass the saved software-rendering recovery mode."
+			};
 			RootCommand rootCommand = new("VideoDuplicateFinder settings options");
 			rootCommand.Options.Add(settingsOption);
+			rootCommand.Options.Add(softwareRenderingOption);
+			rootCommand.Options.Add(hardwareRenderingOption);
 
 			rootCommand.SetAction(parseResult => {
 				if (parseResult.GetValue(settingsOption) is FileInfo parsedFile) {
@@ -59,7 +67,13 @@ namespace VDF.GUI {
 					return;
 
 				try {
-					BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+					bool forceSoftware = parseResult.GetValue(softwareRenderingOption);
+					bool forceHardware = parseResult.GetValue(hardwareRenderingOption);
+					if (forceSoftware && forceHardware)
+						throw new ArgumentException("Only one of --software-rendering and --hardware-rendering may be selected.");
+					bool useSoftware = WindowsStartupRenderRecovery.SelectRenderingMode(forceSoftware, forceHardware, out string reason);
+					App.StartupRenderingMode = reason;
+					BuildAvaloniaApp(useSoftware).StartWithClassicDesktopLifetime(args);
 				}
 				catch (Exception ex) {
 					// WinExe has no visible console on normal launch. Always leave an early-startup
@@ -96,7 +110,7 @@ namespace VDF.GUI {
 			"Noto Sans CJK SC",
 		];
 
-		public static AppBuilder BuildAvaloniaApp() {
+		public static AppBuilder BuildAvaloniaApp(bool softwareRendering = false) {
 			var builder = AppBuilder.Configure<App>()
 				.UsePlatformDetect()
 				.With(new X11PlatformOptions { UseDBusFilePicker = false });
@@ -108,6 +122,15 @@ namespace VDF.GUI {
 			// chains platform-specific so Windows never probes macOS-only faces (an older
 			// cross-platform chain was associated with machine-specific startup failures).
 			if (OperatingSystem.IsWindows()) {
+				// Native SkiaSharp/ANGLE crashes on some Win10 remote/virtual display setups.
+				// Only force the conservative redirection + CPU rendering path after a
+				// pre-window startup crash, or when the user explicitly requests it.
+				// Do not slow down unaffected machines by default.
+				if (softwareRendering)
+					builder = builder.With(new Win32PlatformOptions {
+						RenderingMode = [Win32RenderingMode.Software],
+						CompositionMode = [Win32CompositionMode.RedirectionSurface],
+					});
 				builder = builder.With(new FontManagerOptions {
 					FontFallbacks = WindowsCjkFallbackFamilies
 						.Select(name => new FontFallback { FontFamily = new FontFamily(name) })
