@@ -158,8 +158,7 @@ namespace VDF.GUI.ViewModels {
 		public bool IsSimilarityFilterActive => FilterSimilarityFrom != 0 || FilterSimilarityTo != 100;
 
 		public ReactiveCommand<Unit, Unit> ApplyPathFilterCommand => ReactiveCommand.Create(() => {
-			string path = DraftFilterByPath.Trim();
-			DraftFilterByPath = path;
+			string path = DraftFilterByPath;
 			if (path == FilterByPath) return;
 			FilterByPath = path;
 			RebuildSearchPathIndex();
