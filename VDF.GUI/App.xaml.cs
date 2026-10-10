@@ -29,6 +29,7 @@ using VDF.GUI.Views;
 namespace VDF.GUI {
 	public class App : Application {
 		public static LanguageService Lang { get; } = new();
+		internal static string StartupRenderingMode { get; set; } = "default hardware";
 		static readonly object startupTraceLock = new();
 
 		static void TraceStartup(string phase, bool reset = false) {
@@ -79,6 +80,7 @@ namespace VDF.GUI {
 
 		public override void Initialize() {
 			TraceStartup("App.Initialize begin", reset: true);
+			TraceStartup($"Rendering backend selected: {StartupRenderingMode}");
 			// Product default is Simplified Chinese. A user-selected language can still
 			// replace CurrentLanguage later through Settings; fresh installs start here.
 			Lang.LoadLanguage(SettingsFile.DefaultLanguageCode);

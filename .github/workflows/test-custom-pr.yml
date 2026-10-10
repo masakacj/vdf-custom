@@ -62,27 +62,58 @@ jobs:
         shell: pwsh
         run: .\artifacts\Updater-aot\VDF.Updater.exe --help --no-pause
 
-      - name: Smoke test English and Simplified Chinese startup
+      - name: Smoke test English/Chinese normal and software-rendered startup
         shell: pwsh
         run: |
-          $exe = (Resolve-Path '.\artifacts\GUI-aot\VDF.GUI.exe').Path
+          $exe = (Resolve-Path '.\\artifacts\\GUI-aot\\VDF.GUI.exe').Path
+          $trace = Join-Path (Split-Path $exe) 'startup-trace.txt'
 
-          function Assert-GuiStaysAlive([string]$language, [string]$suffix) {
+          function Assert-GuiOpensWindow([string]$language, [string]$suffix, [bool]$software) {
             $settings = Join-Path $env:RUNNER_TEMP "vdf-startup-$suffix.json"
             $json = @{ LanguageCode = $language; WelcomeStripDismissed = $true } | ConvertTo-Json -Compress
             [IO.File]::WriteAllText($settings, $json, [Text.UTF8Encoding]::new($false))
-
-            Write-Host "Launching $language with settings $settings"
-            $p = Start-Process -FilePath $exe -ArgumentList @('--settings', ('"' + $settings + '"')) -PassThru
-            Start-Sleep -Seconds 8
-            $p.Refresh()
-            if ($p.HasExited) {
-              throw "GUI exited during $language startup smoke test. ExitCode=$($p.ExitCode)"
+            Remove-Item -LiteralPath $trace -ErrorAction SilentlyContinue
+            $argsForGui = @('--settings', ('"' + $settings + '"'))
+            if ($software) { $argsForGui += '--software-rendering' }
+            Write-Host "Launching $language software=$software with settings $settings"
+            $p = Start-Process -FilePath $exe -ArgumentList $argsForGui -PassThru
+            try {
+              $opened = $false
+              for ($attempt = 0; $attempt -lt 20; $attempt++) {
+                Start-Sleep -Seconds 1
+                $p.Refresh()
+                if ($p.HasExited) {
+                  throw "GUI exited before opening a window ($language software=$software). ExitCode=$($p.ExitCode)"
+                }
+                if ((Test-Path -LiteralPath $trace) -and
+                    ((Get-Content -LiteralPath $trace -Raw) -match 'MainWindow Opened')) {
+                  $opened = $true
+                  break
+                }
+              }
+              if (-not $opened) {
+                $tail = if (Test-Path $trace) { Get-Content $trace -Tail 20 | Out-String } else { 'no startup trace' }
+                throw "GUI did not open its main window ($language software=$software). $tail"
+              }
+              if ($software -and -not ((Get-Content $trace -Raw) -match 'Rendering backend selected: software')) {
+                throw 'Software rendering override was ignored.'
+              }
             }
-
-            Stop-Process -Id $p.Id -Force
-            Wait-Process -Id $p.Id -ErrorAction SilentlyContinue
+            finally {
+              $p.Refresh()
+              if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+              Wait-Process -Id $p.Id -ErrorAction SilentlyContinue
+            }
           }
 
-          Assert-GuiStaysAlive 'en' 'en'
-          Assert-GuiStaysAlive 'zh-Hans' 'zh-Hans'
+          Assert-GuiOpensWindow 'en' 'en' $false
+          Assert-GuiOpensWindow 'zh-Hans' 'zh-Hans' $false
+          Assert-GuiOpensWindow 'en' 'en-software' $true
+
+      - name: Upload PR GUI AOT for real-device graphics verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: vdf-pr-gui-aot
+          path: artifacts/GUI-aot/**
+          if-no-files-found: error
+          retention-days: 3
