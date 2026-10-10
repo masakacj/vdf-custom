@@ -1,7 +1,6 @@
 // Regression: both result toolbar filters must stay inert while editing,
 // apply the *current* control value on click, and clear via the × action.
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Headless;
 using Avalonia.Interactivity;
 using VDF.Core;
@@ -61,12 +60,12 @@ public class ResultsFilterApplyUiTests {
                 path.Text = "Season 01";
                 Assert.Equal(string.Empty, vm.FilterByPath);
                 Assert.Equal(2, GroupCount()); // editing is inert
-                applyPath.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, applyPath));
+                applyPath.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, applyPath));
                 Assert.Equal("Season 01", vm.FilterByPath);
                 Assert.Equal(1, GroupCount());
                 path.Text = "Season 02";
                 Assert.Equal(1, GroupCount()); // still using committed Season 01
-                clearPath.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, clearPath));
+                clearPath.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, clearPath));
                 Assert.Equal(string.Empty, vm.FilterByPath);
                 Assert.Equal(string.Empty, path.Text);
                 Assert.Equal(2, GroupCount());
@@ -80,11 +79,11 @@ public class ResultsFilterApplyUiTests {
                 Assert.Equal(0, vm.FilterSimilarityFrom);
                 Assert.Equal(100, vm.FilterSimilarityTo);
                 Assert.Equal(2, GroupCount()); // editing is inert
-                applySimilarity.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, applySimilarity));
+                applySimilarity.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, applySimilarity));
                 Assert.Equal(97, vm.FilterSimilarityFrom);
                 Assert.Equal(98, vm.FilterSimilarityTo);
                 Assert.Equal(1, GroupCount());
-                clearSimilarity.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, clearSimilarity));
+                clearSimilarity.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, clearSimilarity));
                 Assert.Equal(0, vm.FilterSimilarityFrom);
                 Assert.Equal(100, vm.FilterSimilarityTo);
                 Assert.Equal(0m, from.Value);
