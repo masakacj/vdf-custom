@@ -60,12 +60,42 @@ namespace VDF.GUI.Views {
 			}).ToList();
 		}
 
+		// Read the toolbar controls on explicit clicks, not via live VM bindings.
+		// This also commits a value if a text field is still focused.
+		void OnApplyPathFilterClicked(object? sender, RoutedEventArgs e) {
+			if (ViewModel is MainWindowVM vm)
+				vm.ApplyPathFilter(this.FindControl<TextBox>("ResultsPathFilterInput")!.Text);
+		}
+
+		void OnClearPathFilterClicked(object? sender, RoutedEventArgs e) {
+			this.FindControl<TextBox>("ResultsPathFilterInput")!.Text = string.Empty;
+			ViewModel?.ClearPathFilter();
+		}
+
+		void OnApplySimilarityFilterClicked(object? sender, RoutedEventArgs e) {
+			if (ViewModel is not MainWindowVM vm) return;
+			var from = this.FindControl<NumericUpDown>("ResultsSimilarityFromInput")!;
+			var to = this.FindControl<NumericUpDown>("ResultsSimilarityToInput")!;
+			vm.ApplySimilarityFilter((int)(from.Value ?? 0m), (int)(to.Value ?? 100m));
+		}
+
+		void OnClearSimilarityFilterClicked(object? sender, RoutedEventArgs e) {
+			this.FindControl<NumericUpDown>("ResultsSimilarityFromInput")!.Value = 0m;
+			this.FindControl<NumericUpDown>("ResultsSimilarityToInput")!.Value = 100m;
+			ViewModel?.ClearSimilarityFilter();
+		}
+
 		ListBox ResultsListControl => this.FindControl<ListBox>("ResultsList")!;
 		internal ListBox ShortcutTarget => ResultsListControl;
 		MainWindowVM? ViewModel => DataContext as MainWindowVM;
 
 		void WireViewModel() {
 			if (ViewModel is not MainWindowVM vm) return;
+			// The editor controls have no live filter binding. Initialize them only
+			// when the view receives a VM, not on each keystroke.
+			this.FindControl<TextBox>("ResultsPathFilterInput")!.Text = vm.FilterByPath;
+			this.FindControl<NumericUpDown>("ResultsSimilarityFromInput")!.Value = vm.FilterSimilarityFrom;
+			this.FindControl<NumericUpDown>("ResultsSimilarityToInput")!.Value = vm.FilterSimilarityTo;
 			vm.NewResultsSelectionProvider = () =>
 				ResultsListControl.SelectedItems?.OfType<ResultsItemRow>().Select(r => r.Item).ToList() ?? new();
 			vm.NewResultsSelectAndScrollTo = row => {

@@ -15,7 +15,6 @@
 //
 
 using System.ComponentModel;
-using System.Reactive;
 using System.Linq;
 using System.Threading;
 using Avalonia.Collections;
@@ -105,14 +104,8 @@ namespace VDF.GUI.ViewModels {
 		/// </summary>
 		internal static string EscapeWildcardBackslashes(string pattern) => pattern.Replace("\\", "\\\\");
 
-		// Editing the toolbar controls must not rebuild the result list. Only the
-		// explicit Apply/Clear actions copy draft values into the active filters.
-		string _DraftFilterByPath = string.Empty;
-		public string DraftFilterByPath {
-			get => _DraftFilterByPath;
-			set => this.RaiseAndSetIfChanged(ref _DraftFilterByPath, value ?? string.Empty);
-		}
-
+		// These are the committed filter values. Toolbar editors have no binding
+		// to them; explicit button clicks apply/clear the conditions atomically.
 		string _FilterByPath = string.Empty;
 		public string FilterByPath {
 			get => _FilterByPath;
@@ -124,18 +117,6 @@ namespace VDF.GUI.ViewModels {
 			}
 		}
 		public bool IsPathFilterActive => !string.IsNullOrEmpty(FilterByPath);
-
-		int _DraftFilterSimilarityFrom;
-		public int DraftFilterSimilarityFrom {
-			get => _DraftFilterSimilarityFrom;
-			set => this.RaiseAndSetIfChanged(ref _DraftFilterSimilarityFrom, value);
-		}
-
-		int _DraftFilterSimilarityTo = 100;
-		public int DraftFilterSimilarityTo {
-			get => _DraftFilterSimilarityTo;
-			set => this.RaiseAndSetIfChanged(ref _DraftFilterSimilarityTo, value);
-		}
 
 		int _FilterSimilarityFrom;
 		public int FilterSimilarityFrom {
@@ -157,39 +138,30 @@ namespace VDF.GUI.ViewModels {
 		}
 		public bool IsSimilarityFilterActive => FilterSimilarityFrom != 0 || FilterSimilarityTo != 100;
 
-		public ReactiveCommand<Unit, Unit> ApplyPathFilterCommand => ReactiveCommand.Create(() => {
-			string path = DraftFilterByPath;
+		// Do not bind the editor's text/value to filter properties: a click must
+		// consume the *current* control value without relying on two-way binding
+		// propagation or transient ReactiveCommand properties.
+		internal void ApplyPathFilter(string? path) {
+			path ??= string.Empty;
 			if (path == FilterByPath) return;
 			FilterByPath = path;
 			RebuildSearchPathIndex();
 			RefreshResultsView();
-		});
+		}
 
-		public ReactiveCommand<Unit, Unit> ClearPathFilterCommand => ReactiveCommand.Create(() => {
-			DraftFilterByPath = string.Empty;
-			if (!IsPathFilterActive) return;
-			FilterByPath = string.Empty;
-			RebuildSearchPathIndex();
-			RefreshResultsView();
-		});
+		internal void ClearPathFilter() => ApplyPathFilter(string.Empty);
 
-		public ReactiveCommand<Unit, Unit> ApplySimilarityFilterCommand => ReactiveCommand.Create(() => {
-			if (DraftFilterSimilarityFrom == FilterSimilarityFrom && DraftFilterSimilarityTo == FilterSimilarityTo) return;
-			FilterSimilarityFrom = DraftFilterSimilarityFrom;
-			FilterSimilarityTo = DraftFilterSimilarityTo;
+		internal void ApplySimilarityFilter(int from, int to) {
+			from = Math.Clamp(from, 0, 100);
+			to = Math.Clamp(to, 0, 100);
+			if (from == FilterSimilarityFrom && to == FilterSimilarityTo) return;
+			FilterSimilarityFrom = from;
+			FilterSimilarityTo = to;
 			RequestFilterResultsRefresh();
 			RefreshResultsView();
-		});
+		}
 
-		public ReactiveCommand<Unit, Unit> ClearSimilarityFilterCommand => ReactiveCommand.Create(() => {
-			DraftFilterSimilarityFrom = 0;
-			DraftFilterSimilarityTo = 100;
-			if (!IsSimilarityFilterActive) return;
-			FilterSimilarityFrom = 0;
-			FilterSimilarityTo = 100;
-			RequestFilterResultsRefresh();
-			RefreshResultsView();
-		});
+		internal void ClearSimilarityFilter() => ApplySimilarityFilter(0, 100);
 
 		/// <summary>The results filter; the view exposes it as always-active toolbar chips.</summary>
 		internal bool DuplicatesFilterCore(DuplicateItemVM data) {
