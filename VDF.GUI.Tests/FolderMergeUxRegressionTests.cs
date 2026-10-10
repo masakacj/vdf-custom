@@ -146,8 +146,9 @@ public class FolderMergeUxRegressionTests {
         Assert.Contains("AppendFolderGroupedRows", resourceCode, StringComparison.Ordinal);
         Assert.Contains("output.Add(new ResourceFolderContentHeader", resourceCode, StringComparison.Ordinal);
         Assert.DoesNotContain("AppendCanonicalGroup", resourceCode, StringComparison.Ordinal);
-        Assert.Contains("var groups = Duplicates", resultCode, StringComparison.Ordinal);
-        Assert.Contains(".GroupBy(item => item.ItemInfo.GroupId)", resultCode, StringComparison.Ordinal);
+        // Canonical groups now come from ResultsListBuilder, not inline GroupBy.
+        Assert.Contains("ResultsListBuilder.Build(new ResultsBuildRequest", resultCode, StringComparison.Ordinal);
+        Assert.Contains("ResourceResultsBuilder.Build(result.Groups", resultCode, StringComparison.Ordinal);
     }
 
     [Fact]
