@@ -309,10 +309,10 @@
             Width="110" FontSize="12"
             FormatString="\{0\}%" Maximum="100" Minimum="0"
             Value="100" />
-        <Button Classes="toolbar-action" Margin="5,0,0,0"
+        <Button x:Name="ResultsSimilarityApplyButton" Classes="toolbar-action" Margin="5,0,0,0"
                 Click="OnApplySimilarityFilterClicked"
                 Content="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Apply]}" />
-        <Button Classes="chip" Margin="4,0,0,0" Content="✕"
+        <Button x:Name="ResultsSimilarityClearButton" Classes="chip" Margin="4,0,0,0" Content="✕"
                 IsVisible="{Binding IsSimilarityFilterActive}"
                 Click="OnClearSimilarityFilterClicked"
                 ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Clear]}" />
@@ -404,10 +404,10 @@
             MinWidth="230" FontSize="12"
             PlaceholderText="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Path]}"
             ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.PathNote]}" />
-        <Button Classes="toolbar-action" Margin="5,0,0,0"
+        <Button x:Name="ResultsPathApplyButton" Classes="toolbar-action" Margin="5,0,0,0"
                 Click="OnApplyPathFilterClicked"
                 Content="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Apply]}" />
-        <Button Classes="chip" Margin="4,0,0,0" Content="✕"
+        <Button x:Name="ResultsPathClearButton" Classes="chip" Margin="4,0,0,0" Content="✕"
                 IsVisible="{Binding IsPathFilterActive}"
                 Click="OnClearPathFilterClicked"
                 ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Clear]}" />
