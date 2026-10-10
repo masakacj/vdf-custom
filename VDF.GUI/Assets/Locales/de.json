@@ -218,6 +218,8 @@
 	"MainWindow.Database.RelocateFiles": "Dateien neu verknüpfen",
 	"MainWindow.EmptyState.Subtitle": "Klicken Sie in der Toolbar auf „Scannen“, um zu beginnen.",
 	"MainWindow.EmptyState.Title": "Bitte starten Sie Ihren ersten Scan",
+	"MainWindow.Filter.Apply": "Anwenden",
+	"MainWindow.Filter.Clear": "Filter entfernen",
 	"MainWindow.Filter.GroupsWithCheckedItems": "Nur Gruppen mit ausgewählten Elementen",
 	"MainWindow.Filter.Path": "Pfad:",
 	"MainWindow.Filter.PathNote": "Hinweis: Wenn nur ein Element einer Gruppe passt, werden alle Gruppenelemente angezeigt",

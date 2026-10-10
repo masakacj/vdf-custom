@@ -15,6 +15,7 @@
 //
 
 using System.ComponentModel;
+using System.Reactive;
 using System.Linq;
 using System.Threading;
 using Avalonia.Collections;
@@ -104,35 +105,91 @@ namespace VDF.GUI.ViewModels {
 		/// </summary>
 		internal static string EscapeWildcardBackslashes(string pattern) => pattern.Replace("\\", "\\\\");
 
+		// Editing the toolbar controls must not rebuild the result list. Only the
+		// explicit Apply/Clear actions copy draft values into the active filters.
+		string _DraftFilterByPath = string.Empty;
+		public string DraftFilterByPath {
+			get => _DraftFilterByPath;
+			set => this.RaiseAndSetIfChanged(ref _DraftFilterByPath, value ?? string.Empty);
+		}
+
 		string _FilterByPath = string.Empty;
 		public string FilterByPath {
 			get => _FilterByPath;
-			set {
+			private set {
 				if (value == _FilterByPath) return;
 				_FilterByPath = value;
 				this.RaisePropertyChanged(nameof(FilterByPath));
+				this.RaisePropertyChanged(nameof(IsPathFilterActive));
 			}
 		}
-		int _FilterSimilarityFrom = 0;
+		public bool IsPathFilterActive => !string.IsNullOrEmpty(FilterByPath);
+
+		int _DraftFilterSimilarityFrom;
+		public int DraftFilterSimilarityFrom {
+			get => _DraftFilterSimilarityFrom;
+			set => this.RaiseAndSetIfChanged(ref _DraftFilterSimilarityFrom, value);
+		}
+
+		int _DraftFilterSimilarityTo = 100;
+		public int DraftFilterSimilarityTo {
+			get => _DraftFilterSimilarityTo;
+			set => this.RaiseAndSetIfChanged(ref _DraftFilterSimilarityTo, value);
+		}
+
+		int _FilterSimilarityFrom;
 		public int FilterSimilarityFrom {
 			get => _FilterSimilarityFrom;
-			set {
+			private set {
 				if (value == _FilterSimilarityFrom) return;
 				this.RaiseAndSetIfChanged(ref _FilterSimilarityFrom, value);
-				RequestFilterResultsRefresh();
-				RefreshResultsView();
+				this.RaisePropertyChanged(nameof(IsSimilarityFilterActive));
 			}
 		}
 		int _FilterSimilarityTo = 100;
 		public int FilterSimilarityTo {
 			get => _FilterSimilarityTo;
-			set {
+			private set {
 				if (value == _FilterSimilarityTo) return;
 				this.RaiseAndSetIfChanged(ref _FilterSimilarityTo, value);
-				RequestFilterResultsRefresh();
-				RefreshResultsView();
+				this.RaisePropertyChanged(nameof(IsSimilarityFilterActive));
 			}
 		}
+		public bool IsSimilarityFilterActive => FilterSimilarityFrom != 0 || FilterSimilarityTo != 100;
+
+		public ReactiveCommand<Unit, Unit> ApplyPathFilterCommand => ReactiveCommand.Create(() => {
+			string path = DraftFilterByPath;
+			if (path == FilterByPath) return;
+			FilterByPath = path;
+			RebuildSearchPathIndex();
+			RefreshResultsView();
+		});
+
+		public ReactiveCommand<Unit, Unit> ClearPathFilterCommand => ReactiveCommand.Create(() => {
+			DraftFilterByPath = string.Empty;
+			if (!IsPathFilterActive) return;
+			FilterByPath = string.Empty;
+			RebuildSearchPathIndex();
+			RefreshResultsView();
+		});
+
+		public ReactiveCommand<Unit, Unit> ApplySimilarityFilterCommand => ReactiveCommand.Create(() => {
+			if (DraftFilterSimilarityFrom == FilterSimilarityFrom && DraftFilterSimilarityTo == FilterSimilarityTo) return;
+			FilterSimilarityFrom = DraftFilterSimilarityFrom;
+			FilterSimilarityTo = DraftFilterSimilarityTo;
+			RequestFilterResultsRefresh();
+			RefreshResultsView();
+		});
+
+		public ReactiveCommand<Unit, Unit> ClearSimilarityFilterCommand => ReactiveCommand.Create(() => {
+			DraftFilterSimilarityFrom = 0;
+			DraftFilterSimilarityTo = 100;
+			if (!IsSimilarityFilterActive) return;
+			FilterSimilarityFrom = 0;
+			FilterSimilarityTo = 100;
+			RequestFilterResultsRefresh();
+			RefreshResultsView();
+		});
 
 		/// <summary>The results filter; the view exposes it as always-active toolbar chips.</summary>
 		internal bool DuplicatesFilterCore(DuplicateItemVM data) {

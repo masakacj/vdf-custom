@@ -302,13 +302,20 @@
         <NumericUpDown
             Width="110" FontSize="12"
             FormatString="\{0\}%" Maximum="100" Minimum="0"
-            Value="{Binding FilterSimilarityFrom}" />
+            Value="{Binding DraftFilterSimilarityFrom, Mode=TwoWay}" />
         <TextBlock Margin="4,0" VerticalAlignment="Center" FontSize="12"
                    Text="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.To]}" />
         <NumericUpDown
             Width="110" FontSize="12"
             FormatString="\{0\}%" Maximum="100" Minimum="0"
-            Value="{Binding FilterSimilarityTo}" />
+            Value="{Binding DraftFilterSimilarityTo, Mode=TwoWay}" />
+        <Button Classes="toolbar-action" Margin="5,0,0,0"
+                Command="{Binding ApplySimilarityFilterCommand}"
+                Content="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Apply]}" />
+        <Button Classes="chip" Margin="4,0,0,0" Content="✕"
+                IsVisible="{Binding IsSimilarityFilterActive}"
+                Command="{Binding ClearSimilarityFilterCommand}"
+                ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Clear]}" />
         <ToggleButton
             Classes="chip"
             Margin="10,0,0,0"
@@ -395,9 +402,16 @@
         <Border Width="1" Height="20" Margin="10,0" Background="{actipro:ThemeResource Container3BorderBrush}" />
         <TextBox
             MinWidth="230" FontSize="12"
-            Text="{Binding FilterByPath}"
+            Text="{Binding DraftFilterByPath, Mode=TwoWay}"
             PlaceholderText="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Path]}"
             ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.PathNote]}" />
+        <Button Classes="toolbar-action" Margin="5,0,0,0"
+                Command="{Binding ApplyPathFilterCommand}"
+                Content="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Apply]}" />
+        <Button Classes="chip" Margin="4,0,0,0" Content="✕"
+                IsVisible="{Binding IsPathFilterActive}"
+                Command="{Binding ClearPathFilterCommand}"
+                ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Clear]}" />
         <ToggleButton
             Classes="chip"
             Margin="10,0,0,0"

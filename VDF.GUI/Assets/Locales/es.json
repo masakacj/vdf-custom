@@ -218,6 +218,8 @@
 	"MainWindow.Database.RelocateFiles": "Reubicar archivos",
 	"MainWindow.EmptyState.Subtitle": "Haz clic en “Escanear” en la barra de herramientas para comenzar.",
 	"MainWindow.EmptyState.Title": "Por favor inicia tu primer escaneo",
+	"MainWindow.Filter.Apply": "Aplicar",
+	"MainWindow.Filter.Clear": "Quitar filtro",
 	"MainWindow.Filter.GroupsWithCheckedItems": "Solo grupos con elementos seleccionados",
 	"MainWindow.Filter.Path": "Ruta:",
 	"MainWindow.Filter.PathNote": "Nota: si solo un elemento de un grupo coincide, se mostrarán todos los elementos del grupo",

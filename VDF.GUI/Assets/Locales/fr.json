@@ -218,6 +218,8 @@
 	"MainWindow.Database.RelocateFiles": "Relocaliser les fichiers",
 	"MainWindow.EmptyState.Subtitle": "Cliquez sur « Analyser » dans la barre d'outils pour commencer.",
 	"MainWindow.EmptyState.Title": "Veuillez lancer votre première analyse",
+	"MainWindow.Filter.Apply": "Appliquer",
+	"MainWindow.Filter.Clear": "Effacer le filtre",
 	"MainWindow.Filter.GroupsWithCheckedItems": "Uniquement les groupes avec des éléments sélectionnés",
 	"MainWindow.Filter.Path": "Chemin :",
 	"MainWindow.Filter.PathNote": "Note : si un seul élément d'un groupe correspond, tous les éléments du groupe seront affichés",
