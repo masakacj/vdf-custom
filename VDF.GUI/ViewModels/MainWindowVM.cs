@@ -432,10 +432,6 @@ namespace VDF.GUI.ViewModels {
 			scheduledScanTimer.Start();
 			CheckScheduledScan();
 
-			this.WhenAnyValue(vm => vm.FilterByPath)
-					.Throttle(TimeSpan.FromMilliseconds(500), RxSchedulers.MainThreadScheduler)
-						.Subscribe(_ => { RebuildSearchPathIndex(); RefreshResultsView(); });
-
 			SettingsFile.Instance.PropertyChanged += (_, e) => {
 				if (e.PropertyName == nameof(SettingsFile.EnablePartialClipDetection))
 					this.RaisePropertyChanged(nameof(ResultsShowClipOffsetColumn));
