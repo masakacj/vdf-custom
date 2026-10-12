@@ -79,9 +79,11 @@ namespace VDF.GUI {
                     string filename = Path.Combine(path, name);
                     if (!File.Exists(filename))
                         continue;
-                    // The stream overload creates a memory/file-backed Skia
-                    // typeface, bypassing SkDWriteFontFileStream entirely.
-                    using var stream = File.OpenRead(filename);
+                    // Use private, memory-backed bytes; never hand a native
+                    // typeface a DirectWrite font-file handle. SKTypeface
+                    // FromStream TAKES OWNERSHIP of the managed Stream, so do
+                    // not dispose it here (or later native reads may crash).
+                    var stream = new MemoryStream(File.ReadAllBytes(filename), writable: false);
                     if (fonts.TryAddGlyphTypeface(stream, out GlyphTypeface? face))
                         loaded.Add(face.FamilyName);
                 }
