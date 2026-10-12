@@ -30,6 +30,7 @@ namespace VDF.GUI {
 	public class App : Application {
 		public static LanguageService Lang { get; } = new();
 		internal static string StartupRenderingMode { get; set; } = "default hardware";
+		internal static bool SafeWindowsFontsEnabled { get; set; } = false;
 		static readonly object startupTraceLock = new();
 
 		static void TraceStartup(string phase, bool reset = false) {
@@ -130,6 +131,20 @@ namespace VDF.GUI {
 						TraceStartup($"Lifetime Startup MainWindow show failed: {ex.GetType().Name}: {ex.Message}");
 					}
 				};
+
+				// A pre-window native Skia crash cannot be caught by .NET. Install
+				// a memory-stream-backed font collection BEFORE showing the first
+				// control, so Skia avoids the failing DirectWrite file stream.
+				if (SafeWindowsFontsEnabled) {
+					TraceStartup("Registering memory-backed Windows fonts");
+					try {
+						TraceStartup("Memory-backed Windows fonts ready: " + WindowsSafeFonts.Register());
+					}
+					catch (Exception ex) {
+						TraceStartup("Memory-backed font registration failed: " + ex);
+						throw;
+					}
+				}
 
 				TraceStartup("Constructing MainWindow");
 				var window = new MainWindow();
