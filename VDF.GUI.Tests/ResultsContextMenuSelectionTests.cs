@@ -446,7 +446,7 @@ public class ResultsContextMenuSelectionTests {
 		}
 
 		if (session != null) {
-			await session.Dispatch(Run);
+			await session.Dispatch(Run, CancellationToken.None);
 		} else {
 			Run();
 		}
@@ -498,7 +498,7 @@ public class ResultsContextMenuSelectionTests {
 		}
 
 		if (session != null) {
-			await session.Dispatch(Run);
+			await session.Dispatch(Run, CancellationToken.None);
 		} else {
 			Run();
 		}
