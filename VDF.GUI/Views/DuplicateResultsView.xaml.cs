@@ -29,10 +29,14 @@ using VDF.GUI.ViewModels;
 
 namespace VDF.GUI.Views {
 	public partial class DuplicateResultsView : UserControl {
-		const string ConsolidateMenuTag = "vdf-single-resource-consolidate";
-		const string GroupMergeMenuTag = "vdf-group-merge";
-		const string CheckFolderHitsMenuTag = "vdf-check-folder-hits";
-		const string CheckOtherFolderGroupHitsMenuTag = "vdf-check-other-folder-group-hits";
+		internal const string ConsolidateMenuTag = "vdf-single-resource-consolidate";
+		internal const string GroupMergeMenuTag = "vdf-group-merge";
+		internal const string CheckFolderHitsMenuTag = "vdf-check-folder-hits";
+		internal const string CheckOtherFolderGroupHitsMenuTag = "vdf-check-other-folder-group-hits";
+		internal const string SelectOtherFolderSharedGroupHitsMenuTag = "vdf-select-other-folder-shared-group-hits";
+		internal const string SelectSameFolderSharedGroupHitsMenuTag = "vdf-select-same-folder-shared-group-hits";
+		internal const string SelectSameGroupOtherHitsMenuTag = "vdf-select-same-group-other-hits";
+		internal const string BulkCheckSeparatorTag = "vdf-bulk-check-separator";
 		long scrollRestoreGeneration;
 
 		public DuplicateResultsView() {
@@ -191,24 +195,63 @@ namespace VDF.GUI.Views {
 			if (ViewModel is not MainWindowVM vm) return;
 			ContextMenu? menu = FindContextMenu(source);
 			if (menu == null) return;
+			EnsureBulkCheckMenu(menu, vm, row);
+		}
 
+		internal static void EnsureBulkCheckMenu(ContextMenu menu, MainWindowVM vm, ResultsItemRow row) {
 			MenuItem? folderItem = menu.Items.OfType<MenuItem>()
 				.FirstOrDefault(item => Equals(item.Tag, CheckFolderHitsMenuTag));
 			MenuItem? otherFolderItem = menu.Items.OfType<MenuItem>()
 				.FirstOrDefault(item => Equals(item.Tag, CheckOtherFolderGroupHitsMenuTag));
-			if (folderItem == null || otherFolderItem == null) {
-				menu.Items.Insert(0, new Separator());
+			MenuItem? otherFolderSharedItem = menu.Items.OfType<MenuItem>()
+				.FirstOrDefault(item => Equals(item.Tag, SelectOtherFolderSharedGroupHitsMenuTag));
+			MenuItem? sameFolderSharedItem = menu.Items.OfType<MenuItem>()
+				.FirstOrDefault(item => Equals(item.Tag, SelectSameFolderSharedGroupHitsMenuTag));
+			MenuItem? sameGroupOtherItem = menu.Items.OfType<MenuItem>()
+				.FirstOrDefault(item => Equals(item.Tag, SelectSameGroupOtherHitsMenuTag));
+
+			if (folderItem == null || otherFolderItem == null || otherFolderSharedItem == null ||
+			    sameFolderSharedItem == null || sameGroupOtherItem == null) {
+				if (folderItem != null) menu.Items.Remove(folderItem);
+				if (otherFolderItem != null) menu.Items.Remove(otherFolderItem);
+				if (otherFolderSharedItem != null) menu.Items.Remove(otherFolderSharedItem);
+				if (sameFolderSharedItem != null) menu.Items.Remove(sameFolderSharedItem);
+				if (sameGroupOtherItem != null) menu.Items.Remove(sameGroupOtherItem);
+				var oldSep = menu.Items.OfType<Separator>().FirstOrDefault(s => Equals(s.Tag, BulkCheckSeparatorTag));
+				if (oldSep != null) menu.Items.Remove(oldSep);
+
+				var separator = new Separator { Tag = BulkCheckSeparatorTag };
+				sameGroupOtherItem = new MenuItem {
+					Header = "选择组内其他",
+					Tag = SelectSameGroupOtherHitsMenuTag,
+					Command = vm.SelectSameGroupOtherHitsCommand,
+				};
+				sameFolderSharedItem = new MenuItem {
+					Header = "选择此文件夹中与其他路径相同的文件",
+					Tag = SelectSameFolderSharedGroupHitsMenuTag,
+					Command = vm.SelectSameFolderSharedGroupHitsCommand,
+				};
+				otherFolderSharedItem = new MenuItem {
+					Header = "选择其他路径与此文件夹中项目相同的文件",
+					Tag = SelectOtherFolderSharedGroupHitsMenuTag,
+					Command = vm.SelectOtherFolderSharedGroupHitsCommand,
+				};
 				otherFolderItem = new MenuItem {
 					Header = "勾选其他文件夹中与此文件同组的命中文件",
 					Tag = CheckOtherFolderGroupHitsMenuTag,
 					Command = vm.CheckOtherFolderGroupHitsCommand,
 				};
-				menu.Items.Insert(0, otherFolderItem);
 				folderItem = new MenuItem {
 					Header = "勾选此文件夹下所有命中文件",
 					Tag = CheckFolderHitsMenuTag,
 					Command = vm.CheckFolderResultHitsCommand,
 				};
+
+				menu.Items.Insert(0, separator);
+				menu.Items.Insert(0, sameGroupOtherItem);
+				menu.Items.Insert(0, sameFolderSharedItem);
+				menu.Items.Insert(0, otherFolderSharedItem);
+				menu.Items.Insert(0, otherFolderItem);
 				menu.Items.Insert(0, folderItem);
 			}
 
@@ -216,6 +259,9 @@ namespace VDF.GUI.Views {
 			// parameter on every right click rather than capturing the first row forever.
 			folderItem.CommandParameter = row.Item;
 			otherFolderItem.CommandParameter = row.Item;
+			otherFolderSharedItem.CommandParameter = row.Item;
+			sameFolderSharedItem.CommandParameter = row.Item;
+			sameGroupOtherItem.CommandParameter = row.Item;
 		}
 
 		void EnsureConsolidateMenu(Control source, ResultsGroupHeader group) {
