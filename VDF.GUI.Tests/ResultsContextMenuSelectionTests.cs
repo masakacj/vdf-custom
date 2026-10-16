@@ -14,6 +14,13 @@ using VDF.GUI.Views;
 
 namespace VDF.GUI.Tests;
 
+// These GUI/Headless tests initialize VDF.GUI.App and its process-wide SettingsFile
+// singleton. Prevent parallel execution with SettingsLoadRecoveryTests, which
+// temporarily changes the process-wide settings path during its assertions.
+[CollectionDefinition("ResultsContextUiGlobalState", DisableParallelization = true)]
+public sealed class ResultsContextUiGlobalStateCollection { }
+
+[Collection("ResultsContextUiGlobalState")]
 public class ResultsContextMenuSelectionTests {
 	static DuplicateItemVM CreateItem(string path, Guid groupId, bool isChecked = false) => new() {
 		IsVisibleInFilter = true,
@@ -425,12 +432,12 @@ public class ResultsContextMenuSelectionTests {
 					DuplicateResultsView.SelectSameGroupOtherHitsMenuTag
 				};
 				foreach (string tag in tags)
-					Assert.Single(menu!.Items.OfType<MenuItem>().Where(item => Equals(item.Tag, tag)));
+					Assert.Single(menu!.Items.OfType<MenuItem>(), item => Equals(item.Tag, tag));
 				menu!.Open(border);
 				try {
 					Assert.True(menu.IsOpen);
 					foreach (string tag in tags) {
-						var item = Assert.Single(menu.Items.OfType<MenuItem>().Where(m => Equals(m.Tag, tag)));
+						var item = Assert.Single(menu.Items.OfType<MenuItem>(), m => Equals(m.Tag, tag));
 						Assert.NotNull(item.Command);
 						Assert.Same(clickedRow.Item, item.CommandParameter);
 					}
