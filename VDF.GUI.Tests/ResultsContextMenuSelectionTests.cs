@@ -5,6 +5,7 @@
 
 using Avalonia.Controls;
 using Avalonia.Headless;
+using Avalonia.VisualTree;
 using VDF.Core;
 using VDF.Core.Utils;
 using VDF.Core.ViewModels;
@@ -13,6 +14,13 @@ using VDF.GUI.Views;
 
 namespace VDF.GUI.Tests;
 
+// These GUI/Headless tests initialize VDF.GUI.App and its process-wide SettingsFile
+// singleton. Prevent parallel execution with SettingsLoadRecoveryTests, which
+// temporarily changes the process-wide settings path during its assertions.
+[CollectionDefinition("ResultsContextUiGlobalState", DisableParallelization = true)]
+public sealed class ResultsContextUiGlobalStateCollection { }
+
+[Collection("ResultsContextUiGlobalState")]
 public class ResultsContextMenuSelectionTests {
 	static DuplicateItemVM CreateItem(string path, Guid groupId, bool isChecked = false) => new() {
 		IsVisibleInFilter = true,
@@ -385,6 +393,59 @@ public class ResultsContextMenuSelectionTests {
 
 		Assert.Single(sameGroupHits);
 		Assert.Same(outside1, sameGroupHits[0]);
+	}
+
+
+	// Regression: v4.1.38 created the menu items ONLY during ListBox.PointerPressed.
+	// Routed right-click events can be handled by row containers before reaching that
+	// handler, so the actual file-row context menu appeared without the new actions.
+	// Verify the real DataTemplate menu, not just the C# injection helper.
+	[Fact]
+	public async Task FileRowTemplate_HasVisibleSelectionItems_BeforePointerBubbling() {
+		using var session = HeadlessUnitTestSession.StartNew(typeof(VDF.GUI.App));
+		await session.Dispatch(() => {
+			var vm = new MainWindowVM();
+			Guid group = Guid.NewGuid();
+			var anchor = CreateItem(@"D:\Media\visible.mkv", group);
+			var duplicate = CreateItem(@"E:\Backup\visible-copy.mkv", group);
+			vm.Duplicates.AddRange(new[] { anchor, duplicate });
+			var view = new DuplicateResultsView { DataContext = vm };
+			var window = new Window { Width = 1500, Height = 900, Content = view };
+			try {
+				window.Show();
+				vm.RebuildResultsList();
+				window.UpdateLayout();
+				var list = view.FindControl<ListBox>("ResultsList")!;
+				var border = list.GetVisualDescendants().OfType<Border>()
+					.FirstOrDefault(b => b.Classes.Contains("resultrow")
+					                     && b.DataContext is ResultsItemRow);
+				Assert.NotNull(border);
+				var clickedRow = Assert.IsType<ResultsItemRow>(border!.DataContext);
+				var menu = border.ContextMenu;
+				Assert.NotNull(menu);
+				// The options must ALREADY exist before any PointerPressed handler runs.
+				var tags = new[] {
+					DuplicateResultsView.CheckFolderHitsMenuTag,
+					DuplicateResultsView.CheckOtherFolderGroupHitsMenuTag,
+					DuplicateResultsView.SelectOtherFolderSharedGroupHitsMenuTag,
+					DuplicateResultsView.SelectSameFolderSharedGroupHitsMenuTag,
+					DuplicateResultsView.SelectSameGroupOtherHitsMenuTag
+				};
+				foreach (string tag in tags)
+					Assert.Single(menu!.Items.OfType<MenuItem>(), item => Equals(item.Tag, tag));
+				menu!.Open(border);
+				try {
+					Assert.True(menu.IsOpen);
+					foreach (string tag in tags) {
+						var item = Assert.Single(menu.Items.OfType<MenuItem>(), m => Equals(m.Tag, tag));
+						Assert.NotNull(item.Command);
+						Assert.Same(clickedRow.Item, item.CommandParameter);
+					}
+				}
+				finally { menu.Close(); }
+			}
+			finally { window.Close(); }
+		}, CancellationToken.None);
 	}
 
 	[Fact]
