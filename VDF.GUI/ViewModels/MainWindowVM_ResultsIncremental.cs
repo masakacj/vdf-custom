@@ -40,6 +40,8 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		void ResultsDuplicatesCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) {
+			// Matching file counts reflect changes to the duplicate set, not UI filters.
+			resultsFolderMatchCountsCache = null;
 			if (e.Action == NotifyCollectionChangedAction.Reset) {
 				resultsIncrementalInvalidated = true;
 				resultsDirtyGroupIds.Clear();
