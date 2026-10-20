@@ -180,7 +180,7 @@ namespace VDF.GUI.Views {
 			ResultsListControl.SelectedItem = fileRow;
 		}
 
-		void OnFileResultMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e) {
+		void OnFileResultMenuOpened(object? sender, RoutedEventArgs e) {
 			if (sender is not ContextMenu menu || ViewModel is not MainWindowVM vm) return;
 			if (menu.PlacementTarget?.DataContext is ResultsItemRow row)
 				EnsureBulkCheckMenu(menu, vm, row);
