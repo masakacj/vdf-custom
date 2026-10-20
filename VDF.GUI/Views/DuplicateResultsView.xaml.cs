@@ -182,8 +182,8 @@ namespace VDF.GUI.Views {
 
 		void OnFileResultMenuOpened(object? sender, RoutedEventArgs e) {
 			if (sender is not ContextMenu menu || ViewModel is not MainWindowVM vm) return;
-			if (menu.PlacementTarget?.DataContext is ResultsItemRow row)
-				EnsureBulkCheckMenu(menu, vm, row);
+			var row = menu.PlacementTarget?.DataContext as ResultsItemRow ?? menu.DataContext as ResultsItemRow;
+			if (row != null) EnsureBulkCheckMenu(menu, vm, row);
 		}
 
 		static ContextMenu? FindContextMenu(Control source) {
