@@ -647,7 +647,7 @@
               </MultiBinding>
             </Border.Height>
             <Border.ContextMenu>
-              <ContextMenu Opening="OnFileResultMenuOpening">
+              <ContextMenu Opened="OnFileResultMenuOpened">
                 <MenuItem
                     Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).OpenItemCommand}"
                     CommandParameter="{Binding Item}"
