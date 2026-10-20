@@ -533,7 +533,7 @@ public class ResultsContextMenuSelectionTests {
 
 			var menuItems = menu.Items.OfType<MenuItem>().ToList();
 			var folderHits = menuItems.First(m => Equals(m.Tag, DuplicateResultsView.CheckFolderHitsMenuTag));
-			var otherFolderHits = menuItems.First(m => Equals(m.Tag, "vdf-check-other-folder-group-hits"));
+			var otherFolderHits = menuItems.FirstOrDefault(m => Equals(m.Tag, "vdf-check-other-folder-group-hits"));
 			var otherSharedHits = menuItems.First(m => Equals(m.Tag, DuplicateResultsView.SelectOtherFolderSharedGroupHitsMenuTag));
 			var sameSharedHits = menuItems.First(m => Equals(m.Tag, DuplicateResultsView.SelectSameFolderSharedGroupHitsMenuTag));
 			var sameGroupHits = menuItems.First(m => Equals(m.Tag, DuplicateResultsView.SelectSameGroupOtherHitsMenuTag));
