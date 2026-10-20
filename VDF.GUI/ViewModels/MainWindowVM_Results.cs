@@ -47,6 +47,7 @@ namespace VDF.GUI.ViewModels {
 		bool resultsHavePartialClips;
 		ResultsViewSwitcherRow? resultsViewSwitcher;
 		IReadOnlyDictionary<string, FolderMediaStats>? resultsFolderStatsCache;
+		Dictionary<string, int>? resultsFolderMatchCountsCache;
 
 		/// <summary>
 		/// Stable, fixed-toolbar controller for switching between similarity groups and
@@ -220,6 +221,20 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		void ApplyFolderStats(IReadOnlyList<ResultsGroupHeader> groups) {
+			// Count matching items once for all rows, not during row rendering or
+			// while scrolling. Count from the scan's duplicate set (independent of
+			// temporary result filters); denominator is existing indexed folder stats.
+			if (resultsFolderMatchCountsCache == null) {
+				resultsFolderMatchCountsCache = Duplicates
+					.Where(item => item.ItemInfo != null)
+					.GroupBy(item => NormalizeFolderStatsKey(
+						string.IsNullOrWhiteSpace(item.ItemInfo.Folder)
+							? Path.GetDirectoryName(item.ItemInfo.Path)
+							: item.ItemInfo.Folder),
+						CoreUtils.IsWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal)
+					.ToDictionary(group => group.Key, group => group.Count(),
+						CoreUtils.IsWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+			}
 			if (resultsFolderStatsCache == null) {
 				var folders = Duplicates
 					.Select(item => string.IsNullOrWhiteSpace(item.ItemInfo.Folder)
@@ -237,7 +252,7 @@ namespace VDF.GUI.ViewModels {
 					: row.Item.ItemInfo.Folder;
 				string key = NormalizeFolderStatsKey(folder);
 				row.FolderStatsText = resultsFolderStatsCache.TryGetValue(key, out FolderMediaStats stats) && stats.FileCount > 0
-					? $"{stats.FileCount:N0} 文件 · {stats.TotalBytes.BytesToString()}"
+					? $"匹配 {resultsFolderMatchCountsCache.GetValueOrDefault(key):N0}/{stats.FileCount:N0} 文件 · {stats.TotalBytes.BytesToString()}"
 					: string.Empty;
 			}
 		}
@@ -251,6 +266,7 @@ namespace VDF.GUI.ViewModels {
 
 		void BuildActiveResultsView(bool resetSessionStats = true) {
 			resultsFolderStatsCache = null;
+			resultsFolderMatchCountsCache = null;
 			RunLightweightQualityDiagnostics();
 			RebuildResultsList();
 			if (resetSessionStats)
