@@ -647,7 +647,7 @@
               </MultiBinding>
             </Border.Height>
             <Border.ContextMenu>
-              <ContextMenu>
+              <ContextMenu Opened="OnFileResultMenuOpened">
                 <MenuItem
                     Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).OpenItemCommand}"
                     CommandParameter="{Binding Item}"
@@ -682,15 +682,9 @@
                     Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).CheckFolderResultHitsCommand}"
                     CommandParameter="{Binding Item}" />
                 <MenuItem
-                    Tag="vdf-check-other-folder-group-hits"
-                    Header="勾选其他文件夹中与此文件同组的命中文件"
-                    Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).CheckOtherFolderGroupHitsCommand}"
-                    CommandParameter="{Binding Item}" />
-                <MenuItem
                     Tag="vdf-select-other-folder-shared-group-hits"
-                    Header="选择其他路径与此文件夹中项目相同的文件"
-                    Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).SelectOtherFolderSharedGroupHitsCommand}"
-                    CommandParameter="{Binding Item}" />
+                    Header="选择其他路径与此文件夹相同…"
+                    ToolTip.Tip="选择文件夹层级，勾选选中目录树之外的重复文件" />
                 <MenuItem
                     Tag="vdf-select-same-folder-shared-group-hits"
                     Header="选择此文件夹中与其他路径相同的文件"

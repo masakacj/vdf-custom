@@ -426,20 +426,24 @@ public class ResultsContextMenuSelectionTests {
 				// The options must ALREADY exist before any PointerPressed handler runs.
 				var tags = new[] {
 					DuplicateResultsView.CheckFolderHitsMenuTag,
-					DuplicateResultsView.CheckOtherFolderGroupHitsMenuTag,
+					"vdf-check-other-folder-group-hits",
 					DuplicateResultsView.SelectOtherFolderSharedGroupHitsMenuTag,
 					DuplicateResultsView.SelectSameFolderSharedGroupHitsMenuTag,
 					DuplicateResultsView.SelectSameGroupOtherHitsMenuTag
 				};
-				foreach (string tag in tags)
-					Assert.Single(menu!.Items.OfType<MenuItem>(), item => Equals(item.Tag, tag));
+				foreach (string tag in tags) {
+					if (tag == "vdf-check-other-folder-group-hits") Assert.DoesNotContain(menu!.Items.OfType<MenuItem>(), item => Equals(item.Tag, tag));
+					else Assert.Single(menu!.Items.OfType<MenuItem>(), item => Equals(item.Tag, tag));
+				}
 				menu!.Open(border);
 				try {
 					Assert.True(menu.IsOpen);
 					foreach (string tag in tags) {
+						if (tag == "vdf-check-other-folder-group-hits") continue;
 						var item = Assert.Single(menu.Items.OfType<MenuItem>(), m => Equals(m.Tag, tag));
-						Assert.NotNull(item.Command);
-						Assert.Same(clickedRow.Item, item.CommandParameter);
+						if (tag == DuplicateResultsView.SelectOtherFolderSharedGroupHitsMenuTag)
+							Assert.True(item.Items.Count > 0, $"submenu empty: menu data={menu.DataContext?.GetType().Name}, placement={menu.PlacementTarget?.GetType().Name}, placement data={menu.PlacementTarget?.DataContext?.GetType().Name}, tag={tag}");
+						else { Assert.NotNull(item.Command); Assert.Same(clickedRow.Item, item.CommandParameter); }
 					}
 				}
 				finally { menu.Close(); }
@@ -464,35 +468,35 @@ public class ResultsContextMenuSelectionTests {
 			DuplicateResultsView.EnsureBulkCheckMenu(menu, vm, row1);
 
 			var menuItems = menu.Items.OfType<MenuItem>().ToList();
-			Assert.Equal(6, menuItems.Count); // 5 bulk-check items + 1 preexisting
+			Assert.Equal(5, menuItems.Count); // 4 bulk-check items + 1 preexisting
 
 			var folderHits = menuItems.FirstOrDefault(m => Equals(m.Tag, DuplicateResultsView.CheckFolderHitsMenuTag));
-			var otherFolderHits = menuItems.FirstOrDefault(m => Equals(m.Tag, DuplicateResultsView.CheckOtherFolderGroupHitsMenuTag));
+			var otherFolderHits = menuItems.FirstOrDefault(m => Equals(m.Tag, "vdf-check-other-folder-group-hits"));
 			var otherSharedHits = menuItems.FirstOrDefault(m => Equals(m.Tag, DuplicateResultsView.SelectOtherFolderSharedGroupHitsMenuTag));
 			var sameSharedHits = menuItems.FirstOrDefault(m => Equals(m.Tag, DuplicateResultsView.SelectSameFolderSharedGroupHitsMenuTag));
 			var sameGroupHits = menuItems.FirstOrDefault(m => Equals(m.Tag, DuplicateResultsView.SelectSameGroupOtherHitsMenuTag));
 
 			Assert.NotNull(folderHits);
-			Assert.NotNull(otherFolderHits);
+			Assert.Null(otherFolderHits);
 			Assert.NotNull(otherSharedHits);
 			Assert.NotNull(sameSharedHits);
 			Assert.NotNull(sameGroupHits);
 
 			Assert.Equal("勾选此文件夹下所有命中文件", folderHits!.Header);
-			Assert.Equal("勾选其他文件夹中与此文件同组的命中文件", otherFolderHits!.Header);
-			Assert.Equal("选择其他路径与此文件夹中项目相同的文件", otherSharedHits!.Header);
+			
+			Assert.Equal("选择其他路径与此文件夹相同…", otherSharedHits!.Header);
 			Assert.Equal("选择此文件夹中与其他路径相同的文件", sameSharedHits!.Header);
 			Assert.Equal("选择组内其他", sameGroupHits!.Header);
 
 			Assert.NotNull(folderHits.Command);
-			Assert.NotNull(otherFolderHits.Command);
-			Assert.NotNull(otherSharedHits.Command);
+			
+			Assert.NotEmpty(otherSharedHits.Items);
 			Assert.NotNull(sameSharedHits.Command);
 			Assert.NotNull(sameGroupHits.Command);
 
 			Assert.Same(item1, folderHits.CommandParameter);
-			Assert.Same(item1, otherFolderHits.CommandParameter);
-			Assert.Same(item1, otherSharedHits.CommandParameter);
+			
+			Assert.Equal(MainWindowVM.ResultFolderAncestors(item1), otherSharedHits.Items.OfType<MenuItem>().Select(x => (string)x.CommandParameter!));
 			Assert.Same(item1, sameSharedHits.CommandParameter);
 			Assert.Same(item1, sameGroupHits.CommandParameter);
 
@@ -529,16 +533,38 @@ public class ResultsContextMenuSelectionTests {
 
 			var menuItems = menu.Items.OfType<MenuItem>().ToList();
 			var folderHits = menuItems.First(m => Equals(m.Tag, DuplicateResultsView.CheckFolderHitsMenuTag));
-			var otherFolderHits = menuItems.First(m => Equals(m.Tag, DuplicateResultsView.CheckOtherFolderGroupHitsMenuTag));
+			var otherFolderHits = menuItems.FirstOrDefault(m => Equals(m.Tag, "vdf-check-other-folder-group-hits"));
 			var otherSharedHits = menuItems.First(m => Equals(m.Tag, DuplicateResultsView.SelectOtherFolderSharedGroupHitsMenuTag));
 			var sameSharedHits = menuItems.First(m => Equals(m.Tag, DuplicateResultsView.SelectSameFolderSharedGroupHitsMenuTag));
 			var sameGroupHits = menuItems.First(m => Equals(m.Tag, DuplicateResultsView.SelectSameGroupOtherHitsMenuTag));
 
 			Assert.Same(item2, folderHits.CommandParameter);
-			Assert.Same(item2, otherFolderHits.CommandParameter);
-			Assert.Same(item2, otherSharedHits.CommandParameter);
+			
+			Assert.Equal(MainWindowVM.ResultFolderAncestors(item2), otherSharedHits.Items.OfType<MenuItem>().Select(x => (string)x.CommandParameter!));
 			Assert.Same(item2, sameSharedHits.CommandParameter);
 			Assert.Same(item2, sameGroupHits.CommandParameter);
 			}, CancellationToken.None);
+	}
+	[Fact]
+	public void SelectedAncestorScope_FindsDuplicateGroupsOutsideItsWholeTree() {
+		Guid a = Guid.NewGuid(), b = Guid.NewGuid();
+		string root = @"Y:\pipa\pipa2\抖音-鹅鹅 [1022P419V]";
+		var anchor = CreateItem(root + @"\抖音 鹅鹅 铁粉空间订阅合集\NO.018\1 (13).jpg", a);
+		var child = CreateItem(root + @"\other\2.jpg", b);
+		var externalA = CreateItem(@"Z:\Backup\1.jpg", a);
+		var externalB = CreateItem(@"X:\Backup\2.jpg", b);
+		var unrelated = CreateItem(@"Z:\Backup\unknown.jpg", Guid.NewGuid());
+		var sibling = CreateItem(root + @"-elsewhere\duplicate.jpg", a);
+		var hits = MainWindowVM.ComputeOtherPathFolderHits(
+			new[] { anchor, child, externalA, externalB, unrelated, sibling }, root);
+		Assert.Equal(3, hits.Count);
+		Assert.Contains(externalA, hits);
+		Assert.Contains(externalB, hits);
+		Assert.Contains(sibling, hits);
+		Assert.DoesNotContain(anchor, hits);
+		Assert.DoesNotContain(child, hits);
+		Assert.DoesNotContain(unrelated, hits);
+		Assert.Contains(MainWindowVM.ResultFolderAncestors(anchor),
+			path => path.Replace('/', '\\') == root);
 	}
 }
