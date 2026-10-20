@@ -1032,7 +1032,7 @@
                         VerticalAlignment="Center"
                         IsVisible="{Binding FolderStatsText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                         Text="{Binding FolderStatsText}"
-                        ToolTip.Tip="当前文件所在文件夹中的已索引媒体文件数量和总大小" />
+                        ToolTip.Tip="匹配数为本次扫描中此文件夹直接包含的重复文件数；总文件数和大小来自已有媒体索引（不含子目录）" />
                     <Button Classes="folder-link"
                             VerticalContentAlignment="Stretch"
                             Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).OpenContainingFolderCommand}"
