@@ -442,7 +442,7 @@ public class ResultsContextMenuSelectionTests {
 						if (tag == "vdf-check-other-folder-group-hits") continue;
 						var item = Assert.Single(menu.Items.OfType<MenuItem>(), m => Equals(m.Tag, tag));
 						if (tag == DuplicateResultsView.SelectOtherFolderSharedGroupHitsMenuTag)
-							Assert.NotEmpty(item.Items);
+							Assert.True(item.Items.Count > 0, $"submenu empty: menu data={menu.DataContext?.GetType().Name}, placement={menu.PlacementTarget?.GetType().Name}, placement data={menu.PlacementTarget?.DataContext?.GetType().Name}, tag={tag}");
 						else { Assert.NotNull(item.Command); Assert.Same(clickedRow.Item, item.CommandParameter); }
 					}
 				}
