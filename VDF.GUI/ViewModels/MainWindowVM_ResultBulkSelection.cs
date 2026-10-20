@@ -54,6 +54,45 @@ namespace VDF.GUI.ViewModels {
 				ScheduleCheckedStructureRefresh();
 			});
 
+		public ReactiveCommand<string, Unit> SelectOtherPathFolderHitsCommand =>
+			ReactiveCommand.Create<string>(folder => {
+				var hits = ComputeOtherPathFolderHits(EnumerateVisibleResultItems(), folder);
+				using (BeginSelectionUndoBatch()) {
+					foreach (var item in hits) item.Checked = true;
+				}
+				if (hits.Count > 0) ScheduleCheckedStructureRefresh();
+			});
+
+		internal static IReadOnlyList<string> ResultFolderAncestors(DuplicateItemVM anchor) {
+			string folder = ResultFolderKey(anchor);
+			var levels = new List<string>();
+			while (!string.IsNullOrEmpty(folder)) {
+				levels.Add(folder);
+				string parent = NormalizeFolderStatsKey(Path.GetDirectoryName(
+					folder.Replace('/', Path.DirectorySeparatorChar)) ?? string.Empty);
+				if (string.IsNullOrEmpty(parent) || parent == folder) break;
+				folder = parent;
+			}
+			return levels;
+		}
+
+		internal static IReadOnlyList<DuplicateItemVM> ComputeOtherPathFolderHits(
+			IEnumerable<DuplicateItemVM> items, string folder) {
+			if (items == null || string.IsNullOrWhiteSpace(folder))
+				return Array.Empty<DuplicateItemVM>();
+			string key = NormalizeFolderStatsKey(folder);
+			if (string.IsNullOrEmpty(key)) return Array.Empty<DuplicateItemVM>();
+			StringComparison cmp = CoreUtils.IsWindows ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+			string prefix = key.EndsWith('/') ? key : key + "/";
+			bool Inside(DuplicateItemVM x) {
+				string p = ResultFolderKey(x);
+				return p.Equals(key, cmp) || p.StartsWith(prefix, cmp);
+			}
+			var all = items.Where(x => x?.ItemInfo != null).ToList();
+			var source = all.Where(Inside).Select(x => x.ItemInfo.GroupId).ToHashSet();
+			return all.Where(x => !Inside(x) && source.Contains(x.ItemInfo.GroupId)).ToList();
+		}
+
 		public ReactiveCommand<DuplicateItemVM, Unit> SelectOtherFolderSharedGroupHitsCommand =>
 			ReactiveCommand.Create<DuplicateItemVM>(anchor => {
 				if (anchor?.ItemInfo == null) return;
