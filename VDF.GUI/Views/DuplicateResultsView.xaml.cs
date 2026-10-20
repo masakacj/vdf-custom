@@ -32,7 +32,6 @@ namespace VDF.GUI.Views {
 		internal const string ConsolidateMenuTag = "vdf-single-resource-consolidate";
 		internal const string GroupMergeMenuTag = "vdf-group-merge";
 		internal const string CheckFolderHitsMenuTag = "vdf-check-folder-hits";
-		internal const string CheckOtherFolderGroupHitsMenuTag = "vdf-check-other-folder-group-hits";
 		internal const string SelectOtherFolderSharedGroupHitsMenuTag = "vdf-select-other-folder-shared-group-hits";
 		internal const string SelectSameFolderSharedGroupHitsMenuTag = "vdf-select-same-folder-shared-group-hits";
 		internal const string SelectSameGroupOtherHitsMenuTag = "vdf-select-same-group-other-hits";
@@ -181,6 +180,12 @@ namespace VDF.GUI.Views {
 			ResultsListControl.SelectedItem = fileRow;
 		}
 
+		void OnFileResultMenuOpening(object? sender, System.ComponentModel.CancelEventArgs e) {
+			if (sender is not ContextMenu menu || ViewModel is not MainWindowVM vm) return;
+			if (menu.PlacementTarget?.DataContext is ResultsItemRow row)
+				EnsureBulkCheckMenu(menu, vm, row);
+		}
+
 		static ContextMenu? FindContextMenu(Control source) {
 			Control? current = source;
 			while (current != null) {
@@ -199,69 +204,39 @@ namespace VDF.GUI.Views {
 		}
 
 		internal static void EnsureBulkCheckMenu(ContextMenu menu, MainWindowVM vm, ResultsItemRow row) {
-			MenuItem? folderItem = menu.Items.OfType<MenuItem>()
-				.FirstOrDefault(item => Equals(item.Tag, CheckFolderHitsMenuTag));
-			MenuItem? otherFolderItem = menu.Items.OfType<MenuItem>()
-				.FirstOrDefault(item => Equals(item.Tag, CheckOtherFolderGroupHitsMenuTag));
-			MenuItem? otherFolderSharedItem = menu.Items.OfType<MenuItem>()
-				.FirstOrDefault(item => Equals(item.Tag, SelectOtherFolderSharedGroupHitsMenuTag));
-			MenuItem? sameFolderSharedItem = menu.Items.OfType<MenuItem>()
-				.FirstOrDefault(item => Equals(item.Tag, SelectSameFolderSharedGroupHitsMenuTag));
-			MenuItem? sameGroupOtherItem = menu.Items.OfType<MenuItem>()
-				.FirstOrDefault(item => Equals(item.Tag, SelectSameGroupOtherHitsMenuTag));
-
-			if (folderItem == null || otherFolderItem == null || otherFolderSharedItem == null ||
-			    sameFolderSharedItem == null || sameGroupOtherItem == null) {
-				if (folderItem != null) menu.Items.Remove(folderItem);
-				if (otherFolderItem != null) menu.Items.Remove(otherFolderItem);
-				if (otherFolderSharedItem != null) menu.Items.Remove(otherFolderSharedItem);
-				if (sameFolderSharedItem != null) menu.Items.Remove(sameFolderSharedItem);
-				if (sameGroupOtherItem != null) menu.Items.Remove(sameGroupOtherItem);
-				var oldSep = menu.Items.OfType<Separator>().FirstOrDefault(s => Equals(s.Tag, BulkCheckSeparatorTag));
-				if (oldSep != null) menu.Items.Remove(oldSep);
-
-				var separator = new Separator { Tag = BulkCheckSeparatorTag };
-				sameGroupOtherItem = new MenuItem {
-					Header = "选择组内其他",
-					Tag = SelectSameGroupOtherHitsMenuTag,
-					Command = vm.SelectSameGroupOtherHitsCommand,
-				};
-				sameFolderSharedItem = new MenuItem {
-					Header = "选择此文件夹中与其他路径相同的文件",
-					Tag = SelectSameFolderSharedGroupHitsMenuTag,
-					Command = vm.SelectSameFolderSharedGroupHitsCommand,
-				};
-				otherFolderSharedItem = new MenuItem {
-					Header = "选择其他路径与此文件夹中项目相同的文件",
-					Tag = SelectOtherFolderSharedGroupHitsMenuTag,
-					Command = vm.SelectOtherFolderSharedGroupHitsCommand,
-				};
-				otherFolderItem = new MenuItem {
-					Header = "勾选其他文件夹中与此文件同组的命中文件",
-					Tag = CheckOtherFolderGroupHitsMenuTag,
-					Command = vm.CheckOtherFolderGroupHitsCommand,
-				};
-				folderItem = new MenuItem {
-					Header = "勾选此文件夹下所有命中文件",
-					Tag = CheckFolderHitsMenuTag,
-					Command = vm.CheckFolderResultHitsCommand,
-				};
-
-				menu.Items.Insert(0, separator);
-				menu.Items.Insert(0, sameGroupOtherItem);
-				menu.Items.Insert(0, sameFolderSharedItem);
-				menu.Items.Insert(0, otherFolderSharedItem);
-				menu.Items.Insert(0, otherFolderItem);
-				menu.Items.Insert(0, folderItem);
+			MenuItem? folder = menu.Items.OfType<MenuItem>().FirstOrDefault(x => Equals(x.Tag, CheckFolderHitsMenuTag));
+			MenuItem? outside = menu.Items.OfType<MenuItem>().FirstOrDefault(x => Equals(x.Tag, SelectOtherFolderSharedGroupHitsMenuTag));
+			MenuItem? inside = menu.Items.OfType<MenuItem>().FirstOrDefault(x => Equals(x.Tag, SelectSameFolderSharedGroupHitsMenuTag));
+			MenuItem? group = menu.Items.OfType<MenuItem>().FirstOrDefault(x => Equals(x.Tag, SelectSameGroupOtherHitsMenuTag));
+			// In a reused/contextual menu, do not duplicate the four actions.
+			if (folder == null || outside == null || inside == null || group == null) {
+				foreach (MenuItem? old in new[] { folder, outside, inside, group })
+					if (old != null) menu.Items.Remove(old);
+				menu.Items.Insert(0, new Separator { Tag = BulkCheckSeparatorTag });
+				group = new MenuItem { Tag = SelectSameGroupOtherHitsMenuTag,
+					Header = "选择组内其他", Command = vm.SelectSameGroupOtherHitsCommand };
+				inside = new MenuItem { Tag = SelectSameFolderSharedGroupHitsMenuTag,
+					Header = "选择此文件夹中与其他路径相同的文件", Command = vm.SelectSameFolderSharedGroupHitsCommand };
+				outside = new MenuItem { Tag = SelectOtherFolderSharedGroupHitsMenuTag,
+					Header = "选择其他路径与此文件夹相同…" };
+				folder = new MenuItem { Tag = CheckFolderHitsMenuTag,
+					Header = "勾选此文件夹下所有命中文件", Command = vm.CheckFolderResultHitsCommand };
+				menu.Items.Insert(0, group);
+				menu.Items.Insert(0, inside);
+				menu.Items.Insert(0, outside);
+				menu.Items.Insert(0, folder);
 			}
-
-			// Virtualized containers/context menus can be reused for another row. Refresh the
-			// parameter on every right click rather than capturing the first row forever.
-			folderItem.CommandParameter = row.Item;
-			otherFolderItem.CommandParameter = row.Item;
-			otherFolderSharedItem.CommandParameter = row.Item;
-			sameFolderSharedItem.CommandParameter = row.Item;
-			sameGroupOtherItem.CommandParameter = row.Item;
+			folder.CommandParameter = row.Item;
+			inside.CommandParameter = row.Item;
+			group.CommandParameter = row.Item;
+			// Rebuild options for every right-click: virtualized rows reuse context menus.
+			outside.Items.Clear();
+			foreach (string path in MainWindowVM.ResultFolderAncestors(row.Item))
+				outside.Items.Add(new MenuItem {
+					Header = path,
+					Command = vm.SelectOtherPathFolderHitsCommand,
+					CommandParameter = path,
+				});
 		}
 
 		void EnsureConsolidateMenu(Control source, ResultsGroupHeader group) {
