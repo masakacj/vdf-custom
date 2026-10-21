@@ -89,6 +89,20 @@ public class ResultsFilterApplyUiTests {
                 Assert.Equal(0m, from.Value);
                 Assert.Equal(100m, to.Value);
                 Assert.Equal(2, GroupCount());
+
+                // Multiple simultaneous filters: clearing Path alone must not be
+                // mistaken for resetting all filters, and Reset restores all groups.
+                path.Text = "Season 01";
+                applyPath.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, applyPath));
+                from.Value = 99m;
+                to.Value = 100m;
+                applySimilarity.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, applySimilarity));
+                Assert.Empty(vm.ResultsRows.OfType<ResultsGroupHeader>());
+                vm.ResetAllResultsFilters();
+                Assert.Equal(string.Empty, vm.FilterByPath);
+                Assert.Equal(0, vm.FilterSimilarityFrom);
+                Assert.Equal(100, vm.FilterSimilarityTo);
+                Assert.Equal(2, GroupCount());
             }
             finally {
                 window.Close();
