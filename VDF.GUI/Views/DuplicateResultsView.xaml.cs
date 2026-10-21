@@ -70,6 +70,14 @@ namespace VDF.GUI.Views {
 				vm.ApplyPathFilter(this.FindControl<TextBox>("ResultsPathFilterInput")!.Text);
 		}
 
+		void OnResetAllResultsFiltersClicked(object? sender, RoutedEventArgs e) {
+			if (ViewModel is not { } vm) return;
+			vm.ResetAllResultsFilters();
+			this.FindControl<TextBox>("ResultsPathFilterInput")!.Text = string.Empty;
+			this.FindControl<NumericUpDown>("ResultsSimilarityFromInput")!.Value = 0m;
+			this.FindControl<NumericUpDown>("ResultsSimilarityToInput")!.Value = 100m;
+		}
+
 		void OnClearPathFilterClicked(object? sender, RoutedEventArgs e) {
 			this.FindControl<TextBox>("ResultsPathFilterInput")!.Text = string.Empty;
 			ViewModel?.ClearPathFilter();
