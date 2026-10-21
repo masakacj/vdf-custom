@@ -12,6 +12,23 @@ namespace VDF.GUI.ViewModels {
 	public partial class MainWindowVM {
 		const int BackgroundFilterThreshold = 20_000;
 		bool filterResultsRefreshRequested;
+		bool _IsResultsFilterRefreshing;
+		public bool IsResultsFilterRefreshing {
+			get => _IsResultsFilterRefreshing;
+			private set => this.RaiseAndSetIfChanged(ref _IsResultsFilterRefreshing, value);
+		}
+		string _ResultsFilterError = string.Empty;
+		public string ResultsFilterError {
+			get => _ResultsFilterError;
+			private set => this.RaiseAndSetIfChanged(ref _ResultsFilterError, value);
+		}
+		public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit> ResetAllResultsFiltersCommand =>
+			ReactiveCommand.Create(ResetAllResultsFilters);
+		public ReactiveCommand<System.Reactive.Unit, System.Reactive.Unit> RetryResultsFilterCommand =>
+			ReactiveCommand.Create(() => {
+				RequestFilterResultsRefresh();
+				RefreshResultsView();
+			});
 		CancellationTokenSource? filterResultsCancellation;
 		int filterResultsGeneration;
 		int filterResultsCollectionVersion;
@@ -45,6 +62,8 @@ namespace VDF.GUI.ViewModels {
 			}
 
 			filterResultsRefreshRequested = false;
+			ResultsFilterError = string.Empty;
+			IsResultsFilterRefreshing = true;
 			EnsureFilterResultsVersionTracking();
 			filterResultsCancellation?.Cancel();
 			filterResultsCancellation?.Dispose();
@@ -109,6 +128,11 @@ namespace VDF.GUI.ViewModels {
 				catch (OperationCanceledException) { }
 				catch (Exception ex) {
 					VDF.Core.Utils.Logger.Instance.Error($"Background result filter failed: {ex}");
+					Dispatcher.UIThread.Post(() => {
+						if (generation != Volatile.Read(ref filterResultsGeneration)) return;
+						IsResultsFilterRefreshing = false;
+						ResultsFilterError = "结果列表刷新失败，点击重试（详情见日志）";
+					});
 				}
 			}, token);
 			return true;
@@ -180,6 +204,8 @@ namespace VDF.GUI.ViewModels {
 				ResultsScrollAnchor.FindRestoreTarget(a.Row, oldGroupOrder, displayRows) is { } target)
 				ResultsScrollToRow?.Invoke(target, a.ViewportOffsetY);
 			AfterFullResultsRebuild();
+			IsResultsFilterRefreshing = false;
+			ResultsFilterError = string.Empty;
 		}
 	}
 }

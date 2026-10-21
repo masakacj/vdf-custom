@@ -411,6 +411,14 @@
                 IsVisible="{Binding IsPathFilterActive}"
                 Click="OnClearPathFilterClicked"
                 ToolTip.Tip="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Filter.Clear]}" />
+        <Button Classes="toolbar-action" Margin="6,0,0,0" Click="OnResetAllResultsFiltersClicked"
+                Content="重置全部筛选"
+                ToolTip.Tip="清除路径、相似度、文件类型及已勾选分组筛选，恢复完整列表" />
+        <TextBlock Margin="4,0" VerticalAlignment="Center" FontSize="11"
+                   Text="正在恢复结果…" IsVisible="{Binding IsResultsFilterRefreshing}" />
+        <Button Classes="chip" Margin="4,0" FontSize="11"
+                Command="{Binding RetryResultsFilterCommand}" Content="{Binding ResultsFilterError}"
+                IsVisible="{Binding ResultsFilterError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         <ToggleButton
             Classes="chip"
             Margin="10,0,0,0"

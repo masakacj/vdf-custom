@@ -163,6 +163,20 @@ namespace VDF.GUI.ViewModels {
 
 		internal void ClearSimilarityFilter() => ApplySimilarityFilter(0, 100);
 
+		internal void ResetAllResultsFilters() {
+			if (!HasActiveResultsFilter) return;
+			FilterByPath = string.Empty;
+			FilterSimilarityFrom = 0;
+			FilterSimilarityTo = 100;
+			_FileType = TypeFilters.First(option => option.Value == FileTypeFilter.All);
+			this.RaisePropertyChanged(nameof(FileType));
+			_FilterGroupsWithCheckedItems = false;
+			this.RaisePropertyChanged(nameof(FilterGroupsWithCheckedItems));
+			_groupsWithPathHit.Clear();
+			RequestFilterResultsRefresh();
+			RefreshResultsView();
+		}
+
 		/// <summary>The results filter; the view exposes it as always-active toolbar chips.</summary>
 		internal bool DuplicatesFilterCore(DuplicateItemVM data) {
 			bool ok = true;
