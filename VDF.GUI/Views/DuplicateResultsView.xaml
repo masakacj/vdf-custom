@@ -342,6 +342,11 @@
               <MenuItem IsEnabled="False" FontSize="11"
                   Header="{Binding Source={x:Static local:App.Lang}, Path=[Results.AutoSelect.PerGroup]}" />
               <MenuItem
+                  Command="{Binding CheckSameFolderDuplicatesKeepBestCommand}"
+                  IsEnabled="{Binding !IsResultsFilterRefreshing}"
+                  Header="同夹重复（保留 BEST）"
+                  ToolTip.Tip="仅标记当前匹配结果中，同一重复组在同一文件夹的非 BEST 副本；不删除文件" />
+              <MenuItem
                   Command="{Binding CheckLowestQualityCommand}"
                   Header="{Binding Source={x:Static local:App.Lang}, Path=[MainWindow.Selection.CheckLowestQuality]}" />
               <MenuItem

@@ -156,6 +156,46 @@ namespace VDF.GUI.ViewModels {
 			return (partial, full);
 		}
 
+		public ReactiveCommand<Unit, Unit> CheckSameFolderDuplicatesKeepBestCommand => ReactiveCommand.Create(() => {
+			if (IsResultsFilterRefreshing) return;
+			var (keepers, toCheck) = PlanSameFolderDuplicatesKeepBest(resultsGroups);
+			if (toCheck.Count == 0) return;
+			using (BeginSelectionUndoBatch()) {
+				foreach (var keeper in keepers)
+					keeper.Checked = false;
+				foreach (var item in toCheck)
+					item.Checked = true;
+			}
+			ScheduleCheckedStructureRefresh();
+		});
+
+		/// <summary>Only same-group files with distinct paths in one direct folder qualify.</summary>
+		internal static (List<DuplicateItemVM> Keepers, List<DuplicateItemVM> ToCheck)
+			PlanSameFolderDuplicatesKeepBest(IEnumerable<ResultsGroupHeader> groups) {
+			var keepers = new List<DuplicateItemVM>();
+			var toCheck = new List<DuplicateItemVM>();
+			StringComparer paths = CoreUtils.IsWindows ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+			foreach (var group in groups) {
+				DuplicateItemVM? best = group.Rows.FirstOrDefault(row => row.IsBest)?.Item;
+				if (best == null) continue;
+				int before = toCheck.Count;
+				foreach (var folder in group.Rows.GroupBy(row => ResultFolderKey(row.Item), paths)) {
+					if (string.IsNullOrEmpty(folder.Key)) continue;
+					var rows = folder.ToList();
+					// Two records for one path are not two distinct deletable copies.
+					if (rows.Select(row => row.Item.ItemInfo.Path).Distinct(paths).Take(2).Count() < 2)
+						continue;
+					foreach (var row in rows)
+						if (!ReferenceEquals(row.Item, best) &&
+						    !paths.Equals(row.Item.ItemInfo.Path, best.ItemInfo.Path))
+							toCheck.Add(row.Item);
+				}
+				if (toCheck.Count > before)
+					keepers.Add(best);
+			}
+			return (keepers, toCheck);
+		}
+
 		public ReactiveCommand<Unit, Unit> CheckWhenIdenticalCommand => ReactiveCommand.Create(() => {
 			using var undoBatch = BeginSelectionUndoBatch();
 			ForEachGroupCluster(ScopedDuplicates(), (d, first) => d.EqualsFull(first), (first, cluster) => {
