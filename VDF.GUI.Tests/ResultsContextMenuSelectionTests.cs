@@ -453,9 +453,7 @@ public class ResultsContextMenuSelectionTests {
 	}
 
 	[Fact]
-	public async Task EnsureBulkCheckMenu_CreatesAllMenuItems_WithTagsHeadersAndCommands() {
-		using var session = HeadlessUnitTestSession.StartNew(typeof(VDF.GUI.App));
-		await session.Dispatch(() => {
+	public void EnsureBulkCheckMenu_CreatesAllMenuItems_WithTagsHeadersAndCommands() {
 			var vm = new MainWindowVM();
 			var item1 = CreateItem(@"C:\Media\f1.mkv", Guid.NewGuid());
 			var row1 = new ResultsItemRow(item1);
@@ -503,13 +501,10 @@ public class ResultsContextMenuSelectionTests {
 			// Separator verification
 			var separator = menu.Items.OfType<Separator>().FirstOrDefault(s => Equals(s.Tag, DuplicateResultsView.BulkCheckSeparatorTag));
 			Assert.NotNull(separator);
-			}, CancellationToken.None);
 	}
 
 	[Fact]
-	public async Task EnsureBulkCheckMenu_IsIdempotent_RefreshesParameterOnSubsequentCalls() {
-		using var session = HeadlessUnitTestSession.StartNew(typeof(VDF.GUI.App));
-		await session.Dispatch(() => {
+	public void EnsureBulkCheckMenu_IsIdempotent_RefreshesParameterOnSubsequentCalls() {
 			var vm = new MainWindowVM();
 			var item1 = CreateItem(@"C:\Media\f1.mkv", Guid.NewGuid());
 			var row1 = new ResultsItemRow(item1);
@@ -543,7 +538,6 @@ public class ResultsContextMenuSelectionTests {
 			Assert.Equal(MainWindowVM.ResultFolderAncestors(item2), otherSharedHits.Items.OfType<MenuItem>().Select(x => (string)x.CommandParameter!));
 			Assert.Same(item2, sameSharedHits.CommandParameter);
 			Assert.Same(item2, sameGroupHits.CommandParameter);
-			}, CancellationToken.None);
 	}
 	[Fact]
 	public void SelectedAncestorScope_FindsDuplicateGroupsOutsideItsWholeTree() {
