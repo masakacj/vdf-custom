@@ -32,6 +32,8 @@ namespace VDF.GUI.ViewModels {
 		CancellationTokenSource? filterResultsCancellation;
 		int filterResultsGeneration;
 		int filterResultsCollectionVersion;
+		string? lastCompletedPathFilter;
+		int lastCompletedPathCollectionVersion;
 		bool filterResultsVersionTrackingInstalled;
 
 		internal void RequestFilterResultsRefresh() => filterResultsRefreshRequested = true;
@@ -73,6 +75,13 @@ namespace VDF.GUI.ViewModels {
 			int collectionVersion = Volatile.Read(ref filterResultsCollectionVersion);
 
 			var items = Duplicates.ToList(); // references only; no DB/file content is copied
+			// Similarity/type/checked filters often change without changing the path query.
+			// Reuse a completed path-group match only while its input collection is unchanged.
+			HashSet<Guid>? cachedPathGroups =
+				lastCompletedPathFilter == FilterByPath &&
+				lastCompletedPathCollectionVersion == collectionVersion
+					? _groupsWithPathHit.ToHashSet()
+					: null;
 			string pathFilter = FilterByPath ?? string.Empty;
 			FileTypeFilter fileType = FileType.Value;
 			int similarityFrom = FilterSimilarityFrom;
@@ -91,7 +100,7 @@ namespace VDF.GUI.ViewModels {
 				try {
 					token.ThrowIfCancellationRequested();
 					var started = System.Diagnostics.Stopwatch.StartNew();
-					HashSet<Guid> pathHitGroups = BuildPathHitGroups(items, pathFilter, token);
+					HashSet<Guid> pathHitGroups = cachedPathGroups ?? BuildPathHitGroups(items, pathFilter, token);
 					// Most path filters are selective: don't preallocate millions of
 					// empty list slots just to discard them on the next line.
 					var visibleItems = new List<DuplicateItemVM>(
@@ -182,6 +191,8 @@ namespace VDF.GUI.ViewModels {
 				items[i].IsVisibleInFilter = visibility[i];
 
 			_groupsWithPathHit = pathHitGroups;
+			lastCompletedPathFilter = FilterByPath;
+			lastCompletedPathCollectionVersion = collectionVersion;
 			ApplyFolderStats(result.Groups);
 
 			// Probe structure BEFORE indexing every old ResultsItemRow. A large sort/filter switch
