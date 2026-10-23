@@ -90,8 +90,12 @@ namespace VDF.GUI.ViewModels {
 			_ = Task.Run(() => {
 				try {
 					token.ThrowIfCancellationRequested();
+					var started = System.Diagnostics.Stopwatch.StartNew();
 					HashSet<Guid> pathHitGroups = BuildPathHitGroups(items, pathFilter, token);
-					var visibleItems = new List<DuplicateItemVM>(items.Count);
+					// Most path filters are selective: don't preallocate millions of
+					// empty list slots just to discard them on the next line.
+					var visibleItems = new List<DuplicateItemVM>(
+						string.IsNullOrEmpty(pathFilter) ? items.Count : Math.Min(items.Count, 4096));
 					var visibility = new bool[items.Count];
 					for (int i = 0; i < items.Count; i++) {
 						if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
@@ -120,6 +124,9 @@ namespace VDF.GUI.ViewModels {
 						Formats = formats,
 					});
 					token.ThrowIfCancellationRequested();
+					VDF.Core.Utils.Logger.Instance.Info(
+						$"Filter build: {items.Count:N0} entries -> {visibleItems.Count:N0} matching, " +
+						$"{result.Rows.Count:N0} rows in {started.Elapsed.TotalSeconds:F1}s.");
 
 					Dispatcher.UIThread.Post(() => ApplyAsyncFilterResult(
 						generation, collectionVersion, items, visibility, pathHitGroups, checkedGroups,
