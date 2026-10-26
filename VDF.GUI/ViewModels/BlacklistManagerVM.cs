@@ -37,6 +37,21 @@ namespace VDF.GUI.ViewModels {
 	public sealed class BlacklistManagerVM : ReactiveObject {
 		readonly List<HashSet<string>> _liveList;
 		readonly Func<Task> _persist;
+		readonly Func<string?, bool, string?>? addResultPath;
+		readonly Action? pathRulesChanged;
+		public ObservableCollection<ResultPathExclusion> PathRules { get; }
+		string newExcludedPath = string.Empty;
+		public string NewExcludedPath {
+			get => newExcludedPath;
+			set => this.RaiseAndSetIfChanged(ref newExcludedPath, value);
+		}
+		bool newSkipScan;
+		public bool NewSkipScan {
+			get => newSkipScan;
+			set => this.RaiseAndSetIfChanged(ref newSkipScan, value);
+		}
+		public ReactiveCommand<Unit, Unit> AddResultPathCommand { get; }
+		public ReactiveCommand<IList?, Unit> RemoveResultPathsCommand { get; }
 
 		public ObservableCollection<BlacklistEntryVM> Entries { get; } = new();
 
@@ -44,14 +59,43 @@ namespace VDF.GUI.ViewModels {
 		public ReactiveCommand<Unit, Unit> PruneMissingFilesCommand { get; }
 		public ReactiveCommand<Unit, Unit> ClearAllCommand { get; }
 
-		public BlacklistManagerVM(List<HashSet<string>> liveList, Func<Task> persist) {
+		public BlacklistManagerVM(List<HashSet<string>> liveList, Func<Task> persist,
+			ObservableCollection<ResultPathExclusion>? pathRules = null,
+			Func<string?, bool, string?>? addResultPath = null,
+			Action? pathRulesChanged = null) {
 			_liveList = liveList;
 			_persist = persist;
+			PathRules = pathRules ?? new();
+			this.addResultPath = addResultPath;
+			this.pathRulesChanged = pathRulesChanged;
 			RebuildEntries();
 
 			UnmarkSelectedCommand = ReactiveCommand.CreateFromTask<IList?>(UnmarkSelectedAsync);
 			PruneMissingFilesCommand = ReactiveCommand.CreateFromTask(PruneMissingAsync);
 			ClearAllCommand = ReactiveCommand.CreateFromTask(ClearAllAsync);
+			AddResultPathCommand = ReactiveCommand.Create(() => {
+				if (this.addResultPath == null) return;
+				try {
+					string? error = this.addResultPath(NewExcludedPath, NewSkipScan);
+					StatusMessage = error ?? string.Empty;
+					if (error == null) NewExcludedPath = string.Empty;
+				}
+				catch (Exception ex) { StatusMessage = $"保存排除规则失败：{ex.Message}"; }
+			});
+			RemoveResultPathsCommand = ReactiveCommand.Create<IList?>(selected => {
+				if (selected == null || selected.Count == 0) return;
+				foreach (var entry in selected.OfType<ResultPathExclusion>().ToList())
+					PathRules.Remove(entry);
+				OnResultPathChanged();
+			});
+		}
+
+		public void OnResultPathChanged() {
+			try {
+				pathRulesChanged?.Invoke();
+				StatusMessage = string.Empty;
+			}
+			catch (Exception ex) { StatusMessage = $"保存排除规则失败：{ex.Message}"; }
 		}
 
 		string _statusMessage = string.Empty;
