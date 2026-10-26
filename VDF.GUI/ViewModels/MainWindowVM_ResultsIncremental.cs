@@ -149,6 +149,7 @@ namespace VDF.GUI.ViewModels {
 				Formats = BuildGroupSummaryFormats(),
 			});
 			ApplyFolderStats(partial.Groups);
+			RestoreGroupQualityStatuses(partial.Groups);
 			ReuseDirtyGroupItemRows(partial.Groups, oldDirtyGroups);
 			foreach (ResultsGroupHeader group in partial.Groups) {
 				// Preserve the old display position as a zero-allocation stable-sort tiebreaker.

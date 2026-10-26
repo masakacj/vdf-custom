@@ -140,6 +140,8 @@ namespace VDF.GUI.ViewModels {
 				return App.Lang["Results.Row.BestTipTied"];
 			if (decidedBy.Name == LightweightQualityDiagnostics.QualityCriterionName)
 				return "BEST：轻量画质诊断优先避开了疑似二次转码/放大或固定水印版本。该判断仅用于保留建议，不会自动删除文件。";
+			if (decidedBy.Name == "On-demand group quality")
+				return "推荐 BEST：手动组内取帧分析提示另一副本疑似体积膨胀/画质下降；不代表来源可靠，仍需人工核对，绝不自动删除。";
 			return string.Format(App.Lang["Results.Row.BestTip"], App.Lang[$"QualityCriteria.{decidedBy.Name}"]);
 		}
 
@@ -171,6 +173,7 @@ namespace VDF.GUI.ViewModels {
 				Formats = BuildGroupSummaryFormats(),
 			});
 			ApplyFolderStats(result.Groups);
+			RestoreGroupQualityStatuses(result.Groups);
 			// Preserve ResultsItemRow identity before any presentation-specific grouping
 			// consumes the canonical rows. This lets the virtualized ListBox retain realized
 			// file containers through ordinary selection/BEST/status refreshes.
@@ -265,6 +268,7 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		void BuildActiveResultsView(bool resetSessionStats = true) {
+			ResetGroupQualityAnalysis();
 			resultsFolderStatsCache = null;
 			resultsFolderMatchCountsCache = null;
 			RunLightweightQualityDiagnostics();
@@ -306,6 +310,37 @@ namespace VDF.GUI.ViewModels {
 		public ReactiveCommand<ResultsGroupHeader, Unit> CompareGroupHeaderCommand => ReactiveCommand.Create<ResultsGroupHeader>(header => {
 			if (header != null) CompareGroup(header.GroupId);
 		});
+
+		// The header already owns precisely the visible members of the canonical group.
+		// Never enumerate all Duplicates (millions of rows) for a one-group selection.
+		internal static List<(DuplicateItemVM Item, bool Checked)> PlanGroupHeaderCheck(
+			ResultsGroupHeader? header, bool invert) {
+			if (header == null) return new();
+			return header.Rows
+				.Select(row => row.Item)
+				.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
+				.Where(item => item.ItemInfo.GroupId == header.GroupId)
+				.Select(item => (Item: item, Checked: invert ? !item.Checked : true))
+				.Where(change => change.Item.Checked != change.Checked)
+				.ToList();
+		}
+
+		void ApplyGroupHeaderChecks(ResultsGroupHeader? header, bool invert) {
+			if (IsResultsFilterRefreshing || header == null) return;
+			// A filter can rebuild the header while a mouse event is queued.
+			if (!resultsGroups.Any(group => ReferenceEquals(group, header))) return;
+			var changes = PlanGroupHeaderCheck(header, invert);
+			if (changes.Count == 0) return;
+			using (BeginSelectionUndoBatch()) {
+				foreach (var change in changes) change.Item.Checked = change.Checked;
+			}
+			ScheduleCheckedStructureRefresh();
+		}
+
+		public ReactiveCommand<ResultsGroupHeader, Unit> CheckAllInGroupHeaderCommand =>
+			ReactiveCommand.Create<ResultsGroupHeader>(header => ApplyGroupHeaderChecks(header, invert: false));
+		public ReactiveCommand<ResultsGroupHeader, Unit> InvertGroupHeaderChecksCommand =>
+			ReactiveCommand.Create<ResultsGroupHeader>(header => ApplyGroupHeaderChecks(header, invert: true));
 
 		/// <summary>
 		/// Explicit user action: uses the current recommendation even when the system marks it

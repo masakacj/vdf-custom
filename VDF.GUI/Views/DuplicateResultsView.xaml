@@ -601,11 +601,23 @@
                   CommandParameter="{Binding}"
                   Content="{Binding IsCollapsed, Converter={StaticResource ChevronConverter}}" />
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
+                <Button Classes="group-action"
+                    Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).AnalyzeGroupQualityCommand}"
+                    CommandParameter="{Binding}" Content="检测画质"
+                    ToolTip.Tip="按需读取本组视频的四个时间点分析画质；检测中再次点击可取消。不会自动勾选、移动或删除文件。" />
                 <Button
                     Classes="group-action"
                     Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).CompareGroupHeaderCommand}"
                     CommandParameter="{Binding}"
                     Content="{Binding Source={x:Static local:App.Lang}, Path=[Results.Group.Compare]}" />
+                <Button Classes="group-action"
+                    Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).CheckAllInGroupHeaderCommand}"
+                    CommandParameter="{Binding}" Content="全选"
+                    ToolTip.Tip="仅勾选本组全部文件；勾选代表待删除，删除前将再次确认。" />
+                <Button Classes="group-action"
+                    Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).InvertGroupHeaderChecksCommand}"
+                    CommandParameter="{Binding}" Content="反选"
+                    ToolTip.Tip="仅翻转本组各文件的勾选状态，不改变其他组；可按 Ctrl+Z 撤销。" />
                 <Button
                     Classes="group-action"
                     Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).KeepBestInGroupHeaderCommand}"
@@ -621,6 +633,12 @@
               <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="8,0,0,0">
                 <TextBlock FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource VdfPrimaryBrush}" Text="{Binding Title}" />
                 <TextBlock Classes="meta" FontSize="11.5" VerticalAlignment="Center" Text="{Binding Summary}" />
+                <TextBlock FontSize="11" VerticalAlignment="Center" MaxWidth="270"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource VdfWarnBrush}"
+                           Text="{Binding QualityStatusText}"
+                           ToolTip.Tip="画质检测只对当前组按需运行；灰度抽样无法判断音质、全部帧或证明文件来源。"
+                           IsVisible="{Binding QualityStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <TextBlock FontSize="11" Opacity="0.6" VerticalAlignment="Center" Text="{Binding SimilarityRangeDisplay}" />
                 <Border Classes="simchip" Padding="5,0" CornerRadius="3" VerticalAlignment="Center"
                         IsVisible="{Binding HasByteIdenticalMatches}"

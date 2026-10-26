@@ -24,7 +24,13 @@ namespace VDF.GUI.ViewModels {
 	/// <see cref="ResultsItemRow"/> members (unless collapsed). Immutable — the list is
 	/// rebuilt whenever grouping-relevant state changes.
 	/// </summary>
-	public sealed class ResultsGroupHeader {
+	public sealed class ResultsGroupHeader : ReactiveObject {
+		string qualityStatusText = string.Empty;
+		/// <summary>Populated only for groups explicitly checked by the user.</summary>
+		public string QualityStatusText {
+			get => qualityStatusText;
+			internal set => this.RaiseAndSetIfChanged(ref qualityStatusText, value);
+		}
 		public required Guid GroupId { get; init; }
 		/// <summary>1-based position in the current sort order, for the "Group N" title.</summary>
 		public int GroupNumber { get; internal set; }
@@ -177,6 +183,9 @@ namespace VDF.GUI.ViewModels {
 			string warning = Data.LightweightQualityDiagnostics.WarningText(row.Item);
 			if (warning.Length > 0)
 				VideoText = VideoText.Length == 0 ? warning : VideoText + " · " + warning;
+			var manualFinding = Data.GroupQualityOnDemand.Finding(row.Item);
+			if (manualFinding != null)
+				VideoText += " · ⚠ 组内抽样：" + manualFinding.Reason + "（仍需人工复核）";
 			AudioText = Data.ResultsBadgeRules.BuildAudioLine(row.Item.ItemInfo, culture);
 			FileText = Data.ResultsBadgeRules.BuildFileLine(row.Item.ItemInfo, culture);
 		}
