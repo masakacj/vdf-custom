@@ -82,11 +82,19 @@ namespace VDF.GUI.ViewModels {
 			videoOnly: true,
 			ascending: true);
 
+		// Only manual one-group diagnostics carry this penalty. It stays separate from the
+		// default metadata ranking, and never causes an automatic deletion.
+		static readonly QualityRanker.Criterion<DuplicateItemVM> GroupQualityCriterion = new(
+			"On-demand group quality", d => GroupQualityOnDemand.Penalty(d),
+			videoOnly: true, ascending: true);
+
 		// Yields criteria in the user's chosen order, then appends any map entries the
 		// user's saved list doesn't include. This lets newly added criteria (e.g. Size)
 		// take effect as a final tiebreaker for users with pre-existing settings,
 		// without overwriting their explicit ordering.
 		static IEnumerable<QualityRanker.Criterion<DuplicateItemVM>> ResolveCriteria(IEnumerable<string> names) {
+			if (GroupQualityOnDemand.HasFindings)
+				yield return GroupQualityCriterion;
 			if (LightweightQualityDiagnosticsPreference.Enabled)
 				yield return CachedQualityCriterion;
 			var seen = new HashSet<string>();
@@ -104,6 +112,8 @@ namespace VDF.GUI.ViewModels {
 		/// while the cache-only transcode/watermark diagnostic (when enabled) stays first.
 		/// </summary>
 		static IEnumerable<QualityRanker.Criterion<DuplicateItemVM>> ResolveBestCriteria(IEnumerable<string> names) {
+			if (GroupQualityOnDemand.HasFindings)
+				yield return GroupQualityCriterion;
 			if (LightweightQualityDiagnosticsPreference.Enabled)
 				yield return CachedQualityCriterion;
 			var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

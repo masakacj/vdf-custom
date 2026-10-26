@@ -46,6 +46,7 @@ namespace VDF.GUI.ViewModels {
 
 			ApplyFolderStats(partial.Groups);
 			ResultsGroupHeader freshHeader = partial.Groups[0];
+			RestoreGroupQualityStatuses(partial.Groups);
 
 			// Reuse only this group's stable rows. Calling ResultsRowReconciler.ReuseItemRows
 			// here would first index the entire 200k-group flattened list, defeating the point

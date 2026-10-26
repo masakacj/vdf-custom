@@ -976,6 +976,8 @@ namespace VDF.Core {
 			return DatabaseUtils.Database.TryGetValue(new FileEntry(path), out dbEntry);
 		}
 #pragma warning restore CS8601 // Possible null reference assignment
+		/// <summary>Reuse the application's configured FFmpeg for explicit group quality sampling.</summary>
+		public static string GetFfmpegPathForGroupQuality() => FfmpegEngine.FFmpegPath;
 		public static void BlackListFileEntry(string filePath) => DatabaseUtils.BlacklistFileEntry(filePath);
 		/// <summary>Enumerate original single-file exclusion flags; call while no scan runs.</summary>
 		public static IReadOnlyList<string> GetManuallyExcludedPaths() => DatabaseUtils.GetManuallyExcludedPaths();
