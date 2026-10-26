@@ -307,6 +307,37 @@ namespace VDF.GUI.ViewModels {
 			if (header != null) CompareGroup(header.GroupId);
 		});
 
+		// The header already owns precisely the visible members of the canonical group.
+		// Never enumerate all Duplicates (millions of rows) for a one-group selection.
+		internal static List<(DuplicateItemVM Item, bool Checked)> PlanGroupHeaderCheck(
+			ResultsGroupHeader? header, bool invert) {
+			if (header == null) return new();
+			return header.Rows
+				.Select(row => row.Item)
+				.Distinct(ReferenceEqualityComparer<DuplicateItemVM>.Instance)
+				.Where(item => item.ItemInfo.GroupId == header.GroupId)
+				.Select(item => (Item: item, Checked: invert ? !item.Checked : true))
+				.Where(change => change.Item.Checked != change.Checked)
+				.ToList();
+		}
+
+		void ApplyGroupHeaderChecks(ResultsGroupHeader? header, bool invert) {
+			if (IsResultsFilterRefreshing || header == null) return;
+			// A filter can rebuild the header while a mouse event is queued.
+			if (!resultsGroups.Any(group => ReferenceEquals(group, header))) return;
+			var changes = PlanGroupHeaderCheck(header, invert);
+			if (changes.Count == 0) return;
+			using (BeginSelectionUndoBatch()) {
+				foreach (var change in changes) change.Item.Checked = change.Checked;
+			}
+			ScheduleCheckedStructureRefresh();
+		}
+
+		public ReactiveCommand<ResultsGroupHeader, Unit> CheckAllInGroupHeaderCommand =>
+			ReactiveCommand.Create<ResultsGroupHeader>(header => ApplyGroupHeaderChecks(header, invert: false));
+		public ReactiveCommand<ResultsGroupHeader, Unit> InvertGroupHeaderChecksCommand =>
+			ReactiveCommand.Create<ResultsGroupHeader>(header => ApplyGroupHeaderChecks(header, invert: true));
+
 		/// <summary>
 		/// Explicit user action: uses the current recommendation even when the system marks it
 		/// as review-needed. The user is deliberately choosing "keep recommended BEST" here.

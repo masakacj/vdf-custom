@@ -2067,8 +2067,25 @@ Non-Windows setup:
 			confirmMessage += Environment.NewLine + Environment.NewLine +
 				string.Format(App.Lang["Message.DeleteConfirmStats"], toDelete.Count, totalSizeToDelete.BytesToString());
 
+			// "Group select all" means every copy may be deleted. Explicitly flag groups
+			// with no surviving member before any delete/link operation can start.
+			var selectionCounts = toDelete.GroupBy(item => item.ItemInfo.GroupId)
+				.ToDictionary(group => group.Key, group => group.Count());
+			var groupCounts = new Dictionary<Guid, int>();
+			foreach (var item in Duplicates) {
+				if (!selectionCounts.ContainsKey(item.ItemInfo.GroupId)) continue;
+				groupCounts.TryGetValue(item.ItemInfo.GroupId, out int count);
+				groupCounts[item.ItemInfo.GroupId] = count + 1;
+			}
+			int fullySelectedGroups = selectionCounts.Count(pair =>
+				groupCounts.TryGetValue(pair.Key, out int total) && total == pair.Value);
+			if (fullySelectedGroups > 0)
+				confirmMessage += Environment.NewLine + Environment.NewLine +
+					$"⚠ 警告：其中 {fullySelectedGroups:N0} 个重复组的全部副本都已选中，没有任何保留文件！";
+
 			MessageBoxButtons? dlgResult = await MessageBoxService.Show(confirmMessage,
-				MessageBoxButtons.Yes | MessageBoxButtons.No);
+				MessageBoxButtons.Yes | MessageBoxButtons.No,
+				defaultButton: fullySelectedGroups > 0 ? MessageBoxButtons.No : MessageBoxButtons.None);
 			if (dlgResult != MessageBoxButtons.Yes) return;
 
 			var affectedGroupIds = toDelete.Select(d => d.ItemInfo.GroupId).ToHashSet();
