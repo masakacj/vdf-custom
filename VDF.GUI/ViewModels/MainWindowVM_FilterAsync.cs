@@ -59,7 +59,8 @@ namespace VDF.GUI.ViewModels {
 			// browsing/filtering path and gets the cancellable background build.
 			if (ActiveResultsDisplayMode != ResultsDisplayMode.SimilarityGroups || Duplicates.Count < BackgroundFilterThreshold) {
 				filterResultsRefreshRequested = false;
-				_groupsWithPathHit = BuildPathHitGroups(Duplicates, FilterByPath);
+				_groupsWithPathHit = BuildPathHitGroups(Duplicates, FilterByPath,
+					excludedDirectories: ResultExclusionDirectories());
 				return false;
 			}
 
@@ -75,6 +76,7 @@ namespace VDF.GUI.ViewModels {
 			int collectionVersion = Volatile.Read(ref filterResultsCollectionVersion);
 
 			var items = Duplicates.ToList(); // references only; no DB/file content is copied
+			string[] excludedDirectories = ResultExclusionDirectories();
 			// Similarity/type/checked filters often change without changing the path query.
 			// Reuse a completed path-group match only while its input collection is unchanged.
 			HashSet<Guid>? cachedPathGroups =
@@ -100,7 +102,8 @@ namespace VDF.GUI.ViewModels {
 				try {
 					token.ThrowIfCancellationRequested();
 					var started = System.Diagnostics.Stopwatch.StartNew();
-					HashSet<Guid> pathHitGroups = cachedPathGroups ?? BuildPathHitGroups(items, pathFilter, token);
+					HashSet<Guid> pathHitGroups = cachedPathGroups ??
+						BuildPathHitGroups(items, pathFilter, token, excludedDirectories);
 					// Most path filters are selective: don't preallocate millions of
 					// empty list slots just to discard them on the next line.
 					var visibleItems = new List<DuplicateItemVM>(
@@ -109,7 +112,8 @@ namespace VDF.GUI.ViewModels {
 					for (int i = 0; i < items.Count; i++) {
 						if ((i & 4095) == 0) token.ThrowIfCancellationRequested();
 						DuplicateItemVM item = items[i];
-						bool ok = string.IsNullOrEmpty(pathFilter) || pathHitGroups.Contains(item.ItemInfo.GroupId);
+						bool ok = !ResultPathExclusion.Matches(item.ItemInfo.Path, excludedDirectories) &&
+							(string.IsNullOrEmpty(pathFilter) || pathHitGroups.Contains(item.ItemInfo.GroupId));
 						if (ok && fileType != FileTypeFilter.All)
 							ok = fileType == FileTypeFilter.Images ? item.ItemInfo.IsImage : !item.ItemInfo.IsImage;
 						if (ok)
