@@ -325,6 +325,50 @@ namespace VDF.Core.Utils {
 				return;
 			actualValue.Flags.Set(EntryFlags.ManuallyExcluded);
 		}
+
+		internal static List<string> GetManuallyExcludedPaths() =>
+			Database.Where(entry => entry.Flags.Has(EntryFlags.ManuallyExcluded))
+				.Select(entry => entry.Path)
+				.OrderBy(path => path, PathComparer.ForCurrentPlatform)
+				.ToList();
+
+		// Reuse the original per-file flag. Work on the existing HashSet entry rather
+		// than adding/removing records, so hashes, metadata and file paths stay intact.
+		internal static List<FileEntry> ClearManuallyExcludedFlags(
+			HashSet<FileEntry> entries, IEnumerable<string> paths) {
+			var changed = new List<FileEntry>();
+			foreach (string path in paths.Distinct(PathComparer.ForCurrentPlatform)) {
+				if (string.IsNullOrWhiteSpace(path)) continue;
+				var key = new FileEntry { _Path = path };
+				if (!entries.TryGetValue(key, out FileEntry? entry) ||
+				    !entry.Flags.Has(EntryFlags.ManuallyExcluded)) continue;
+				entry.Flags.Set(EntryFlags.ManuallyExcluded, false);
+				changed.Add(entry);
+			}
+			return changed;
+		}
+
+		internal static int RestoreManuallyExcludedFiles(IReadOnlyCollection<string> paths) {
+			ArgumentNullException.ThrowIfNull(paths);
+			List<FileEntry> changed = ClearManuallyExcludedFlags(Database, paths);
+			if (changed.Count == 0) return 0;
+			try {
+				SaveDatabase();
+			} catch (Exception saveError) {
+				foreach (FileEntry entry in changed)
+					entry.Flags.Set(EntryFlags.ManuallyExcluded);
+				// LoadDatabase prefers ScannedFiles_new.db; a complete temp file from
+				// a failed final move must not silently restore these unsaved changes.
+				try { File.Delete(TempDatabasePath); }
+				catch (Exception cleanupError) {
+					throw new IOException(
+						$"数据库保存失败，且无法清理临时数据库 {TempDatabasePath}；请检查后再重启。",
+						new AggregateException(saveError, cleanupError));
+				}
+				throw;
+			}
+			return changed.Count;
+		}
 		internal static void UpdateFilePath(string newPath, FileEntry dbEntry) {
 			Database.Remove(dbEntry);
 			dbEntry.Path = newPath;

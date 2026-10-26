@@ -8,6 +8,7 @@ using VDF.GUI.Data;
 
 namespace VDF.GUI.Tests;
 
+[Collection("ResultsContextUiGlobalState")]
 public class ChineseLanguageDefaultsTests : IDisposable {
     readonly string dir = Directory.CreateTempSubdirectory("vdf-chinese-language-tests-").FullName;
 
