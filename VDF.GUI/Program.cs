@@ -111,6 +111,7 @@ namespace VDF.GUI {
 		];
 
 		public static AppBuilder BuildAvaloniaApp(bool softwareRendering = false) {
+			App.SafeWindowsFontsEnabled = OperatingSystem.IsWindows() && softwareRendering;
 			var builder = AppBuilder.Configure<App>()
 				.UsePlatformDetect()
 				.With(new X11PlatformOptions { UseDBusFilePicker = false });
@@ -131,11 +132,19 @@ namespace VDF.GUI {
 						RenderingMode = [Win32RenderingMode.Software],
 						CompositionMode = [Win32CompositionMode.RedirectionSurface],
 					});
-				builder = builder.With(new FontManagerOptions {
-					FontFallbacks = WindowsCjkFallbackFamilies
-						.Select(name => new FontFallback { FontFamily = new FontFamily(name) })
-						.ToArray(),
-				});
+				// The crash at libSkiaSharp+0x2a0934 is a null DirectWrite
+				// font-file stream in SkDWriteFontFileStream::read, not a GPU
+				// rendering failure. CPU rendering alone does NOT avoid it.
+				// In recovery mode source fonts from local file-backed memory
+				// streams instead of Skia's DirectWrite font handles.
+				if (softwareRendering)
+					builder = builder.With(WindowsSafeFonts.CreateOptions());
+				else
+					builder = builder.With(new FontManagerOptions {
+						FontFallbacks = WindowsCjkFallbackFamilies
+							.Select(name => new FontFallback { FontFamily = new FontFamily(name) })
+							.ToArray(),
+					});
 			}
 			else if (OperatingSystem.IsMacOS()) {
 				builder = builder.With(new FontManagerOptions {
