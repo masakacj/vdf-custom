@@ -182,7 +182,7 @@ namespace VDF.GUI.ViewModels {
 		/// <summary>The results filter; the view exposes it as always-active toolbar chips.</summary>
 		internal bool DuplicatesFilterCore(DuplicateItemVM data) {
 			bool ok = !ResultPathExclusion.Matches(data.ItemInfo.Path, ResultExclusionDirectories());
-			if (!string.IsNullOrEmpty(FilterByPath))
+			if (ok && !string.IsNullOrEmpty(FilterByPath))
 				ok = _groupsWithPathHit.Contains(data.ItemInfo.GroupId);
 
 			if (ok && FileType.Value != FileTypeFilter.All)
