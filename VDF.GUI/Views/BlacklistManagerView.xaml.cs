@@ -32,6 +32,12 @@ namespace VDF.GUI.Views {
 			DataContext = vm;
 		}
 
+		void OnSkipScanClick(object? sender, RoutedEventArgs e) {
+			if (sender is CheckBox { DataContext: VDF.GUI.Data.ResultPathExclusion rule } checkbox) {
+				rule.SkipScan = checkbox.IsChecked == true;
+				(DataContext as BlacklistManagerVM)?.OnResultPathChanged();
+			}
+		}
 		void Close_Click(object? sender, RoutedEventArgs e) => Close();
 	}
 }
