@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using VDF.GUI.ViewModels;
 
 namespace VDF.GUI.Tests;
