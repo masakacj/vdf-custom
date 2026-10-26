@@ -39,6 +39,38 @@ namespace VDF.GUI.ViewModels {
 		readonly Func<Task> _persist;
 		readonly Func<string?, bool, string?>? addResultPath;
 		readonly Action? pathRulesChanged;
+		readonly Func<Task<IReadOnlyList<string>>>? loadExcludedFiles;
+		readonly Func<IReadOnlyList<string>, Task<int>>? restoreExcludedFiles;
+		readonly List<string> allExcludedFiles = new();
+		const int MaxDisplayedExcludedFiles = 500;
+		public ObservableCollection<string> ScanDirectories { get; }
+		public ObservableCollection<string> ExcludedFiles { get; } = new();
+		public ReactiveCommand<Unit, Unit> LoadExcludedFilesCommand { get; }
+		public ReactiveCommand<Unit, Unit> SearchExcludedFilesCommand { get; }
+		public ReactiveCommand<IList?, Unit> RestoreExcludedFilesCommand { get; }
+		public ReactiveCommand<IList?, Unit> RemoveScanDirectoriesCommand { get; }
+		public ReactiveCommand<Unit, Unit> AddScanDirectoryCommand { get; }
+
+		string scanDirectoryInput = string.Empty;
+		public string ScanDirectoryInput {
+			get => scanDirectoryInput;
+			set => this.RaiseAndSetIfChanged(ref scanDirectoryInput, value);
+		}
+		string excludedFileQuery = string.Empty;
+		public string ExcludedFileQuery {
+			get => excludedFileQuery;
+			set => this.RaiseAndSetIfChanged(ref excludedFileQuery, value);
+		}
+		string excludedFileSummary = "点击“加载”查看数据库中的历史单文件排除。";
+		public string ExcludedFileSummary {
+			get => excludedFileSummary;
+			private set => this.RaiseAndSetIfChanged(ref excludedFileSummary, value);
+		}
+		bool isLoadingExcludedFiles;
+		public bool IsLoadingExcludedFiles {
+			get => isLoadingExcludedFiles;
+			private set => this.RaiseAndSetIfChanged(ref isLoadingExcludedFiles, value);
+		}
 		public ObservableCollection<ResultPathExclusion> PathRules { get; }
 		string newExcludedPath = string.Empty;
 		public string NewExcludedPath {
@@ -62,8 +94,14 @@ namespace VDF.GUI.ViewModels {
 		public BlacklistManagerVM(List<HashSet<string>> liveList, Func<Task> persist,
 			ObservableCollection<ResultPathExclusion>? pathRules = null,
 			Func<string?, bool, string?>? addResultPath = null,
-			Action? pathRulesChanged = null) {
+			Action? pathRulesChanged = null,
+			ObservableCollection<string>? scanDirectories = null,
+			Func<Task<IReadOnlyList<string>>>? loadExcludedFiles = null,
+			Func<IReadOnlyList<string>, Task<int>>? restoreExcludedFiles = null) {
 			_liveList = liveList;
+			ScanDirectories = scanDirectories ?? new();
+			this.loadExcludedFiles = loadExcludedFiles;
+			this.restoreExcludedFiles = restoreExcludedFiles;
 			_persist = persist;
 			PathRules = pathRules ?? new();
 			this.addResultPath = addResultPath;
@@ -88,6 +126,81 @@ namespace VDF.GUI.ViewModels {
 					PathRules.Remove(entry);
 				OnResultPathChanged();
 			});
+			AddScanDirectoryCommand = ReactiveCommand.Create(() => {
+				if (!ResultPathExclusion.TryNormalize(ScanDirectoryInput, out var folder, out var error)) {
+					StatusMessage = error;
+					return;
+				}
+				if (!ScanDirectories.Contains(folder, VDF.Core.Utils.PathComparer.ForCurrentPlatform))
+					ScanDirectories.Add(folder);
+				ScanDirectoryInput = string.Empty;
+				StatusMessage = string.Empty;
+			});
+			RemoveScanDirectoriesCommand = ReactiveCommand.Create<IList?>(selected => {
+				if (selected == null || selected.Count == 0) return;
+				foreach (string path in selected.OfType<string>().ToList())
+					ScanDirectories.Remove(path);
+				StatusMessage = string.Empty;
+			});
+			LoadExcludedFilesCommand = ReactiveCommand.CreateFromTask(LoadExcludedFilesAsync);
+			SearchExcludedFilesCommand = ReactiveCommand.Create(RefreshExcludedFileSearch);
+			RestoreExcludedFilesCommand = ReactiveCommand.CreateFromTask<IList?>(RestoreSelectedExcludedFilesAsync);
+		}
+
+		internal static List<string> SearchExcludedPaths(IEnumerable<string> source, string? search) =>
+			source.Where(path => string.IsNullOrWhiteSpace(search) ||
+				path.Contains(search.Trim(), StringComparison.OrdinalIgnoreCase))
+				.Take(MaxDisplayedExcludedFiles).ToList();
+
+		void RefreshExcludedFileSearch() {
+			List<string> matches = SearchExcludedPaths(allExcludedFiles, ExcludedFileQuery);
+			ExcludedFiles.Clear();
+			foreach (string path in matches)
+				ExcludedFiles.Add(path);
+			ExcludedFileSummary = $"已排除 {allExcludedFiles.Count:N0} 个文件，当前显示 {matches.Count:N0} 个" +
+				(matches.Count == MaxDisplayedExcludedFiles ? "（最多显示 500 项，请输入路径关键词缩小范围）" : "") + "。";
+		}
+
+		async Task LoadExcludedFilesAsync() {
+			if (IsLoadingExcludedFiles || loadExcludedFiles == null) return;
+			IsLoadingExcludedFiles = true;
+			ExcludedFileSummary = "正在读取扫描数据库中的单文件排除记录…";
+			try {
+				IReadOnlyList<string> entries = await loadExcludedFiles();
+				allExcludedFiles.Clear();
+				allExcludedFiles.AddRange(entries);
+				RefreshExcludedFileSearch();
+				StatusMessage = string.Empty;
+			}
+			catch (Exception ex) {
+				ExcludedFileSummary = "读取失败，可以重试。";
+				StatusMessage = $"读取单文件排除失败：{ex.Message}";
+			}
+			finally { IsLoadingExcludedFiles = false; }
+		}
+
+		async Task RestoreSelectedExcludedFilesAsync(IList? selection) {
+			if (IsLoadingExcludedFiles || restoreExcludedFiles == null || selection == null) return;
+			var paths = selection.OfType<string>().Distinct(VDF.Core.Utils.PathComparer.ForCurrentPlatform).ToList();
+			if (paths.Count == 0) return;
+			var confirmation = await MessageBoxService.Show(
+				$"确认解除 {paths.Count:N0} 个文件的历史扫描排除？将保存扫描数据库；文件需要下次扫描才会重新参与匹配。",
+				MessageBoxButtons.Yes | MessageBoxButtons.No);
+			if (confirmation != MessageBoxButtons.Yes) return;
+			IsLoadingExcludedFiles = true;
+			ExcludedFileSummary = "正在更新数据库并保存，请勿开始扫描或关闭程序…";
+			try {
+				int restored = await restoreExcludedFiles(paths);
+				var changed = paths.ToHashSet(VDF.Core.Utils.PathComparer.ForCurrentPlatform);
+				allExcludedFiles.RemoveAll(path => changed.Contains(path));
+				RefreshExcludedFileSearch();
+				StatusMessage = $"已解除 {restored:N0} 个文件的排除标记。下次扫描后重新参与匹配。";
+			}
+			catch (Exception ex) {
+				ExcludedFileSummary = "数据库保存失败，原有排除标记未确认更改。";
+				StatusMessage = $"解除单文件排除失败：{ex.Message}";
+			}
+			finally { IsLoadingExcludedFiles = false; }
 		}
 
 		public void OnResultPathChanged() {
