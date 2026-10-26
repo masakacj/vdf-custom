@@ -1958,7 +1958,8 @@ Non-Windows setup:
 			var vm = new BlacklistManagerVM(GroupBlacklist,
 				() => BlacklistStore.SaveAsync(BlacklistedGroupsFile, GroupBlacklist),
 				SettingsFile.Instance.ResultPathExclusions, TryAddResultPathExclusion,
-				ResultPathExclusionsChanged);
+				ResultPathExclusionsChanged, SettingsFile.Instance.Blacklists,
+				LoadManuallyExcludedFilesAsync, RestoreManuallyExcludedFilesAsync);
 			new BlacklistManagerView(vm).Show();
 		});
 
