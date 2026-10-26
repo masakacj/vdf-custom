@@ -437,6 +437,18 @@
             Content="路径换行"
             ToolTip.Tip="完整显示文件路径；长路径自动换行并按内容增高当前行。紧凑行模式下保持关闭。" />
         </WrapPanel>
+        <WrapPanel Margin="0,2,0,0" VerticalAlignment="Center">
+          <TextBlock VerticalAlignment="Center" FontSize="12" Margin="0,0,6,0"
+                     Text="排除目录" />
+          <TextBox x:Name="ResultExcludePathInput" Width="350" FontSize="12"
+                   Watermark="输入完整文件夹路径（含子目录），如 Y:\pipa\pipa2" />
+          <CheckBox x:Name="ResultExcludeSkipScan" Margin="10,0" VerticalAlignment="Center"
+                    Content="以后扫描跳过" />
+          <Button Classes="toolbar-action" Content="排除路径" Click="OnExcludePathClicked"
+                  ToolTip.Tip="隐藏该目录及其子目录文件；以后扫描跳过为可选项，不删除扫描记录。" />
+          <Button Classes="chip" Margin="6,0,0,0"
+                  Command="{Binding OpenBlacklistManagerCommand}" Content="管理黑名单…" />
+        </WrapPanel>
       </StackPanel>
     </Border>
 
