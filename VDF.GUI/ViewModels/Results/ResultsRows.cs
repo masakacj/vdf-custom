@@ -183,6 +183,9 @@ namespace VDF.GUI.ViewModels {
 			string warning = Data.LightweightQualityDiagnostics.WarningText(row.Item);
 			if (warning.Length > 0)
 				VideoText = VideoText.Length == 0 ? warning : VideoText + " · " + warning;
+			var manualFinding = Data.GroupQualityOnDemand.Finding(row.Item);
+			if (manualFinding != null)
+				VideoText += " · ⚠ 组内抽样：" + manualFinding.Reason + "（仍需人工复核）";
 			AudioText = Data.ResultsBadgeRules.BuildAudioLine(row.Item.ItemInfo, culture);
 			FileText = Data.ResultsBadgeRules.BuildFileLine(row.Item.ItemInfo, culture);
 		}

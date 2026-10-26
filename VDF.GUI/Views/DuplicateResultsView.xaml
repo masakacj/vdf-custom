@@ -633,7 +633,8 @@
               <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Margin="8,0,0,0">
                 <TextBlock FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource VdfPrimaryBrush}" Text="{Binding Title}" />
                 <TextBlock Classes="meta" FontSize="11.5" VerticalAlignment="Center" Text="{Binding Summary}" />
-                <TextBlock FontSize="11" VerticalAlignment="Center"
+                <TextBlock FontSize="11" VerticalAlignment="Center" MaxWidth="270"
+                           TextTrimming="CharacterEllipsis"
                            Foreground="{DynamicResource VdfWarnBrush}"
                            Text="{Binding QualityStatusText}"
                            ToolTip.Tip="画质检测只对当前组按需运行；灰度抽样无法判断音质、全部帧或证明文件来源。"

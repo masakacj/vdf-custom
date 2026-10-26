@@ -17,6 +17,7 @@
 using System.Linq;
 using System.Threading;
 using VDF.Core.Utils;
+using VDF.GUI.Data;
 
 namespace VDF.GUI.ViewModels {
 
@@ -169,6 +170,10 @@ namespace VDF.GUI.ViewModels {
 					}
 
 					if (best != null) {
+						// Manual 256px samples are advisory: never mark a BEST as
+						// confirmed for unattended consolidation based on this finding.
+						if (members.Any(member => GroupQualityOnDemand.Finding(member) != null))
+							confirmed = false;
 						foreach (var row in rows) {
 							row.IsBest = ReferenceEquals(row.Item, best);
 							row.IsBestConfirmed = row.IsBest && confirmed;

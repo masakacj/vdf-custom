@@ -22,7 +22,8 @@ namespace VDF.GUI.Data {
         IReadOnlyList<string> Errors) {
         internal string Summary =>
             $"已检测 {DecodedFiles} 个视频、{ComparedPairs} 对 · " +
-            (Findings.Count == 0 ? "未发现明确的体积膨胀/劣化证据" :
+            (ComparedPairs == 0 ? "有效可比样本不足，无法判断优劣" :
+            Findings.Count == 0 ? "未发现明确的体积膨胀/劣化证据" :
                 $"{Findings.Count} 个副本疑似体积膨胀或画质劣化") +
             (Errors.Count == 0 ? "" : $" · {Errors.Count} 个文件读取失败") +
             "（仅建议，仍需人工复核）";

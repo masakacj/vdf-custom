@@ -73,6 +73,12 @@ namespace VDF.GUI.ViewModels {
             }
             // Snapshot only the group header's currently visible members: no scan DB walk.
             var members = group.Rows.Select(row => row.Item).ToArray();
+            if (members.Select(item => item.ItemInfo.Path)
+                .Distinct(OperatingSystem.IsWindows()
+                    ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal).Count() != members.Length) {
+                group.QualityStatusText = "本组含相同路径的重复记录，不能作为不同视频比较。";
+                return;
+            }
             var sources = new List<OnDemandVideoSource>(members.Length);
             foreach (var item in members) {
                 if (!TryParseFrameSize(item.ItemInfo.FrameSize, out int width, out int height)) {
