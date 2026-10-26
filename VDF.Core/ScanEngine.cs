@@ -977,6 +977,11 @@ namespace VDF.Core {
 		}
 #pragma warning restore CS8601 // Possible null reference assignment
 		public static void BlackListFileEntry(string filePath) => DatabaseUtils.BlacklistFileEntry(filePath);
+		/// <summary>Enumerate original single-file exclusion flags; call while no scan runs.</summary>
+		public static IReadOnlyList<string> GetManuallyExcludedPaths() => DatabaseUtils.GetManuallyExcludedPaths();
+		/// <summary>Clear only selected ManuallyExcluded flags and persist the existing scan database.</summary>
+		public static int RestoreManuallyExcludedFiles(IReadOnlyCollection<string> paths) =>
+			DatabaseUtils.RestoreManuallyExcludedFiles(paths);
 
 		// Returns true if folderPath is covered by blacklistEntry.
 		// Supports wildcard patterns (*, ?) in blacklistEntry — see https://github.com/0x90d/videoduplicatefinder/issues/582
