@@ -1,5 +1,7 @@
 // Explicit, one-group-on-demand video quality analysis. Never traverses the scan database.
 using System.Reactive;
+using System.Threading;
+using System.Linq;
 using ReactiveUI;
 using VDF.Core;
 using VDF.Core.Utils;
