@@ -41,6 +41,7 @@ namespace VDF.GUI.ViewModels {
 		readonly Action? pathRulesChanged;
 		readonly Func<Task<IReadOnlyList<string>>>? loadExcludedFiles;
 		readonly Func<IReadOnlyList<string>, Task<int>>? restoreExcludedFiles;
+		readonly Action? scanDirectoriesChanged;
 		readonly List<string> allExcludedFiles = new();
 		const int MaxDisplayedExcludedFiles = 500;
 		public ObservableCollection<string> ScanDirectories { get; }
@@ -97,11 +98,13 @@ namespace VDF.GUI.ViewModels {
 			Action? pathRulesChanged = null,
 			ObservableCollection<string>? scanDirectories = null,
 			Func<Task<IReadOnlyList<string>>>? loadExcludedFiles = null,
-			Func<IReadOnlyList<string>, Task<int>>? restoreExcludedFiles = null) {
+			Func<IReadOnlyList<string>, Task<int>>? restoreExcludedFiles = null,
+			Action? scanDirectoriesChanged = null) {
 			_liveList = liveList;
 			ScanDirectories = scanDirectories ?? new();
 			this.loadExcludedFiles = loadExcludedFiles;
 			this.restoreExcludedFiles = restoreExcludedFiles;
+			this.scanDirectoriesChanged = scanDirectoriesChanged;
 			_persist = persist;
 			PathRules = pathRules ?? new();
 			this.addResultPath = addResultPath;
@@ -131,20 +134,42 @@ namespace VDF.GUI.ViewModels {
 					StatusMessage = error;
 					return;
 				}
-				if (!ScanDirectories.Contains(folder, VDF.Core.Utils.PathComparer.ForCurrentPlatform))
-					ScanDirectories.Add(folder);
-				ScanDirectoryInput = string.Empty;
-				StatusMessage = string.Empty;
+				if (ScanDirectories.Contains(folder, VDF.Core.Utils.PathComparer.ForCurrentPlatform)) {
+					ScanDirectoryInput = string.Empty;
+					StatusMessage = string.Empty;
+					return;
+				}
+				ChangeScanDirectories(() => ScanDirectories.Add(folder));
+				if (string.IsNullOrEmpty(StatusMessage))
+					ScanDirectoryInput = string.Empty;
 			});
 			RemoveScanDirectoriesCommand = ReactiveCommand.Create<IList?>(selected => {
 				if (selected == null || selected.Count == 0) return;
-				foreach (string path in selected.OfType<string>().ToList())
-					ScanDirectories.Remove(path);
-				StatusMessage = string.Empty;
+				var paths = selected.OfType<string>().ToList();
+				if (!paths.Any(ScanDirectories.Contains)) return;
+				ChangeScanDirectories(() => {
+					foreach (string path in paths)
+						ScanDirectories.Remove(path);
+				});
 			});
 			LoadExcludedFilesCommand = ReactiveCommand.CreateFromTask(LoadExcludedFilesAsync);
 			SearchExcludedFilesCommand = ReactiveCommand.Create(RefreshExcludedFileSearch);
 			RestoreExcludedFilesCommand = ReactiveCommand.CreateFromTask<IList?>(RestoreSelectedExcludedFilesAsync);
+		}
+
+		// Persist original scan blacklists immediately; undo in-memory changes on I/O failure.
+		void ChangeScanDirectories(Action change) {
+			string[] previous = ScanDirectories.ToArray();
+			try {
+				change();
+				scanDirectoriesChanged?.Invoke();
+				StatusMessage = string.Empty;
+			}
+			catch (Exception ex) {
+				ScanDirectories.Clear();
+				foreach (string path in previous) ScanDirectories.Add(path);
+				StatusMessage = $"保存扫描目录排除失败：{ex.Message}";
+			}
 		}
 
 		internal static List<string> SearchExcludedPaths(IEnumerable<string> source, string? search) =>

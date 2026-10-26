@@ -17,6 +17,35 @@ public class UnifiedExclusionManagerTests {
     }
 
     [Fact]
+    public void ScanDirectoryChanges_PersistImmediately_AndRollbackIfSaveFails() {
+        var folders = new System.Collections.ObjectModel.ObservableCollection<string>();
+        string folder = Path.Combine(Path.GetTempPath(), "vdf-scan-exclusion-test");
+        int saves = 0;
+        var manager = new BlacklistManagerVM(new(), () => Task.CompletedTask,
+            scanDirectories: folders, scanDirectoriesChanged: () => saves++);
+        manager.ScanDirectoryInput = folder;
+        ((System.Windows.Input.ICommand)manager.AddScanDirectoryCommand).Execute(null);
+        Assert.Equal(folder, Assert.Single(folders));
+        Assert.Equal(1, saves);
+        ((System.Windows.Input.ICommand)manager.RemoveScanDirectoriesCommand)
+            .Execute(new System.Collections.ArrayList { folder });
+        Assert.Empty(folders);
+        Assert.Equal(2, saves);
+
+        var failed = new BlacklistManagerVM(new(), () => Task.CompletedTask,
+            scanDirectories: folders, scanDirectoriesChanged: () => throw new IOException("disk unavailable"));
+        failed.ScanDirectoryInput = folder;
+        ((System.Windows.Input.ICommand)failed.AddScanDirectoryCommand).Execute(null);
+        Assert.Empty(folders);
+        Assert.Contains("保存扫描目录排除失败", failed.StatusMessage);
+        folders.Add(folder);
+        ((System.Windows.Input.ICommand)failed.RemoveScanDirectoriesCommand)
+            .Execute(new System.Collections.ArrayList { folder });
+        Assert.Equal(folder, Assert.Single(folders));
+        Assert.Contains("保存扫描目录排除失败", failed.StatusMessage);
+    }
+
+    [Fact]
     public void SingleFileSearch_IsCaseInsensitive_AndCapsDisplayedRows() {
         var history = Enumerable.Range(0, 1000)
             .Select(i => $@"Y:\Media\VIDEO_{i:D5}.jpg").ToArray();

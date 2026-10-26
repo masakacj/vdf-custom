@@ -354,9 +354,17 @@ namespace VDF.Core.Utils {
 			if (changed.Count == 0) return 0;
 			try {
 				SaveDatabase();
-			} catch {
+			} catch (Exception saveError) {
 				foreach (FileEntry entry in changed)
 					entry.Flags.Set(EntryFlags.ManuallyExcluded);
+				// LoadDatabase prefers ScannedFiles_new.db; a complete temp file from
+				// a failed final move must not silently restore these unsaved changes.
+				try { File.Delete(TempDatabasePath); }
+				catch (Exception cleanupError) {
+					throw new IOException(
+						$"数据库保存失败，且无法清理临时数据库 {TempDatabasePath}；请检查后再重启。",
+						new AggregateException(saveError, cleanupError));
+				}
 				throw;
 			}
 			return changed.Count;
