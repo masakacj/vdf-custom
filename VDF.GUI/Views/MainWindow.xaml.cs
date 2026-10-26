@@ -115,6 +115,7 @@ namespace VDF.GUI.Views {
 			SettingsFile.Instance.PropertyChanged += (_, __) => RestartSettingsSaveDebounce();
 			SettingsFile.Instance.Includes.CollectionChanged += (_, __) => RestartSettingsSaveDebounce();
 			SettingsFile.Instance.Blacklists.CollectionChanged += (_, __) => RestartSettingsSaveDebounce();
+			SettingsFile.Instance.ResultPathExclusions.CollectionChanged += (_, __) => RestartSettingsSaveDebounce();
 			SettingsFile.Instance.FilePathContainsTexts.CollectionChanged += (_, __) => RestartSettingsSaveDebounce();
 			SettingsFile.Instance.FilePathNotContainsTexts.CollectionChanged += (_, __) => RestartSettingsSaveDebounce();
 
