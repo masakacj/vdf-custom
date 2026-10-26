@@ -18,7 +18,7 @@
         <Button DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,10,0,0"
                 Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.Close]}"
                 MinWidth="90" IsCancel="True" Click="Close_Click" />
-        <TabControl>
+        <TabControl x:Name="ExclusionTabs">
             <TabItem Header="结果目录排除">
                 <DockPanel Margin="8">
                     <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,10">
