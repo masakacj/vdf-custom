@@ -51,6 +51,23 @@ namespace VDF.GUI.ViewModels {
             return true;
         }
 
+        // A larger file may legitimately carry a better audio track, smoother FPS or
+        // different HDR. Downsampled grayscale video alone cannot outrank those benefits.
+        internal static bool HasEquivalentTrackMetadata(IReadOnlyList<DuplicateItemVM> members) {
+            if (members.Count < 2) return false;
+            var reference = members[0].ItemInfo;
+            return members.Skip(1).All(member => {
+                var item = member.ItemInfo;
+                return Math.Abs(item.Fps - reference.Fps) <= 0.5f &&
+                    string.Equals(item.HdrFormat, reference.HdrFormat, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(item.AudioFormat, reference.AudioFormat, StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(item.AudioChannel, reference.AudioChannel, StringComparison.OrdinalIgnoreCase) &&
+                    item.AudioSampleRate == reference.AudioSampleRate &&
+                    Math.Abs(item.AudioBitRateKbs - reference.AudioBitRateKbs) <=
+                        Math.Max(10m, reference.AudioBitRateKbs * 0.05m);
+            });
+        }
+
         public ReactiveCommand<ResultsGroupHeader, Unit> AnalyzeGroupQualityCommand =>
             ReactiveCommand.CreateFromTask<ResultsGroupHeader>(AnalyzeGroupQualityAsync);
 
@@ -112,15 +129,19 @@ namespace VDF.GUI.ViewModels {
                     return;
                 }
 
+                bool matchingTracks = HasEquivalentTrackMetadata(members);
                 foreach (var item in members) GroupQualityOnDemand.RemoveFinding(item);
                 var foundByPath = report.Findings.ToDictionary(f => f.Path,
                     OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-                foreach (var item in members)
-                    if (foundByPath.TryGetValue(item.ItemInfo.Path, out var finding))
-                        GroupQualityOnDemand.SetFinding(item, finding);
+                if (matchingTracks)
+                    foreach (var item in members)
+                        if (foundByPath.TryGetValue(item.ItemInfo.Path, out var finding))
+                            GroupQualityOnDemand.SetFinding(item, finding);
 
-                checkedGroupQualityStatuses[group.GroupId] = report.Summary;
-                group.QualityStatusText = report.Summary;
+                string summary = report.Summary +
+                    (matchingTracks ? "" : " · 音轨/帧率/HDR不一致，仅供参考，不改变 BEST");
+                checkedGroupQualityStatuses[group.GroupId] = summary;
+                group.QualityStatusText = summary;
 
                 // Only rerank the clicked group. No file is checked or deleted by analysis.
                 if (!TryRefreshSingleGroupPresentation(group.GroupId))
@@ -130,7 +151,7 @@ namespace VDF.GUI.ViewModels {
                     report.Findings.Select(f =>
                         $"{Path.GetFileName(f.Path)}：{f.Reason}"));
                 string errors = string.Join(Environment.NewLine, report.Errors);
-                await MessageBoxService.Show(report.Summary +
+                await MessageBoxService.Show(summary +
                     (details.Length == 0 ? "" : Environment.NewLine + Environment.NewLine + details) +
                     (errors.Length == 0 ? "" : Environment.NewLine + Environment.NewLine + errors) +
                     Environment.NewLine + Environment.NewLine +
