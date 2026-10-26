@@ -131,11 +131,15 @@ namespace VDF.GUI {
 						RenderingMode = [Win32RenderingMode.Software],
 						CompositionMode = [Win32CompositionMode.RedirectionSurface],
 					});
-				builder = builder.With(new FontManagerOptions {
-					FontFallbacks = WindowsCjkFallbackFamilies
-						.Select(name => new FontFallback { FontFamily = new FontFamily(name) })
-						.ToArray(),
-				});
+				// The Skia crash stack is inside native font/stream processing even when
+				// the Win32 software renderer is selected. Avoid custom font fallback
+				// registration in recovery mode; use Avalonia/Windows system defaults.
+				if (!softwareRendering)
+					builder = builder.With(new FontManagerOptions {
+						FontFallbacks = WindowsCjkFallbackFamilies
+							.Select(name => new FontFallback { FontFamily = new FontFamily(name) })
+							.ToArray(),
+					});
 			}
 			else if (OperatingSystem.IsMacOS()) {
 				builder = builder.With(new FontManagerOptions {
