@@ -90,6 +90,20 @@ namespace VDF.GUI.Views {
 			vm.ApplySimilarityFilter((int)(from.Value ?? 0m), (int)(to.Value ?? 100m));
 		}
 
+		async void OnExcludePathClicked(object? sender, RoutedEventArgs e) {
+			if (ViewModel is not { } vm) return;
+			var input = this.FindControl<TextBox>("ResultExcludePathInput")!;
+			bool skipScan = this.FindControl<CheckBox>("ResultExcludeSkipScan")!.IsChecked == true;
+			try {
+				string? error = vm.TryAddResultPathExclusion(input.Text, skipScan);
+				if (error != null) await MessageBoxService.Show(error);
+				else input.Text = string.Empty;
+			}
+			catch (Exception ex) {
+				await MessageBoxService.Show($"保存排除路径失败：{ex.Message}");
+			}
+		}
+
 		void OnClearSimilarityFilterClicked(object? sender, RoutedEventArgs e) {
 			this.FindControl<NumericUpDown>("ResultsSimilarityFromInput")!.Value = 0m;
 			this.FindControl<NumericUpDown>("ResultsSimilarityToInput")!.Value = 100m;

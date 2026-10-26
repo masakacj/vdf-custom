@@ -2,84 +2,102 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:actipro="http://schemas.actiprosoftware.com/avaloniaui"
         xmlns:vm="clr-namespace:VDF.GUI.ViewModels"
+        xmlns:data="clr-namespace:VDF.GUI.Data"
         xmlns:app="clr-namespace:VDF.GUI;assembly=VDF.GUI"
         x:Class="VDF.GUI.Views.BlacklistManagerView"
         x:DataType="vm:BlacklistManagerVM"
-        Width="640"
-        Height="480"
-        MinWidth="420"
-        MinHeight="320"
+        Width="760" Height="520" MinWidth="490" MinHeight="350"
         Icon="/Assets/icon.ico"
         WindowStartupLocation="CenterOwner"
-        Title="{Binding Source={x:Static app:App.Lang}, Path=[BlacklistManager.Title]}">
+        Title="管理黑名单与路径排除">
     <DockPanel Margin="16">
-        <TextBlock DockPanel.Dock="Top"
-                   Opacity="0.8"
-                   Text="{Binding Source={x:Static app:App.Lang}, Path=[BlacklistManager.Description]}"
-                   TextWrapping="Wrap"
-                   Margin="0,0,0,8" />
-        <TextBlock DockPanel.Dock="Top"
-                   Text="{Binding GroupCountText}"
-                   FontWeight="SemiBold"
-                   Margin="0,0,0,8" />
-
-        <!-- Empty-state hint -->
-        <TextBlock DockPanel.Dock="Top"
-                   Text="{Binding Source={x:Static app:App.Lang}, Path=[BlacklistManager.Empty]}"
-                   IsVisible="{Binding IsEmpty}"
-                   Opacity="0.6"
-                   FontStyle="Italic"
-                   Margin="0,0,0,8" />
-
-        <!-- Status / result message -->
-        <TextBlock DockPanel.Dock="Bottom"
+        <TextBlock DockPanel.Dock="Bottom" Margin="0,8,0,0"
                    Text="{Binding StatusMessage}"
-                   IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
-                   Opacity="0.6"
-                   Margin="0,8,0,0" />
-
-        <!-- Action buttons -->
-        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,12,0,0">
-            <Button Content="{Binding Source={x:Static app:App.Lang}, Path=[BlacklistManager.UnmarkSelected]}"
-                    Command="{Binding UnmarkSelectedCommand}"
-                    CommandParameter="{Binding ElementName=EntriesListBox, Path=SelectedItems}" />
-            <Button Content="{Binding Source={x:Static app:App.Lang}, Path=[BlacklistManager.PruneMissing]}"
-                    ToolTip.Tip="{Binding Source={x:Static app:App.Lang}, Path=[BlacklistManager.PruneMissingTooltip]}"
-                    Command="{Binding PruneMissingFilesCommand}" />
-            <Button Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.ClearAll]}"
-                    Command="{Binding ClearAllCommand}" />
-            <Button Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.Close]}"
-                    MinWidth="90"
-                    IsCancel="True"
-                    Click="Close_Click" />
-        </StackPanel>
-
-        <!-- Entries list -->
-        <Border Padding="4"
-                Background="{actipro:ThemeResource Container1BackgroundBrush}"
-                BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
-                BorderThickness="1"
-                CornerRadius="8">
-            <ListBox x:Name="EntriesListBox"
-                     Background="Transparent"
-                     ItemsSource="{Binding Entries}"
-                     SelectionMode="Multiple">
-                <ListBox.Styles>
-                    <Style Selector="ListBoxItem">
-                        <Setter Property="CornerRadius" Value="6" />
-                    </Style>
-                </ListBox.Styles>
-                <ListBox.ItemTemplate>
-                    <DataTemplate x:DataType="vm:BlacklistEntryVM">
-                        <StackPanel Margin="2">
-                            <TextBlock Text="{Binding PathsDisplay}"
-                                       FontFamily="Consolas,Microsoft YaHei UI,Microsoft YaHei,PingFang SC,Noto Sans CJK SC,Menlo,monospace"
-                                       FontSize="12"
-                                       TextWrapping="NoWrap" />
+                   TextWrapping="Wrap"
+                   IsVisible="{Binding StatusMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <Button DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,10,0,0"
+                Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.Close]}"
+                MinWidth="90" IsCancel="True" Click="Close_Click" />
+        <TabControl>
+            <TabItem Header="路径排除">
+                <DockPanel Margin="8">
+                    <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,10">
+                        <TextBlock Text="在结果中隐藏指定文件夹及所有子目录的文件，不删除文件、不改动扫描数据库。"
+                                   TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBox MinWidth="260" Width="350"
+                                     Text="{Binding NewExcludedPath, Mode=TwoWay}"
+                                     Watermark="完整目录，例如 Y:\pipa\pipa2\..." />
+                            <CheckBox VerticalAlignment="Center"
+                                      IsChecked="{Binding NewSkipScan, Mode=TwoWay}"
+                                      Content="以后扫描跳过" />
+                            <Button Content="添加排除" Command="{Binding AddResultPathCommand}" />
                         </StackPanel>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-        </Border>
+                        <TextBlock Opacity="0.65" TextWrapping="Wrap"
+                                   Text="“以后扫描跳过”仅影响下一次扫描；关闭后只隐藏结果。扫描设置中已有的排除项仍保留在扫描设置页。" />
+                    </StackPanel>
+                    <Button DockPanel.Dock="Bottom" HorizontalAlignment="Right" Margin="0,10,0,0"
+                            Content="移除选中排除项"
+                            Command="{Binding RemoveResultPathsCommand}"
+                            CommandParameter="{Binding ElementName=ResultPathList, Path=SelectedItems}" />
+                    <Border Padding="4" CornerRadius="8"
+                            Background="{actipro:ThemeResource Container1BackgroundBrush}"
+                            BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
+                            BorderThickness="1">
+                        <ListBox x:Name="ResultPathList" Background="Transparent"
+                                 ItemsSource="{Binding PathRules}" SelectionMode="Multiple">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="data:ResultPathExclusion">
+                                    <Grid ColumnDefinitions="*,Auto" Margin="2" ColumnSpacing="12">
+                                        <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                                                   Text="{Binding Path}" TextWrapping="Wrap" />
+                                        <CheckBox Grid.Column="1" VerticalAlignment="Center"
+                                                  Content="以后扫描跳过"
+                                                  IsChecked="{Binding SkipScan, Mode=TwoWay}"
+                                                  Click="OnSkipScanClick" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </DockPanel>
+            </TabItem>
+            <TabItem Header="误判重复组">
+                <DockPanel Margin="8">
+                    <TextBlock DockPanel.Dock="Top" Margin="0,0,0,8" TextWrapping="Wrap"
+                               Opacity="0.8"
+                               Text="{Binding Source={x:Static app:App.Lang}, Path=[BlacklistManager.Description]}" />
+                    <TextBlock DockPanel.Dock="Top" Margin="0,0,0,8" FontWeight="SemiBold"
+                               Text="{Binding GroupCountText}" />
+                    <TextBlock DockPanel.Dock="Top" Margin="0,0,0,8" Opacity="0.6"
+                               IsVisible="{Binding IsEmpty}"
+                               Text="{Binding Source={x:Static app:App.Lang}, Path=[BlacklistManager.Empty]}" />
+                    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                                HorizontalAlignment="Right" Spacing="8" Margin="0,10,0,0">
+                        <Button Content="{Binding Source={x:Static app:App.Lang}, Path=[BlacklistManager.UnmarkSelected]}"
+                                Command="{Binding UnmarkSelectedCommand}"
+                                CommandParameter="{Binding ElementName=EntriesListBox, Path=SelectedItems}" />
+                        <Button Content="{Binding Source={x:Static app:App.Lang}, Path=[BlacklistManager.PruneMissing]}"
+                                Command="{Binding PruneMissingFilesCommand}" />
+                        <Button Content="{Binding Source={x:Static app:App.Lang}, Path=[Dialog.ClearAll]}"
+                                Command="{Binding ClearAllCommand}" />
+                    </StackPanel>
+                    <Border Padding="4" CornerRadius="8"
+                            Background="{actipro:ThemeResource Container1BackgroundBrush}"
+                            BorderBrush="{actipro:ThemeResource Container3BorderBrush}"
+                            BorderThickness="1">
+                        <ListBox x:Name="EntriesListBox" Background="Transparent"
+                                 ItemsSource="{Binding Entries}" SelectionMode="Multiple">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="vm:BlacklistEntryVM">
+                                    <TextBlock Margin="2" FontSize="12" TextWrapping="Wrap"
+                                               Text="{Binding PathsDisplay}" />
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+                    </Border>
+                </DockPanel>
+            </TabItem>
+        </TabControl>
     </DockPanel>
 </Window>

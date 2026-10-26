@@ -61,6 +61,9 @@ namespace VDF.GUI.Data {
 		public ObservableCollection<string> Includes { get; set; } = new();
 		[JsonPropertyName("Blacklists")]
 		public ObservableCollection<string> Blacklists { get; set; } = new();
+		// Unlike the scan's Blacklists, these rules always hide matching result rows.
+		[JsonPropertyName("ResultPathExclusions")]
+		public ObservableCollection<ResultPathExclusion> ResultPathExclusions { get; set; } = new();
 		string _LastCustomSelectExpression = string.Empty;
 		[JsonPropertyName("LastCustomSelectExpression")]
 		public string LastCustomSelectExpression {

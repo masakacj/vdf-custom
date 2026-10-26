@@ -70,13 +70,15 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		internal static HashSet<Guid> BuildPathHitGroups(
-			IEnumerable<DuplicateItemVM> items, string needle, CancellationToken cancellationToken = default) {
+			IEnumerable<DuplicateItemVM> items, string needle, CancellationToken cancellationToken = default,
+			IReadOnlyList<string>? excludedDirectories = null) {
 			var result = new HashSet<Guid>();
 			if (string.IsNullOrEmpty(needle)) return result;
 			int n = 0;
 			foreach (DuplicateItemVM item in items) {
 				if ((n++ & 4095) == 0) cancellationToken.ThrowIfCancellationRequested();
-				if (PathMatchesFilter(item.ItemInfo.Path, needle))
+				if (!ResultPathExclusion.Matches(item.ItemInfo.Path, excludedDirectories ?? Array.Empty<string>()) &&
+					PathMatchesFilter(item.ItemInfo.Path, needle))
 					result.Add(item.ItemInfo.GroupId);
 			}
 			return result;
@@ -179,8 +181,8 @@ namespace VDF.GUI.ViewModels {
 
 		/// <summary>The results filter; the view exposes it as always-active toolbar chips.</summary>
 		internal bool DuplicatesFilterCore(DuplicateItemVM data) {
-			bool ok = true;
-			if (!string.IsNullOrEmpty(FilterByPath))
+			bool ok = !ResultPathExclusion.Matches(data.ItemInfo.Path, ResultExclusionDirectories());
+			if (ok && !string.IsNullOrEmpty(FilterByPath))
 				ok = _groupsWithPathHit.Contains(data.ItemInfo.GroupId);
 
 			if (ok && FileType.Value != FileTypeFilter.All)

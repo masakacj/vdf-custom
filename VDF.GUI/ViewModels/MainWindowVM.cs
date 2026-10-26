@@ -1866,6 +1866,9 @@ Non-Windows setup:
 			Scanner.Settings.BlackList.Clear();
 			foreach (var s in SettingsFile.Instance.Blacklists)
 				Scanner.Settings.BlackList.Add(s);
+			foreach (var rule in SettingsFile.Instance.ResultPathExclusions)
+				if (rule.SkipScan && !string.IsNullOrWhiteSpace(rule.Path))
+					Scanner.Settings.BlackList.Add(rule.Path);
 
 			// Apply the FFmpeg engine statics as well — PrepareSearch does this at scan
 			// start, but thumbnail-only flows never reach PrepareSearch.
@@ -1953,7 +1956,9 @@ Non-Windows setup:
 
 		public ReactiveCommand<Unit, Unit> OpenBlacklistManagerCommand => ReactiveCommand.Create(() => {
 			var vm = new BlacklistManagerVM(GroupBlacklist,
-				() => BlacklistStore.SaveAsync(BlacklistedGroupsFile, GroupBlacklist));
+				() => BlacklistStore.SaveAsync(BlacklistedGroupsFile, GroupBlacklist),
+				SettingsFile.Instance.ResultPathExclusions, TryAddResultPathExclusion,
+				ResultPathExclusionsChanged);
 			new BlacklistManagerView(vm).Show();
 		});
 
@@ -2032,7 +2037,10 @@ Non-Windows setup:
 			await Scanner.RetrieveThumbnailsForItems(items);
 		});
 
-		List<DuplicateItemVM> CheckedItemsToDelete => ScopedDuplicates().Where(d => d.Checked && d.IsVisibleInFilter).ToList();
+		List<DuplicateItemVM> CheckedItemsToDelete => ScopedDuplicates()
+			.Where(d => d.Checked && d.IsVisibleInFilter &&
+				!ResultPathExclusion.Matches(d.ItemInfo.Path, ResultExclusionDirectories()))
+			.ToList();
 
 		async void DeleteInternal(bool fromDisk,
 									List<DuplicateItemVM>? toDelete = null,
