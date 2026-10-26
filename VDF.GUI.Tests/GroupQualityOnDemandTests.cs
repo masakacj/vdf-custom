@@ -81,4 +81,26 @@ public class GroupQualityOnDemandTests {
         Assert.Empty(report.Findings);
         Assert.Equal(0, report.ComparedPairs);
     }
+    [Fact]
+    public void VideoOnlyEvidence_DoesNotOverrideBetterAudioFpsOrHdr() {
+        VDF.GUI.ViewModels.DuplicateItemVM Item(float fps, decimal audioKbps, string hdr) => new() {
+            ItemInfo = new VDF.Core.ViewModels.DuplicateItem {
+                Fps = fps, AudioBitRateKbs = audioKbps, HdrFormat = hdr,
+                AudioFormat = "aac", AudioChannel = "stereo", AudioSampleRate = 48000
+            }
+        };
+        var baseVideo = Item(30, 192, "");
+        var comparable = Item(29.97f, 190, "");
+        Assert.True(VDF.GUI.ViewModels.MainWindowVM.HasEquivalentTrackMetadata([baseVideo, comparable]));
+        Assert.False(VDF.GUI.ViewModels.MainWindowVM.HasEquivalentTrackMetadata([
+            baseVideo, Item(60, 192, "")
+        ]));
+        Assert.False(VDF.GUI.ViewModels.MainWindowVM.HasEquivalentTrackMetadata([
+            baseVideo, Item(30, 320, "")
+        ]));
+        Assert.False(VDF.GUI.ViewModels.MainWindowVM.HasEquivalentTrackMetadata([
+            baseVideo, Item(30, 192, "HDR10")
+        ]));
+    }
+
 }
