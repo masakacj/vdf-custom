@@ -1,5 +1,6 @@
 // Result-only folder exclusions never delete or rewrite scan records.
 using VDF.GUI.Data;
+using VDF.Core.Utils;
 
 namespace VDF.GUI.ViewModels {
     public partial class MainWindowVM {
@@ -7,13 +8,15 @@ namespace VDF.GUI.ViewModels {
 
         // Keep expensive database traversals/checkpoints off the UI thread.
         // IsBusy prevents manual and scheduled scans from racing these operations.
-        async Task<IReadOnlyList<string>> LoadManuallyExcludedFilesAsync() {
+        async Task<ManuallyExcludedPage> LoadManuallyExcludedFilesPageAsync(
+            string? query, int pageIndex, int pageSize) {
             if (IsBusy || IsScanning)
                 throw new InvalidOperationException("正在扫描或执行其他操作，暂不能读取单文件排除。");
             IsBusy = true;
-            IsBusyOverlayText = "正在读取历史单文件排除…";
+            IsBusyOverlayText = "正在按页查询历史单文件排除…";
             try {
-                return await Task.Run(() => VDF.Core.ScanEngine.GetManuallyExcludedPaths());
+                return await Task.Run(() => VDF.Core.ScanEngine.FindManuallyExcludedPage(
+                    query, checked(pageIndex * pageSize), pageSize));
             }
             finally { IsBusy = false; }
         }

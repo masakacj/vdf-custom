@@ -979,8 +979,9 @@ namespace VDF.Core {
 		/// <summary>Reuse the application's configured FFmpeg for explicit group quality sampling.</summary>
 		public static string GetFfmpegPathForGroupQuality() => FfmpegEngine.FFmpegPath;
 		public static void BlackListFileEntry(string filePath) => DatabaseUtils.BlacklistFileEntry(filePath);
-		/// <summary>Enumerate original single-file exclusion flags; call while no scan runs.</summary>
-		public static IReadOnlyList<string> GetManuallyExcludedPaths() => DatabaseUtils.GetManuallyExcludedPaths();
+        /// <summary>Read a bounded page of original single-file exclusions without copying the DB.</summary>
+        public static ManuallyExcludedPage FindManuallyExcludedPage(string? query, int offset, int limit) =>
+            DatabaseUtils.FindManuallyExcludedPage(query, offset, limit);
 		/// <summary>Clear only selected ManuallyExcluded flags and persist the existing scan database.</summary>
 		public static int RestoreManuallyExcludedFiles(IReadOnlyCollection<string> paths) =>
 			DatabaseUtils.RestoreManuallyExcludedFiles(paths);
