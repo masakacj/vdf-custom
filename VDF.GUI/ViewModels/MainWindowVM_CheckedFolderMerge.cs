@@ -1,5 +1,6 @@
 // Explicit folder merge from exactly two checked file rows. No automatic keeper/deletion.
 using System.Reactive;
+using System.Linq;
 using Avalonia.Threading;
 using ReactiveUI;
 using VDF.Core;
@@ -44,19 +45,22 @@ namespace VDF.GUI.ViewModels {
                 await dialog.ShowDialog<FolderMergeDialogChoice?>(ApplicationHelpers.MainWindow);
             if (choice == null) return;
 
-            FolderMergePlan plan;
+            FolderMergePlan? prepared = null;
+            string? preparationError = null;
             IsBusy = true;
             IsBusyOverlayText = "正在核对源目录的全部文件、子目录和同名冲突…";
             try {
-                plan = await Task.Run(() =>
+                prepared = await Task.Run(() =>
                     FolderMergeTransfer.BuildPlan(choice.SourceFolder, choice.TargetFolder));
             }
-            catch (Exception ex) {
-                await MessageBoxService.Show($"无法生成安全合并计划，未改动文件：\n\n{ex.Message}",
+            catch (Exception ex) { preparationError = ex.Message; }
+            finally { IsBusy = false; }
+            if (prepared == null) {
+                await MessageBoxService.Show($"无法生成安全合并计划，未改动文件：\n\n{preparationError}",
                     title: "合并文件夹");
                 return;
             }
-            finally { IsBusy = false; }
+            FolderMergePlan plan = prepared;
 
             if (!selected.Any(item => FolderMergeTransfer.ContainsPath(plan.SourceRoot, item.ItemInfo.Path))) {
                 await MessageBoxService.Show(
@@ -101,7 +105,8 @@ namespace VDF.GUI.ViewModels {
             if (confirmation != MessageBoxButtons.Yes) return;
             if (IsBusy || IsScanning || IsResultsFilterRefreshing) return;
 
-            FolderMergeOutcome outcome;
+            FolderMergeOutcome? outcome = null;
+            string? executionError = null;
             IsBusy = true;
             IsBusyOverlayText = "准备安全合并文件夹…";
             var progress = new Progress<string>(message => IsBusyOverlayText = message);
@@ -112,13 +117,14 @@ namespace VDF.GUI.ViewModels {
                         return (success, error);
                     }, progress));
             }
-            catch (Exception ex) {
+            catch (Exception ex) { executionError = ex.Message; }
+            finally { IsBusy = false; }
+            if (outcome == null) {
                 await MessageBoxService.Show(
-                    $"文件夹合并发生异常，源文件安全状态需要人工核对：\n\n{ex.Message}",
+                    $"文件夹合并发生异常，源文件安全状态需要人工核对：\n\n{executionError}",
                     title: "合并文件夹");
                 return;
             }
-            finally { IsBusy = false; }
 
             if (!outcome.Committed) {
                 await MessageBoxService.Show(

@@ -6,6 +6,8 @@
 
 using System.Buffers;
 using System.Security.Cryptography;
+using System.Linq;
+using System.Threading;
 
 namespace VDF.GUI.Utils {
     internal sealed record FolderMergeFile(
