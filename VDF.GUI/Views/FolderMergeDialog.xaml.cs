@@ -5,11 +5,15 @@ using VDF.GUI.ViewModels;
 
 namespace VDF.GUI.Views {
     public partial class FolderMergeDialog : Window {
-        public FolderMergeDialog(string firstFolder, string secondFolder) {
+        // Avalonia's compiled XAML/runtime loader expects an accessible default ctor.
+        public FolderMergeDialog() {
             AvaloniaXamlLoader.Load(this);
             Owner = ApplicationHelpers.MainWindow;
             if (!VDF.GUI.Data.SettingsFile.Instance.DarkMode)
                 RequestedThemeVariant = Avalonia.Styling.ThemeVariant.Light;
+        }
+
+        public FolderMergeDialog(string firstFolder, string secondFolder) : this() {
             DataContext = new FolderMergeDialogVM(firstFolder, secondFolder);
         }
 
