@@ -46,17 +46,18 @@ public class UnifiedExclusionManagerTests {
     }
 
     [Fact]
-    public void SingleFileSearch_IsCaseInsensitive_AndCapsDisplayedRows() {
+    public void SingleFileSearch_IsCaseInsensitive_AndBoundedByPageSize() {
         var history = Enumerable.Range(0, 1000)
             .Select(i => $@"Y:\Media\VIDEO_{i:D5}.jpg").ToArray();
-        var initial = BlacklistManagerVM.SearchExcludedPaths(history, string.Empty);
-        Assert.Equal(500, initial.Count);
-        Assert.Same(history[0], initial[0]);
+        var initial = BlacklistManagerVM.PageOf(history, "", x => x, 0, 200);
+        Assert.Equal(200, initial.Rows.Count);
+        Assert.True(initial.HasNext);
+        Assert.Same(history[0], initial.Rows[0]);
 
-        var selected = BlacklistManagerVM.SearchExcludedPaths(history, "video_0099");
-        Assert.Equal(10, selected.Count);
-        Assert.All(selected, s => Assert.Contains("VIDEO_0099", s));
-        Assert.Empty(BlacklistManagerVM.SearchExcludedPaths(history, "not-in-history"));
+        var selected = BlacklistManagerVM.PageOf(history, "video_0099", x => x, 0, 200);
+        Assert.Equal(10, selected.Rows.Count);
+        Assert.All(selected.Rows, path => Assert.Contains("VIDEO_0099", path));
+        Assert.Empty(BlacklistManagerVM.PageOf(history, "not-in-history", x => x, 0, 200).Rows);
         Assert.Equal(1000, history.Length);
     }
 }
