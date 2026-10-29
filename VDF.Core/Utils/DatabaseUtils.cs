@@ -22,6 +22,9 @@ using System.Text.Json;
 using MemoryPack;
 
 namespace VDF.Core.Utils {
+    /// <summary>Read-only, bounded page from the existing ScannedFiles.db flags; no copy of all paths.</summary>
+    public sealed record ManuallyExcludedPage(IReadOnlyList<string> Paths, int TotalCount);
+
 	static class DatabaseUtils {
 		static DatabaseUtils() => MemoryPackRegistration.Register();
 
@@ -326,11 +329,31 @@ namespace VDF.Core.Utils {
 			actualValue.Flags.Set(EntryFlags.ManuallyExcluded);
 		}
 
-		internal static List<string> GetManuallyExcludedPaths() =>
-			Database.Where(entry => entry.Flags.Has(EntryFlags.ManuallyExcluded))
-				.Select(entry => entry.Path)
-				.OrderBy(path => path, PathComparer.ForCurrentPlatform)
-				.ToList();
+        // Walk the already loaded HashSet once on a worker. Never materialize/sort every
+        // excluded path: a multi-million-file database can otherwise OOM the GUI when
+        // opening the history tab. HashSet order is stable while the scan is idle.
+        internal static ManuallyExcludedPage FindManuallyExcludedPage(
+            IEnumerable<FileEntry> entries, string? search, int offset, int limit) {
+            ArgumentNullException.ThrowIfNull(entries);
+            if (offset < 0) throw new ArgumentOutOfRangeException(nameof(offset));
+            if (limit is < 1 or > 200) throw new ArgumentOutOfRangeException(nameof(limit));
+            var query = search?.Trim();
+            var page = new List<string>(limit);
+            int total = 0;
+            foreach (FileEntry entry in entries) {
+                if (!entry.Flags.Has(EntryFlags.ManuallyExcluded)) continue;
+                string path = entry.Path;
+                if (!string.IsNullOrEmpty(query) &&
+                    !path.Contains(query, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (total >= offset && page.Count < limit) page.Add(path);
+                total++;
+            }
+            return new ManuallyExcludedPage(page, total);
+        }
+
+        internal static ManuallyExcludedPage FindManuallyExcludedPage(string? search, int offset, int limit) =>
+            FindManuallyExcludedPage(Database, search, offset, limit);
 
 		// Reuse the original per-file flag. Work on the existing HashSet entry rather
 		// than adding/removing records, so hashes, metadata and file paths stay intact.

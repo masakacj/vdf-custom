@@ -1960,7 +1960,7 @@ Non-Windows setup:
 				() => BlacklistStore.SaveAsync(BlacklistedGroupsFile, GroupBlacklist),
 				SettingsFile.Instance.ResultPathExclusions, TryAddResultPathExclusion,
 				ResultPathExclusionsChanged, SettingsFile.Instance.Blacklists,
-				LoadManuallyExcludedFilesAsync, RestoreManuallyExcludedFilesAsync,
+				LoadManuallyExcludedFilesPageAsync, RestoreManuallyExcludedFilesAsync,
 				() => SettingsFile.SaveSettings());
 			new BlacklistManagerView(vm).Show();
 		});
