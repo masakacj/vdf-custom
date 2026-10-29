@@ -140,6 +140,7 @@ namespace VDF.GUI.ViewModels {
                 ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
             var remap = plan.Moves.ToDictionary(move => move.OldPath, move => move.NewPath, comparer);
             int updated = 0;
+            var changedGroups = new HashSet<Guid>();
             foreach (DuplicateItemVM item in Duplicates) {
                 string original;
                 try { original = Path.GetFullPath(item.ItemInfo.Path); }
@@ -147,9 +148,15 @@ namespace VDF.GUI.ViewModels {
                 if (!remap.TryGetValue(original, out string? destination)) continue;
                 item.ItemInfo.Path = destination;
                 item.ItemInfo.Folder = Path.GetDirectoryName(destination) ?? string.Empty;
+                changedGroups.Add(item.ItemInfo.GroupId);
                 updated++;
             }
-            // A renamed media row invalidates existing cached quality and folder groups.
+            // Paths mutate in place, not via CollectionChanged. Invalidate the async
+            // result/filter and resource-coverage snapshots before rerendering.
+            foreach (Guid id in changedGroups) MarkResultItemMutation(id);
+            resultsFolderStatsCache = null;
+            resultsFolderMatchCountsCache = null;
+            lastCompletedPathFilter = null;
             ResetGroupQualityAnalysis();
             RequestFilterResultsRefresh();
             RefreshResultsView();
