@@ -13,7 +13,8 @@ namespace VDF.GUI.Utils {
 
     internal sealed record FolderMergePlan(
         string SourceRoot, string TargetRoot, IReadOnlyList<FolderMergeFile> Files,
-        int SourceFolderCount, long TotalBytes, int CollisionRenames) {
+        IReadOnlyList<string> RelativeDirectories, long TotalBytes, int CollisionRenames) {
+        public int SourceFolderCount => RelativeDirectories.Count;
         internal IReadOnlyList<(string OldPath, string NewPath)> Moves =>
             Files.Select(file => (file.SourcePath, file.DestinationPath)).ToArray();
     }
@@ -135,7 +136,7 @@ namespace VDF.GUI.Utils {
                 bytes = checked(bytes + file.Bytes);
                 result.Add(new FolderMergeFile(file.Path, destination, file.Bytes, file.Modified, renamed));
             }
-            return new FolderMergePlan(from, to, result, relativeFolders.Count, bytes, collisions);
+            return new FolderMergePlan(from, to, result, relativeFolders.ToArray(), bytes, collisions);
         }
 
         /// <summary>
@@ -194,6 +195,15 @@ namespace VDF.GUI.Utils {
                         try { if (File.Exists(staged)) File.Delete(staged); } catch { }
                     }
                 }
+                // Preserve empty subdirectories too; never copy a directory over a file.
+                foreach (string relativeDirectory in plan.RelativeDirectories) {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    string destinationDirectory = Path.Combine(plan.TargetRoot, relativeDirectory);
+                    if (File.Exists(destinationDirectory))
+                        throw new IOException($"目标中存在与源目录同名的文件：{destinationDirectory}");
+                    Directory.CreateDirectory(destinationDirectory);
+                    RejectReparseAncestors(destinationDirectory);
+                }
                 cancellationToken.ThrowIfCancellationRequested();
 
                 // The journal updates all indexed file paths in one batch, without
@@ -243,6 +253,8 @@ namespace VDF.GUI.Utils {
             }
             // Only remove directories that are EMPTY now; never recursive-delete.
             var folders = new HashSet<string>(PathComparer) { plan.SourceRoot };
+            foreach (string relativeDirectory in plan.RelativeDirectories)
+                folders.Add(Path.Combine(plan.SourceRoot, relativeDirectory));
             foreach (FolderMergeFile item in plan.Files) {
                 string? dir = Path.GetDirectoryName(item.SourcePath);
                 while (dir != null && ContainsPath(plan.SourceRoot, dir)) {
