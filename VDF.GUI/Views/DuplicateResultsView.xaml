@@ -1160,6 +1160,12 @@
           <Run Text="{Binding DuplicatesCheckedSize, Mode=OneWay}" />
         </TextBlock>
         <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Spacing="8" Margin="16,0,0,0">
+          <Button x:Name="CheckedFolderMergeButton"
+              Classes="toolbar-action"
+              Command="{Binding MergeCheckedFoldersCommand}"
+              IsEnabled="{Binding CanMergeCheckedFolders}"
+              Content="合并所在文件夹…"
+              ToolTip.Tip="恰好勾选两个不同文件夹内的文件后，选择合并方向，可交换和编辑目录路径。复制+SHA-256 校验后才会删除原件，并同步更新扫描数据库与列表路径。" />
           <Button x:Name="CheckedGroupMergeButton"
               Classes="toolbar-primary"
               Command="{Binding ConsolidateCheckedGroupCommand}"

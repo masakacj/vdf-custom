@@ -280,6 +280,7 @@ namespace VDF.GUI.ViewModels {
 			set {
 				this.RaiseAndSetIfChanged(ref _DuplicatesCheckedCounter, value);
 				this.RaisePropertyChanged(nameof(CheckedSummaryText));
+				this.RaisePropertyChanged(nameof(CanMergeCheckedFolders));
 			}
 		}
 
