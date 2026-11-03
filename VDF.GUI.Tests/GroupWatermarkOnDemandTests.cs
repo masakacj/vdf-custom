@@ -226,5 +226,11 @@ public sealed class GroupWatermarkOnDemandTests {
         Assert.False(MainWindowVM.HasComparableWatermarkBestMetadata([
             baseline, Item(30, 192, "HDR10")
         ]));
+        baseline.ItemInfo.FrameSize = "1920x1080";
+        var highResolution = Item(30, 192, "");
+        highResolution.ItemInfo.FrameSize = "3840x2160";
+        Assert.False(MainWindowVM.HasComparableWatermarkBestMetadata([
+            baseline, highResolution
+        ]));
     }
 }

@@ -59,6 +59,7 @@ namespace VDF.GUI.ViewModels {
             return members.Skip(1).All(m => {
                 var d = m.ItemInfo;
                 return Math.Abs(d.Fps - first.Fps) <= 0.5f &&
+                    string.Equals(d.FrameSize, first.FrameSize, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(d.HdrFormat, first.HdrFormat, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(d.AudioFormat, first.AudioFormat, StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(d.AudioChannel, first.AudioChannel, StringComparison.OrdinalIgnoreCase) &&
