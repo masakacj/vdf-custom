@@ -72,20 +72,13 @@ namespace VDF.GUI.ViewModels {
 			["Size"] = new("Size", d => d.ItemInfo.SizeLong, videoOnly: false, ascending: true),
 		};
 
-		// Cache-only diagnostics are not user-orderable quality metadata. When enabled they
-		// deliberately run before Resolution/Bitrate so a suspicious 4K re-encode cannot win
-		// merely because its container advertises larger numbers. A zero penalty ties cleanly
-		// and leaves the user's existing quality order untouched.
-		static readonly QualityRanker.Criterion<DuplicateItemVM> CachedQualityCriterion = new(
-			LightweightQualityDiagnostics.QualityCriterionName,
-			d => LightweightQualityDiagnostics.Penalty(d),
-			videoOnly: true,
-			ascending: true);
+		// No default whole-library quality penalty. Only on-demand watermark findings
+		// may affect a group's recommendation after the user explicitly requests it.
 
 		// Only manual one-group diagnostics carry this penalty. It stays separate from the
 		// default metadata ranking, and never causes an automatic deletion.
-		static readonly QualityRanker.Criterion<DuplicateItemVM> GroupQualityCriterion = new(
-			"On-demand group quality", d => GroupQualityOnDemand.Penalty(d),
+		static readonly QualityRanker.Criterion<DuplicateItemVM> GroupWatermarkCriterion = new(
+			"On-demand group watermark", d => GroupWatermarkOnDemand.Penalty(d),
 			videoOnly: true, ascending: true);
 
 		// Yields criteria in the user's chosen order, then appends any map entries the
@@ -93,10 +86,8 @@ namespace VDF.GUI.ViewModels {
 		// take effect as a final tiebreaker for users with pre-existing settings,
 		// without overwriting their explicit ordering.
 		static IEnumerable<QualityRanker.Criterion<DuplicateItemVM>> ResolveCriteria(IEnumerable<string> names) {
-			if (GroupQualityOnDemand.HasFindings)
-				yield return GroupQualityCriterion;
-			if (LightweightQualityDiagnosticsPreference.Enabled)
-				yield return CachedQualityCriterion;
+			if (GroupWatermarkOnDemand.HasFindings)
+				yield return GroupWatermarkCriterion;
 			var seen = new HashSet<string>();
 			foreach (var name in names)
 				if (QualityCriteriaMap.TryGetValue(name, out var c) && seen.Add(name))
@@ -112,10 +103,8 @@ namespace VDF.GUI.ViewModels {
 		/// while the cache-only transcode/watermark diagnostic (when enabled) stays first.
 		/// </summary>
 		static IEnumerable<QualityRanker.Criterion<DuplicateItemVM>> ResolveBestCriteria(IEnumerable<string> names) {
-			if (GroupQualityOnDemand.HasFindings)
-				yield return GroupQualityCriterion;
-			if (LightweightQualityDiagnosticsPreference.Enabled)
-				yield return CachedQualityCriterion;
+			if (GroupWatermarkOnDemand.HasFindings)
+				yield return GroupWatermarkCriterion;
 			var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 			foreach (string name in names) {
 				if (string.Equals(name, "Size", StringComparison.OrdinalIgnoreCase)) continue;

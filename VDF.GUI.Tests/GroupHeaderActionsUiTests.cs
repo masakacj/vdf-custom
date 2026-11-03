@@ -41,7 +41,7 @@ public class GroupHeaderActionsUiTests {
                 var buttons = list.GetVisualDescendants().OfType<Button>().ToList();
                 Button Find(string label) =>
                     Assert.Single(buttons, button => Equals(button.Content, label));
-                var quality = Find("检测画质");
+                var quality = Find("检测水印");
                 var selectAll = Find("全选");
                 var invert = Find("反选");
                 Assert.NotNull(quality.Command);

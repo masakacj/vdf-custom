@@ -25,11 +25,11 @@ namespace VDF.GUI.ViewModels {
 	/// rebuilt whenever grouping-relevant state changes.
 	/// </summary>
 	public sealed class ResultsGroupHeader : ReactiveObject {
-		string qualityStatusText = string.Empty;
+		string watermarkStatusText = string.Empty;
 		/// <summary>Populated only for groups explicitly checked by the user.</summary>
-		public string QualityStatusText {
-			get => qualityStatusText;
-			internal set => this.RaiseAndSetIfChanged(ref qualityStatusText, value);
+		public string WatermarkStatusText {
+			get => watermarkStatusText;
+			internal set => this.RaiseAndSetIfChanged(ref watermarkStatusText, value);
 		}
 		public required Guid GroupId { get; init; }
 		/// <summary>1-based position in the current sort order, for the "Group N" title.</summary>
@@ -180,12 +180,9 @@ namespace VDF.GUI.ViewModels {
 			Row = row;
 			var culture = CultureInfo.CurrentCulture;
 			VideoText = Data.ResultsBadgeRules.BuildVideoLine(row.Item.ItemInfo, culture);
-			string warning = Data.LightweightQualityDiagnostics.WarningText(row.Item);
-			if (warning.Length > 0)
-				VideoText = VideoText.Length == 0 ? warning : VideoText + " · " + warning;
-			var manualFinding = Data.GroupQualityOnDemand.Finding(row.Item);
+			var manualFinding = Data.GroupWatermarkOnDemand.Finding(row.Item);
 			if (manualFinding != null)
-				VideoText += " · ⚠ 组内抽样：" + manualFinding.Reason + "（仍需人工复核）";
+				VideoText += " · ⚠ 水印检测：" + manualFinding.Reason + "（仍需人工复核）";
 			AudioText = Data.ResultsBadgeRules.BuildAudioLine(row.Item.ItemInfo, culture);
 			FileText = Data.ResultsBadgeRules.BuildFileLine(row.Item.ItemInfo, culture);
 		}

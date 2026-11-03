@@ -149,7 +149,7 @@ namespace VDF.GUI.ViewModels {
 				Formats = BuildGroupSummaryFormats(),
 			});
 			ApplyFolderStats(partial.Groups);
-			RestoreGroupQualityStatuses(partial.Groups);
+			RestoreGroupWatermarkStatuses(partial.Groups);
 			ReuseDirtyGroupItemRows(partial.Groups, oldDirtyGroups);
 			foreach (ResultsGroupHeader group in partial.Groups) {
 				// Preserve the old display position as a zero-allocation stable-sort tiebreaker.
@@ -158,9 +158,6 @@ namespace VDF.GUI.ViewModels {
 				group.GroupNumber = oldDirtyGroups.TryGetValue(group.GroupId, out ResultsGroupHeader? oldGroup)
 					? oldGroup.GroupNumber
 					: int.MaxValue;
-				string warning = BuildLightweightQualityGroupSummary(group);
-				if (warning.Length > 0)
-					group.Summary += " · " + warning;
 			}
 
 			var merged = resultsGroups.Where(group => !dirtyIds.Contains(group.GroupId)).ToList();

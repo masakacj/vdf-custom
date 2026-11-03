@@ -170,9 +170,9 @@ namespace VDF.GUI.ViewModels {
 					}
 
 					if (best != null) {
-						// Manual 256px samples are advisory: never mark a BEST as
+						// Manual RGB watermark comparisons are advisory: never mark a BEST as
 						// confirmed for unattended consolidation based on this finding.
-						if (members.Any(member => GroupQualityOnDemand.Finding(member) != null))
+						if (members.Any(member => GroupWatermarkOnDemand.Finding(member) != null))
 							confirmed = false;
 						foreach (var row in rows) {
 							row.IsBest = ReferenceEquals(row.Item, best);

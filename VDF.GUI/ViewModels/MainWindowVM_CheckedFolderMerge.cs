@@ -157,7 +157,7 @@ namespace VDF.GUI.ViewModels {
             resultsFolderStatsCache = null;
             resultsFolderMatchCountsCache = null;
             lastCompletedPathFilter = null;
-            ResetGroupQualityAnalysis();
+            ResetGroupWatermarkAnalysis();
             RequestFilterResultsRefresh();
             RefreshResultsView();
             RefreshGroupStatsFast();
