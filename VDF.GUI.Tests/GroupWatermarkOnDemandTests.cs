@@ -87,6 +87,35 @@ public sealed class GroupWatermarkOnDemandTests {
     }
 
     [Fact]
+    public void SemiTransparentCentralWatermark_IsLocalizedBeyondCorners() {
+        var clean = Background();
+        var marked = AddFixedLogo(clean, 133, 139, 62, 39, 0.43);
+        var report = GroupWatermarkOnDemand.Analyze([
+            Sample("without", clean), Sample("center-marked", marked)
+        ]);
+        var markedCopy = Assert.Single(report.Findings);
+        Assert.Equal("center-marked", markedCopy.Path);
+        Assert.Contains(markedCopy.Regions, r => r.Position == "中央");
+    }
+
+    [Fact]
+    public void FindingsRemainVisible_WhenDifferentAudioPreventsBestPenalty() {
+        var item = new DuplicateItemVM {
+            ItemInfo = new VDF.Core.ViewModels.DuplicateItem { Path = "example.mp4" }
+        };
+        var evidence = new WatermarkFinding("example.mp4",
+            [new WatermarkRegion("右上", 248, 16, 48, 32, 6, 1)]);
+        try {
+            GroupWatermarkOnDemand.SetFinding(item, evidence, canAffectBest: false);
+            Assert.Same(evidence, GroupWatermarkOnDemand.Finding(item));
+            Assert.Equal(0, GroupWatermarkOnDemand.Penalty(item));
+        }
+        finally {
+            GroupWatermarkOnDemand.RemoveFinding(item);
+        }
+    }
+
+    [Fact]
     public void SameWatermarkInBothVersions_IsNotEvidenceOfAnExtraWatermark() {
         var logo = AddFixedLogo(Background(), 246, 23);
         var report = GroupWatermarkOnDemand.Analyze([
