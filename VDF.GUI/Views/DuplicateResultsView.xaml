@@ -602,9 +602,9 @@
                   Content="{Binding IsCollapsed, Converter={StaticResource ChevronConverter}}" />
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="4">
                 <Button Classes="group-action"
-                    Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).AnalyzeGroupQualityCommand}"
-                    CommandParameter="{Binding}" Content="检测画质"
-                    ToolTip.Tip="按需读取本组视频的四个时间点分析画质；检测中再次点击可取消。不会自动勾选、移动或删除文件。" />
+                    Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).AnalyzeGroupWatermarkCommand}"
+                    CommandParameter="{Binding}" Content="检测水印"
+                    ToolTip.Tip="仅对当前组 2–8 个视频各抽取 8 帧彩色画面，定位疑似额外固定水印/角标并比较数量；再次点击可取消。不自动勾选或删除。" />
                 <Button
                     Classes="group-action"
                     Command="{Binding $parent[UserControl].((vm:MainWindowVM)DataContext).CompareGroupHeaderCommand}"
@@ -636,9 +636,9 @@
                 <TextBlock FontSize="11" VerticalAlignment="Center" MaxWidth="270"
                            TextTrimming="CharacterEllipsis"
                            Foreground="{DynamicResource VdfWarnBrush}"
-                           Text="{Binding QualityStatusText}"
-                           ToolTip.Tip="画质检测只对当前组按需运行；灰度抽样无法判断音质、全部帧或证明文件来源。"
-                           IsVisible="{Binding QualityStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+                           Text="{Binding WatermarkStatusText}"
+                           ToolTip.Tip="机器只比较不同副本之间的额外固定覆盖；共有水印、移动水印、字幕或 HUD 可能无法确定。"
+                           IsVisible="{Binding WatermarkStatusText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
                 <TextBlock FontSize="11" Opacity="0.6" VerticalAlignment="Center" Text="{Binding SimilarityRangeDisplay}" />
                 <Border Classes="simchip" Padding="5,0" CornerRadius="3" VerticalAlignment="Center"
                         IsVisible="{Binding HasByteIdenticalMatches}"
