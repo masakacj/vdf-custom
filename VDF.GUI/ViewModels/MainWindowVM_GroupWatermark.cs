@@ -145,7 +145,11 @@ namespace VDF.GUI.ViewModels {
                 foreach (var item in members)
                     if (byPath.TryGetValue(item.ItemInfo.Path, out WatermarkFinding? finding))
                         GroupWatermarkOnDemand.SetFinding(item, finding, canAffectBest: canRerank);
-                string summary = report.Summary +
+                string perCopy = report.Findings.Count == 0 ? "" :
+                    " · " + string.Join("；", report.Findings
+                        .OrderByDescending(f => f.RegionCount)
+                        .Select(f => $"{Path.GetFileName(f.Path)} 疑似+{f.RegionCount}处"));
+                string summary = report.Summary + perCopy +
                     (canRerank ? " · 仅辅助 BEST（仍需复核）" : " · 视频参数不一致，不影响 BEST");
                 if (report.SkippedPairs > 0)
                     summary += $" · {report.SkippedPairs} 对无法可靠对齐";
