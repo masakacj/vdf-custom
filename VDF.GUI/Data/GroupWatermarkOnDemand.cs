@@ -65,15 +65,19 @@ namespace VDF.GUI.Data {
         static readonly double[] SampleFractions =
             [0.08, 0.19, 0.30, 0.41, 0.54, 0.65, 0.77, 0.89];
 
-        static ConditionalWeakTable<DuplicateItemVM, WatermarkFinding> findings = new();
+        internal sealed record StoredFinding(WatermarkFinding Finding, bool CanAffectBest);
+        static ConditionalWeakTable<DuplicateItemVM, StoredFinding> findings = new();
         internal static bool HasFindings { get; private set; }
         internal static WatermarkFinding? Finding(DuplicateItemVM item) =>
-            findings.TryGetValue(item, out WatermarkFinding? result) ? result : null;
-        internal static int Penalty(DuplicateItemVM item) => Finding(item)?.Penalty ?? 0;
-        internal static void SetFinding(DuplicateItemVM item, WatermarkFinding finding) {
+            findings.TryGetValue(item, out StoredFinding? result) ? result.Finding : null;
+        internal static int Penalty(DuplicateItemVM item) =>
+            findings.TryGetValue(item, out StoredFinding? result) && result.CanAffectBest
+                ? result.Finding.Penalty : 0;
+        internal static void SetFinding(DuplicateItemVM item, WatermarkFinding finding,
+            bool canAffectBest = true) {
             findings.Remove(item);
-            findings.Add(item, finding);
-            HasFindings = true;
+            findings.Add(item, new StoredFinding(finding, canAffectBest));
+            if (canAffectBest) HasFindings = true;
         }
         internal static void RemoveFinding(DuplicateItemVM item) => findings.Remove(item);
         internal static void ClearForNewResults() {

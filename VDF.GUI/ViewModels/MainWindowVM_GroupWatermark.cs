@@ -140,10 +140,11 @@ namespace VDF.GUI.ViewModels {
                 foreach (var item in members) GroupWatermarkOnDemand.RemoveFinding(item);
                 var byPath = report.Findings.ToDictionary(f => f.Path,
                     OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
-                if (canRerank)
-                    foreach (var item in members)
-                        if (byPath.TryGetValue(item.ItemInfo.Path, out WatermarkFinding? finding))
-                            GroupWatermarkOnDemand.SetFinding(item, finding);
+                // Always show findings in the member's detail view, regardless of
+                // audio/FPS/HDR differences. Only the BEST penalty is gated.
+                foreach (var item in members)
+                    if (byPath.TryGetValue(item.ItemInfo.Path, out WatermarkFinding? finding))
+                        GroupWatermarkOnDemand.SetFinding(item, finding, canAffectBest: canRerank);
                 string summary = report.Summary +
                     (canRerank ? " · 仅辅助 BEST（仍需复核）" : " · 视频参数不一致，不影响 BEST");
                 if (report.SkippedPairs > 0)
