@@ -140,8 +140,8 @@ namespace VDF.GUI.ViewModels {
 				return App.Lang["Results.Row.BestTipTied"];
 			if (decidedBy.Name == LightweightQualityDiagnostics.QualityCriterionName)
 				return "BEST：轻量画质诊断优先避开了疑似二次转码/放大或固定水印版本。该判断仅用于保留建议，不会自动删除文件。";
-			if (decidedBy.Name == "On-demand group quality")
-				return "推荐 BEST：手动组内取帧分析提示另一副本疑似体积膨胀/画质下降；不代表来源可靠，仍需人工核对，绝不自动删除。";
+			if (decidedBy.Name == "On-demand group watermark")
+				return "推荐 BEST：组内彩色帧机器对比提示另一副本疑似多出固定水印/角标；不代表来源可靠，仍需人工核对，绝不自动删除。";
 			return string.Format(App.Lang["Results.Row.BestTip"], App.Lang[$"QualityCriteria.{decidedBy.Name}"]);
 		}
 
@@ -173,7 +173,7 @@ namespace VDF.GUI.ViewModels {
 				Formats = BuildGroupSummaryFormats(),
 			});
 			ApplyFolderStats(result.Groups);
-			RestoreGroupQualityStatuses(result.Groups);
+			RestoreGroupWatermarkStatuses(result.Groups);
 			// Preserve ResultsItemRow identity before any presentation-specific grouping
 			// consumes the canonical rows. This lets the virtualized ListBox retain realized
 			// file containers through ordinary selection/BEST/status refreshes.
@@ -268,7 +268,7 @@ namespace VDF.GUI.ViewModels {
 		}
 
 		void BuildActiveResultsView(bool resetSessionStats = true) {
-			ResetGroupQualityAnalysis();
+			ResetGroupWatermarkAnalysis();
 			resultsFolderStatsCache = null;
 			resultsFolderMatchCountsCache = null;
 			RunLightweightQualityDiagnostics();
