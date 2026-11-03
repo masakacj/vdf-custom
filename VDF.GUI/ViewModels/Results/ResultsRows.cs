@@ -180,9 +180,6 @@ namespace VDF.GUI.ViewModels {
 			Row = row;
 			var culture = CultureInfo.CurrentCulture;
 			VideoText = Data.ResultsBadgeRules.BuildVideoLine(row.Item.ItemInfo, culture);
-			string warning = Data.LightweightQualityDiagnostics.WarningText(row.Item);
-			if (warning.Length > 0)
-				VideoText = VideoText.Length == 0 ? warning : VideoText + " · " + warning;
 			var manualFinding = Data.GroupWatermarkOnDemand.Finding(row.Item);
 			if (manualFinding != null)
 				VideoText += " · ⚠ 水印检测：" + manualFinding.Reason + "（仍需人工复核）";

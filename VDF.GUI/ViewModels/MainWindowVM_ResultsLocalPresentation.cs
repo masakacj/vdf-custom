@@ -78,9 +78,6 @@ namespace VDF.GUI.ViewModels {
 
 			freshHeader.GroupNumber = oldHeader.GroupNumber;
 			freshHeader.Title = oldHeader.Title;
-			string warning = BuildLightweightQualityGroupSummary(freshHeader);
-			if (warning.Length > 0)
-				freshHeader.Summary += " · " + warning;
 
 			int start = -1;
 			for (int i = 0; i < ResultsRows.Count; i++) {

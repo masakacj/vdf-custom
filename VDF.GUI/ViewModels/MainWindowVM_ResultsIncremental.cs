@@ -158,9 +158,6 @@ namespace VDF.GUI.ViewModels {
 				group.GroupNumber = oldDirtyGroups.TryGetValue(group.GroupId, out ResultsGroupHeader? oldGroup)
 					? oldGroup.GroupNumber
 					: int.MaxValue;
-				string warning = BuildLightweightQualityGroupSummary(group);
-				if (warning.Length > 0)
-					group.Summary += " · " + warning;
 			}
 
 			var merged = resultsGroups.Where(group => !dirtyIds.Contains(group.GroupId)).ToList();

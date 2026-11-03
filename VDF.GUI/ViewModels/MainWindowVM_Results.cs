@@ -138,8 +138,6 @@ namespace VDF.GUI.ViewModels {
 		internal static string BestBadgeTooltip(VDF.Core.Utils.QualityRanker.Criterion<DuplicateItemVM>? decidedBy) {
 			if (decidedBy == null)
 				return App.Lang["Results.Row.BestTipTied"];
-			if (decidedBy.Name == LightweightQualityDiagnostics.QualityCriterionName)
-				return "BEST：轻量画质诊断优先避开了疑似二次转码/放大或固定水印版本。该判断仅用于保留建议，不会自动删除文件。";
 			if (decidedBy.Name == "On-demand group watermark")
 				return "推荐 BEST：组内彩色帧机器对比提示另一副本疑似多出固定水印/角标；不代表来源可靠，仍需人工核对，绝不自动删除。";
 			return string.Format(App.Lang["Results.Row.BestTip"], App.Lang[$"QualityCriteria.{decidedBy.Name}"]);
@@ -181,13 +179,7 @@ namespace VDF.GUI.ViewModels {
 			resultsGroups = result.Groups;
 			resultsHavePartialClips = result.HasPartialClips;
 
-			foreach (var group in resultsGroups) {
-				string warning = BuildLightweightQualityGroupSummary(group);
-				if (warning.Length > 0)
-					group.Summary += " · " + warning;
-			}
-
-			var displayRows = new List<object>();
+ 			var displayRows = new List<object>();
 
 			if (ActiveResultsDisplayMode == ResultsDisplayMode.ResourceConsolidation) {
 				var options = BuildResourceCoverageOptions(result.Groups);
@@ -298,8 +290,6 @@ namespace VDF.GUI.ViewModels {
 			if (item == null) return;
 			if (ApplicationHelpers.MainWindow.Clipboard is { } clipboard) {
 				string text = ResultsBadgeRules.BuildDetailsText(item.ItemInfo);
-				string warning = LightweightQualityDiagnostics.WarningText(item);
-				if (warning.Length > 0) text += Environment.NewLine + "Quality: " + warning;
 				await clipboard.SetTextAsync(text);
 			}
 		});
