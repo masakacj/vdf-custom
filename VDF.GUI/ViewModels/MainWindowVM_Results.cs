@@ -271,7 +271,8 @@ namespace VDF.GUI.ViewModels {
 			ResetGroupWatermarkAnalysis();
 			resultsFolderStatsCache = null;
 			resultsFolderMatchCountsCache = null;
-			RunLightweightQualityDiagnostics();
+			// Full-library cache-only quality diagnosis was removed from the default
+			// results path. Only an explicit per-group watermark check decodes frames.
 			RebuildResultsList();
 			if (resetSessionStats)
 				TotalSizeRemovedInternal = 0;
